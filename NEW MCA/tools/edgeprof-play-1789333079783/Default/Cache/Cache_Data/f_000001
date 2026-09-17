@@ -1,0 +1,493 @@
+// Canvas 2D renderer. Terrain + fog are pre-rendered to offscreen canvases
+// (terrain once per match, fog on sim ticks) so the per-frame hot loop only
+// iterates entities and culls to the viewport.
+import { CELL, cellOf, structCenter, BUILD_RADIUS, CAPTURE_TICKS } from '../sim/index.js';
+import { shapeForUnit, shapeForStructure, initialsFor, ownerColorOf } from './sprites.js';
+import { screenToWorld } from './camera.js';
+import { resolvePlacement, cellBuildable, nearestBaseStruct } from './placement.js';
+
+const TERRAIN_COLORS = ['#b8a06a', '#4c4c4c', '#274b7a']; // open / rock / water
+const FOG_SEEN_ALPHA = 130;
+
+export function initRenderer(game) {
+  const map = game.state.map;
+  const TS = 16; // terrain offscreen px per cell
+  const terrain = document.createElement('canvas');
+  terrain.width = map.w * TS;
+  terrain.height = map.h * TS;
+  const tc = terrain.getContext('2d');
+  for (let y = 0; y < map.h; y++) {
+    for (let x = 0; x < map.w; x++) {
+      tc.fillStyle = TERRAIN_COLORS[map.terrain[y * map.w + x]];
+      tc.fillRect(x * TS, y * TS, TS, TS);
+    }
+  }
+  tc.fillStyle = '#1a1a1a';
+  for (const o of map.oil) {
+    tc.beginPath();
+    tc.arc(o.x * TS + TS / 2, o.y * TS + TS / 2, TS * 0.7, 0, 7);
+    tc.fill();
+  }
+  const fog = document.createElement('canvas');
+  fog.width = map.w;
+  fog.height = map.h;
+  const fogCtx = fog.getContext('2d');
+  const fogImg = fogCtx.createImageData(map.w, map.h);
+  game.render = { terrain, fog, fogCtx, fogImg, fogTick: -1 };
+}
+
+function updateFogCanvas(game) {
+  const R = game.render;
+  const st = game.state;
+  if (R.fogTick === st.tick) return;
+  R.fogTick = st.tick;
+  const fog = st.fog[game.playerSlot];
+  const px = R.fogImg.data;
+  const n = st.map.w * st.map.h;
+  for (let i = 0; i < n; i++) {
+    const o = i * 4;
+    if (fog.visible[i]) { px[o + 3] = 0; }
+    else if (fog.seen[i]) { px[o + 3] = FOG_SEEN_ALPHA; }
+    else { px[o + 3] = 255; }
+    px[o] = 0; px[o + 1] = 0; px[o + 2] = 0;
+  }
+  R.fogCtx.putImageData(R.fogImg, 0, 0);
+}
+
+function visibleCell(game, wx, wy) {
+  const st = game.state;
+  const cx = cellOf(wx), cy = cellOf(wy);
+  if (cx < 0 || cy < 0 || cx >= st.map.w || cy >= st.map.h) return false;
+  return st.fog[game.playerSlot].visible[cy * st.map.w + cx] === 1;
+}
+
+function seenCell(game, cx, cy) {
+  const st = game.state;
+  return st.fog[game.playerSlot].seen[cy * st.map.w + cx] === 1;
+}
+
+function drawHealthBar(ctx, x, y, w, hp, maxHp) {
+  ctx.fillStyle = '#111';
+  ctx.fillRect(x - w / 2, y, w, 4);
+  const f = hp / maxHp;
+  ctx.fillStyle = f > 0.5 ? '#5c5' : f > 0.25 ? '#dc5' : '#e54';
+  ctx.fillRect(x - w / 2, y, w * f, 4);
+}
+
+// small green '+' while an engineer is repairing this entity
+function drawRepairMark(ctx, x, y, half) {
+  ctx.strokeStyle = '#4caf50';
+  ctx.lineWidth = 2;
+  const ry = y - half - 14;
+  ctx.beginPath();
+  ctx.moveTo(x - 4, ry); ctx.lineTo(x + 4, ry);
+  ctx.moveTo(x, ry - 4); ctx.lineTo(x, ry + 4);
+  ctx.stroke();
+}
+
+function drawBrackets(ctx, x, y, hw, hh) {
+  const L = 6;
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x - hw, y - hh + L); ctx.lineTo(x - hw, y - hh); ctx.lineTo(x - hw + L, y - hh);
+  ctx.moveTo(x + hw - L, y - hh); ctx.lineTo(x + hw, y - hh); ctx.lineTo(x + hw, y - hh + L);
+  ctx.moveTo(x + hw, y + hh - L); ctx.lineTo(x + hw, y + hh); ctx.lineTo(x + hw - L, y + hh);
+  ctx.moveTo(x - hw + L, y + hh); ctx.lineTo(x - hw, y + hh); ctx.lineTo(x - hw, y + hh - L);
+  ctx.stroke();
+}
+
+function traceShape(ctx, shape, x, y, r) {
+  ctx.beginPath();
+  if (shape === 'circle') {
+    ctx.arc(x, y, r, 0, 7);
+  } else if (shape === 'square') {
+    ctx.rect(x - r, y - r, r * 2, r * 2);
+  } else if (shape === 'triangle') {
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y + r);
+    ctx.lineTo(x - r, y + r);
+    ctx.closePath();
+  } else { // diamond (naval)
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r, y);
+    ctx.closePath();
+  }
+}
+
+// structure silhouettes, inscribed in the footprint square (half = half-size)
+function traceStructShape(ctx, shape, x, y, h) {
+  ctx.beginPath();
+  switch (shape) {
+    case 'octagon': {
+      const k = h * 0.414; // regular octagon inset
+      ctx.moveTo(x - h + k, y - h); ctx.lineTo(x + h - k, y - h);
+      ctx.lineTo(x + h, y - h + k); ctx.lineTo(x + h, y + h - k);
+      ctx.lineTo(x + h - k, y + h); ctx.lineTo(x - h + k, y + h);
+      ctx.lineTo(x - h, y + h - k); ctx.lineTo(x - h, y - h + k);
+      ctx.closePath();
+      break;
+    }
+    case 'hexagon':
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 6 + i * Math.PI / 3;
+        const px = x + h * Math.cos(a), py = y + h * Math.sin(a);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      break;
+    case 'barrel': // upright capsule
+      ctx.ellipse(x, y, h * 0.6, h * 0.9, 0, 0, 7);
+      break;
+    case 'chevron': // rectangle with a V-notch on the south edge
+      ctx.moveTo(x - h, y - h); ctx.lineTo(x + h, y - h);
+      ctx.lineTo(x + h, y + h); ctx.lineTo(x, y + h * 0.35);
+      ctx.lineTo(x - h, y + h);
+      ctx.closePath();
+      break;
+    case 'runway': // tower block with a triangle nose pointing north
+      ctx.moveTo(x, y - h);
+      ctx.lineTo(x + h * 0.7, y - h * 0.25); ctx.lineTo(x + h * 0.7, y + h);
+      ctx.lineTo(x - h * 0.7, y + h); ctx.lineTo(x - h * 0.7, y - h * 0.25);
+      ctx.closePath();
+      break;
+    case 'dock': // diamond with a flat south edge
+      ctx.moveTo(x, y - h); ctx.lineTo(x + h, y);
+      ctx.lineTo(x + h * 0.55, y + h * 0.6); ctx.lineTo(x - h * 0.55, y + h * 0.6);
+      ctx.lineTo(x - h, y);
+      ctx.closePath();
+      break;
+    case 'diamond': // tall kite (tech)
+      ctx.moveTo(x, y - h); ctx.lineTo(x + h * 0.65, y);
+      ctx.lineTo(x, y + h); ctx.lineTo(x - h * 0.65, y);
+      ctx.closePath();
+      break;
+    case 'bunker': // low trapezoid
+      ctx.moveTo(x - h, y + h * 0.55); ctx.lineTo(x + h, y + h * 0.55);
+      ctx.lineTo(x + h * 0.6, y - h * 0.55); ctx.lineTo(x - h * 0.6, y - h * 0.55);
+      ctx.closePath();
+      break;
+    case 'spike': // triangle pointing north
+      ctx.moveTo(x, y - h);
+      ctx.lineTo(x + h * 0.8, y + h * 0.7); ctx.lineTo(x - h * 0.8, y + h * 0.7);
+      ctx.closePath();
+      break;
+    case 'radar': // dish: circle + one radial tick
+      ctx.arc(x, y, h * 0.75, 0, 7);
+      ctx.moveTo(x, y); ctx.lineTo(x, y - h * 0.75);
+      break;
+    case 'star': case 'star-sw': { // 4-point star
+      for (let i = 0; i < 8; i++) {
+        const a = -Math.PI / 2 + i * Math.PI / 4;
+        const rr = i % 2 === 0 ? h : h * 0.42;
+        const px = x + rr * Math.cos(a), py = y + rr * Math.sin(a);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      break;
+    }
+    default: // rect
+      ctx.rect(x - h, y - h, h * 2, h * 2);
+  }
+}
+
+// subtle class tint so infantry / AA / arty / engineers parse at a glance
+function unitOutline(def) {
+  const c = def.cls;
+  if (c === 'AA infantry' || c === 'Mobile AA' || c === 'SAM') return '#7fd4ff';
+  if (c === 'SPG' || c === 'MLRS') return '#ffb46a';
+  if (c === 'Engineer') return '#8aff8a';
+  return '#111';
+}
+
+export function renderFrame(game) {
+  const st = game.state;
+  const cam = game.camera;
+  const ctx = game.ctx;
+  if (!st || !game.render) return;
+  const dpr = game.dpr || 1;
+  if (game.canvas.width !== Math.round(cam.viewW * dpr)
+    || game.canvas.height !== Math.round(cam.viewH * dpr)) {
+    cam.viewW = game.canvas.width / dpr; cam.viewH = game.canvas.height / dpr;
+  }
+  updateFogCanvas(game);
+
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, cam.viewW, cam.viewH);
+  ctx.setTransform(cam.zoom * dpr, 0, 0, cam.zoom * dpr,
+    -cam.x * cam.zoom * dpr, -cam.y * cam.zoom * dpr);
+
+  const worldW = st.map.w * CELL;
+  const worldH = st.map.h * CELL;
+  ctx.drawImage(game.render.terrain, 0, 0, worldW, worldH);
+
+  // viewport cull rect in world coords
+  const vx0 = cam.x - 80, vy0 = cam.y - 80;
+  const vx1 = cam.x + cam.viewW / cam.zoom + 80;
+  const vy1 = cam.y + cam.viewH / cam.zoom + 80;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  const selected = game.selection;
+
+  // engineers channeling a capture: structure id -> progress fraction
+  const capBars = {};
+  for (const id in st.units) {
+    const u = st.units[id];
+    if (u.capTicks > 0 && u.capTargetId) {
+      capBars[u.capTargetId] = u.capTicks / CAPTURE_TICKS;
+    }
+  }
+
+  // structures
+  for (const id in st.structures) {
+    const s = st.structures[id];
+    const px = (s.cx + s.fp / 2) * CELL;
+    const py = (s.cy + s.fp / 2) * CELL;
+    if (px < vx0 || px > vx1 || py < vy0 || py > vy1) continue;
+    const own = s.owner === game.playerSlot;
+    if (!own && !seenCell(game, s.cx, s.cy)) continue;
+    const dim = !own && !visibleCell(game, px, py);
+    ctx.globalAlpha = dim ? 0.45 : 1;
+    const def = st.structDefs[s.defId];
+    const half = s.fp * CELL / 2 - 3;
+    const shape = shapeForStructure(def);
+    ctx.fillStyle = ownerColorOf(st, s.owner);
+    traceStructShape(ctx, shape, px, py, half);
+    ctx.fill();
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    if (shape === 'star-sw') {
+      // inner square; pulses while the superweapon is charged
+      const p = st.players[s.owner];
+      const ready = p && p.swChargeTicks === 0;
+      ctx.strokeStyle = ready ? '#ffe9a0' : '#111';
+      ctx.lineWidth = ready ? 1.5 + Math.sin(st.tick * 0.7) : 1.5;
+      const ih = half * 0.35;
+      ctx.strokeRect(px - ih, py - ih, ih * 2, ih * 2);
+    }
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px monospace';
+    ctx.fillText(initialsFor(def.name), px, py);
+    if (s.hp < s.maxHp) drawHealthBar(ctx, px, py - half - 8, half * 2, s.hp, s.maxHp);
+    if (capBars[s.id] !== undefined) {
+      // thin gold capture-progress bar above the health bar
+      const frac = capBars[s.id];
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(px - half, py - half - 14, half * 2, 4);
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillRect(px - half, py - half - 14, half * 2 * frac, 4);
+    }
+    if (own && st.tick - (s.lastRepairTick || -99) <= 10) drawRepairMark(ctx, px, py, half);
+    if (selected.includes(s.id)) drawBrackets(ctx, px, py, half + 4, half + 4);
+    ctx.globalAlpha = 1;
+  }
+
+  // units
+  for (const id in st.units) {
+    const u = st.units[id];
+    if (u.x < vx0 || u.x > vx1 || u.y < vy0 || u.y > vy1) continue;
+    const own = u.owner === game.playerSlot;
+    if (!own && !visibleCell(game, u.x, u.y)) continue;
+    const def = st.unitDefs[u.defId];
+    const r = def.domain === 'Air' ? 11 : def.domain === 'Sea' ? 11
+      : shapeForUnit(def) === 'circle' ? 7 : 10;
+    ctx.fillStyle = ownerColorOf(st, u.owner);
+    traceShape(ctx, shapeForUnit(def), u.x, u.y, r);
+    ctx.fill();
+    ctx.strokeStyle = unitOutline(def);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = '9px monospace';
+    ctx.fillText(initialsFor(def.name), u.x, u.y);
+    if (u.rank > 0) {
+      ctx.fillStyle = '#ffd76a';
+      ctx.fillText('*'.repeat(u.rank), u.x, u.y - r - 6);
+    }
+    if (u.hp < u.maxHp) drawHealthBar(ctx, u.x, u.y - r - 4, 24, u.hp, u.maxHp);
+    if (own && st.tick - (u.lastRepairTick || -99) <= 10) drawRepairMark(ctx, u.x, u.y, r);
+    if (selected.includes(u.id)) {
+      drawBrackets(ctx, u.x, u.y, r + 4, r + 4);
+      if (def.rangeWu > 0) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(u.x, u.y, def.rangeWu, 0, 7);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // projectiles (SW / ability class) + hitscan tracers (render-only lines)
+  for (const id in st.projectiles) {
+    const pr = st.projectiles[id];
+    if (pr.x < vx0 || pr.x > vx1 || pr.y < vy0 || pr.y > vy1) continue;
+    if (!visibleCell(game, pr.x, pr.y) && !visibleCell(game, pr.tx, pr.ty)) continue;
+    if (pr.kind === 'tracer' || pr.kind === 'telegraph') {
+      const a = Math.max(0.2, pr.ticksLeft / pr.total);
+      ctx.strokeStyle = pr.kind === 'telegraph' ? 'rgba(255,215,106,' + a + ')'
+        : ownerColorOf(st, pr.owner);
+      ctx.globalAlpha = a;
+      ctx.lineWidth = pr.kind === 'telegraph' ? 3 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(pr.sx, pr.sy);
+      ctx.lineTo(pr.tx, pr.ty);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      continue;
+    }
+    ctx.fillStyle = '#ffe9a0';
+    ctx.beginPath();
+    ctx.arc(pr.x, pr.y, 4, 0, 7);
+    ctx.fill();
+  }
+
+  // rally lines/flags for selected production structures (sim-side rally)
+  if (st.rally) {
+    for (const id of game.selection) {
+      const s = st.structures[id];
+      const r = s && st.rally[s.id];
+      if (!r) continue;
+      const c = structCenter(s);
+      ctx.strokeStyle = 'rgba(120,220,140,0.7)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(c.x, c.y);
+      ctx.lineTo(r.x, r.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // flag
+      ctx.fillStyle = '#5c5';
+      ctx.beginPath();
+      ctx.moveTo(r.x, r.y);
+      ctx.lineTo(r.x, r.y - 16);
+      ctx.lineTo(r.x + 10, r.y - 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#2a2';
+      ctx.beginPath();
+      ctx.moveTo(r.x, r.y);
+      ctx.lineTo(r.x, r.y - 16);
+      ctx.stroke();
+    }
+  }
+
+  // placement ghost: per-cell legality tint, build-radius circle, oil rings
+  if (game.placement && game.mouse.inside) {
+    const def = st.structDefs[game.placement.structId];
+    const w = screenToWorld(cam, game.mouse.sx, game.mouse.sy);
+    const rawCx = Math.floor(w.x / CELL) - (def.fp >> 1);
+    const rawCy = Math.floor(w.y / CELL) - (def.fp >> 1);
+    const spot = resolvePlacement(st, game.playerSlot, def, rawCx, rawCy);
+    const gx = spot ? spot.cx : rawCx;
+    const gy = spot ? spot.cy : rawCy;
+
+    // build-radius circle from the nearest friendly Core/Prod structure
+    const base = nearestBaseStruct(st, game.playerSlot, w.x, w.y);
+    if (base) {
+      const c = structCenter(base);
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, BUILD_RADIUS * CELL, 0, 7);
+      ctx.stroke();
+    }
+
+    // oil depot: ring every oil field
+    if (def.id === 'SH-03') {
+      ctx.strokeStyle = 'rgba(232,200,74,0.8)';
+      ctx.lineWidth = 2;
+      for (const oid in st.oilFields) {
+        const o = st.oilFields[oid];
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, (4 + def.fp / 2) * CELL, 0, 7);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(o.x, o.y, 8, 0, 7);
+        ctx.stroke();
+      }
+    }
+
+    // per-cell tint across the footprint
+    for (let dy = 0; dy < def.fp; dy++) {
+      for (let dx = 0; dx < def.fp; dx++) {
+        const ok = cellBuildable(st, gx + dx, gy + dy);
+        ctx.fillStyle = ok ? 'rgba(76,175,80,0.38)' : 'rgba(229,57,53,0.45)';
+        ctx.fillRect((gx + dx) * CELL + 1, (gy + dy) * CELL + 1, CELL - 2, CELL - 2);
+      }
+    }
+    // outline: silhouette of the building, green when the spot is legal
+    const gpx = (gx + def.fp / 2) * CELL;
+    const gpy = (gy + def.fp / 2) * CELL;
+    const ghalf = def.fp * CELL / 2 - 3;
+    ctx.globalAlpha = 0.9;
+    traceStructShape(ctx, shapeForStructure(def), gpx, gpy, ghalf);
+    ctx.fillStyle = spot ? 'rgba(76,175,80,0.25)' : 'rgba(229,57,53,0.25)';
+    ctx.fill();
+    ctx.strokeStyle = spot ? '#4caf50' : '#e53935';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    // snapped away from the cursor? mark the raw clicked cell
+    if (spot && spot.adjusted) {
+      ctx.strokeStyle = 'rgba(229,57,53,0.7)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rawCx * CELL + 4, rawCy * CELL + 4,
+        def.fp * CELL - 8, def.fp * CELL - 8);
+      ctx.beginPath();
+      ctx.moveTo((rawCx + def.fp / 2) * CELL, (rawCy + def.fp / 2) * CELL);
+      ctx.lineTo((gx + def.fp / 2) * CELL, (gy + def.fp / 2) * CELL);
+      ctx.stroke();
+    }
+  }
+
+  // SW / ability target preview
+  if (game.targeting && game.mouse.inside) {
+    const w = screenToWorld(cam, game.mouse.sx, game.mouse.sy);
+    const radius = (game.targeting.kind === 'sw' ? 5 : 3) * CELL;
+    ctx.strokeStyle = '#ffd76a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(w.x, w.y, radius, 0, 7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(w.x - 10, w.y); ctx.lineTo(w.x + 10, w.y);
+    ctx.moveTo(w.x, w.y - 10); ctx.lineTo(w.x, w.y + 10);
+    ctx.stroke();
+  }
+
+  // attack-move cursor marker
+  if (game.attackMoveArmed && game.mouse.inside) {
+    const w = screenToWorld(cam, game.mouse.sx, game.mouse.sy);
+    ctx.strokeStyle = '#e53935';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(w.x - 10, w.y); ctx.lineTo(w.x + 10, w.y);
+    ctx.moveTo(w.x, w.y - 10); ctx.lineTo(w.x, w.y + 10);
+    ctx.stroke();
+  }
+
+  // fog overlay
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(game.render.fog, 0, 0, worldW, worldH);
+  ctx.imageSmoothingEnabled = true;
+
+  // box-select rect (screen space)
+  if (game.drag && !game.placement && !game.targeting && !game.attackMoveArmed) {
+    const d = game.drag;
+    if (Math.max(Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)) >= 6) {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // drag coords are CSS px
+      ctx.strokeStyle = '#7c7';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1),
+        Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
+    }
+  }
+}

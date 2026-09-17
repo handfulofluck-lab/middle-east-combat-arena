@@ -1,0 +1,7 @@
+tools/.venv/
+tools/__pycache__/
+artwork/
+client/assets/*.json
+dist/MCA.html
+dist/README.html
+tools/qa_report.json

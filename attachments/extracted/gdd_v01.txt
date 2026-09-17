@@ -1,0 +1,801 @@
+
+WORKING TITLE
+ASH-SHARQ
+الشرق
+DESERT COMMAND
+A modern real-time strategy war game in the spirit of Red Alert 3Arabic armies · published inventories · dialect voice acting · online multiplayer
+GAME DESIGN DOCUMENT  ·  v0.1  ·  PLAYABLE PITCH FOR DEVELOPMENT
+Prepared for the development team  ·  August 2026Classification: Internal / Shareable with contractors under NDA
+This document is the starting bible. It is written so a small studio or contractor team can open it and begin pre-production: art bible, unit list, economy, modes, campaign beats, and a voice-acting slang pack including adult (18+) military profanity per dialect. Numbers are stylized for game balance, then anchored to publicly reported inventories so each army feels like itself.
+1. Vision &amp; Elevator Pitch
+Elevator pitch (one sentence): Command an Arab army whose tanks, jets, and curses are the ones that army actually fields — fight the AI or other players across desert, city, and coast in a colorful early-2000s 3D RTS that plays like Red Alert 3 with tighter cameras, better lighting, and a fully Arabic soul.
+What the player feels after 20 minutes: I am not commanding generic ‘Middle East faction #3’. I am Egypt with Abrams and Rafales and Sa‘ka, or Saudi with F-15s and Patriots, or UAE with Leclercs and HIMARS, or Algeria with T-90s and S-400s. When a conscript screams at a burning BMP, he screams in his dialect, and he does not sound like a documentary narrator.
+1.1 Design pillars
+Identity first. Every faction is a real Arab armed force, compressed into a fun RTS kit. Equipment lists start from open-source inventories (IISS-style / public reporting), then get game-balanced.
+RA3 energy, not milsim. Units are readable silhouettes. Abilities are flashy. Superweapons exist. Humour and swagger live in the voice lines. Combat is still deadly.
+Dialect is a system. Voice packs are not one ‘Arabic’ track. Egypt, Gulf, and Maghreb sound like different countries. Adult language is part of the simulation, toggleable.
+Play with anyone. Skirmish vs AI, co-op vs AI, 1v1 through 4v4 versus, spectator. Always-online optional; LAN/offline skirmish must work.
+Readable early-2000s 3D. Think C&amp;C Generals / Red Alert 3 polycounts and colour, with modern PBR-lite lighting, dust, heat haze, and destruction. Not Unreal 5 photoreal. Not voxel. Not 2D.
+1.2 What this is not
+Not a propaganda tool and not a documentary. Campaigns use a fictional 2028–2030 crisis so no living head of state is a character.
+Not a full flight sim or Steel Battalion. Aircraft are RTS aircraft: short sorties, visible, recallable.
+Not 12 factions at launch. Four launch armies. More (Jordan, Morocco, Iraq, Qatar…) as DLC / season pass once the loop is fun.
+Not realistic casualty counts. Units are squads and vehicles, not 440,000-man orders of battle.
+1.3 Comparable products
+Game
+Steal this
+Do not steal this
+Red Alert 3 (2008)
+Co-commander energy, dual abilities, colourful factions, naval+land+air on one map, co-op campaign
+Cartoony anime faction, time travel plot, 3-faction lock
+C&amp;C Generals / ZH (2003)
+Faction fantasy, general powers, salvage/upgrades, desert/urban maps
+GLA terrorism fantasy as a playable ‘Arab’ stand-in
+Company of Heroes 2
+Cover, suppression, readable infantry
+WW2 setting, no base building
+Age of Empires IV / SC2
+Ladder clarity, hotkey discipline, spectator
+Fantasy races / protoss
+WARNO / SD2
+ORBAT flavour
+Hex-level realism, 2-hour matches
+2. Art, Camera &amp; Technical Direction
+2.1 Visual target
+Look target: ‘Red Alert 3 if it shipped in 2012 and had a good lighting artist.’ Units 2–8k triangles. Buildings 3–12k. Maps use large tiled desert/urban kits. Strong colour keys per faction so you never confuse an Egyptian olive drab Abrams with a Saudi desert tan Abrams.
+Egypt: olive + sand + red-black-white flag trim. Nile green UI.
+Saudi: desert tan + green flag and gold. Dark green aircraft.
+UAE: sand + red/black/green/white. Clean EDGE-style grey on elite units.
+Algeria: green-white-red, Russian green armour, desert camo overlays.
+VFX language: dust rooster-tails, heat shimmer, tracer, Kornet/TOW smoke trails, HIMARS arcs, TOS-1 thermobaric bloom (orange-white, short, readable), Patriot/S-300 launch plumes. No grey sludge. Hits must pop.
+2.2 Camera &amp; control
+Classic RTS: free tilt 35–65°, zoom from ‘tabletop army’ to ‘single tank close-up’.
+WASD + edge pan + minimap jump. Control groups 0–9. Classic C&amp;C sidebar + dual-ability bar on selected unit.
+Every unit has ONE active ability (or two fire modes). No 8-button hero kits except named heroes.
+Target platform at launch: PC (Windows). 1080p medium = GTX 1060 / RX 580 class. 1440p high = RTX 3060 class. Later console/cloud is out of scope for v1.
+2.3 Suggested stack (for the developer, not locked)
+Engine: Unreal Engine 5 with Nanite OFF for units (hand-authored LODs) OR Unity HDRP. Prefer Unity if the team is small and 3D RTS tooling already exists. Either works.
+Netcode: lockstep deterministic for competitive 1v1/2v2; dedicated server + rollback-lite for 3v3/4v4 if lockstep desync risk is high. Spectate from replay file.
+Voice: full WAV/OGG banks per faction × language pack. English UI default + full Arabic UI. Voice is always native dialect regardless of UI language.
+Mod hook later: JSON unit stats, not required for v1.
+3. Core Gameplay Loop
+Match length target: 12–25 minutes ladder, 20–40 minutes co-op mission. Best-of style campaign missions 15–30.
+3.1 Economy
+Two resources: CREDITS (harvested from Oil Fields / Supply Docks) and POWER (from plants). A third soft resource: FUEL (affects aircraft sortie time and long-range MLRS; regenerates at depots).
+Oil Field: captureable map resource. Needs a Harvester / Fuel Truck loop. Destroying an enemy field denies income.
+Supply Dock / Port: naval maps have tanker berths.
+No Tiberium. No magic ore crystals. The fantasy is oil, docks, and depots.
+Saudi unique: ‘Aramco Bonus’ — Oil Fields they own generate +15% credits. UAE unique: ‘Sovereign Fund’ — first 8 minutes +10% build speed on elite buildings. Egypt unique: ‘Strategic Depth’ — Construction Yard rebuilds 20% cheaper once. Algeria unique: ‘State Industry’ — War Factory units 8% cheaper.
+3.2 Base building
+Classic MCV → Construction Yard. Buildings place in a radius. Pack/unpack MCV allowed once (anti-turtle but not Empire-of-Rising-Sun free build anywhere).
+Power Plant → Barracks → War Factory → Airfield / Helipad → Naval Yard (water maps) → Tech / Command → Superweapon.
+Defenses: bunker / HMG nest, ATGM tower, AA gun, SAM battery. Faction-flavoured (see matrices).
+Walls exist but are expensive. Desert maps reward manoeuvre over fortress.
+3.3 Unit classes (universal taxonomy)
+Class
+Role
+Soft counter
+Hard counter
+Infantry squad
+Buildings, garrisons, cheap screen
+IFV, flamethrower/TOS, artillery
+Tank in open
+AT infantry
+Tanks
+Artillery, air, sniper
+Light vehicles that close
+AA infantry / MANPADS
+Helicopters, low jets
+Artillery, tanks
+High-altitude / stealth
+IFV / APC
+Transport + anti-infantry
+ATGM, tank
+Pure air if no AA
+MBT
+Frontline
+ATGM, attack helo, air, mines
+Other MBT + air
+Artillery / SPG
+Buildings, blob
+Air, fast raiders
+Nothing if unspotted
+MLRS
+Area, buildings
+Air, counter-battery
+Dispersed units
+Attack helicopter
+Tanks, soft
+MANPADS, SAM, fighters
+Infantry in city if no rockets
+Fighter
+Air superiority, some strike
+SAM, better fighter
+Ground AA umbrella
+Naval
+Map control on water maps
+Air, coastal missile
+Other navy
+Hero / SF
+Raid, pick, story
+Detection + numbers
+Being caught
+Superweapon
+Tempo reset
+Destroy the structure / intercept
+Being late
+3.4 Veterancy
+Three ranks like RA3: Veteran / Elite / Heroic. Damage, then HP, then a small unique perk (e.g. Egyptian Abrams Heroic gets a one-shot canister round). XP from kills and captured buildings.
+3.5 Win conditions
+Standard: destroy Construction Yard + all MCVs, or concession.
+Campaign: scripted objectives (hold the dam, extract the minister, sink the Mistral, etc.).
+Optional ‘Sudden Death’ ladder modifier after 20 minutes: only superweapons and air.
+4. Launch Factions
+Four launch factions. Each has a doctrine sentence, a unique mechanic, a hero, a superweapon, and a kit drawn from published equipment. Quantities in-game are NOT real ORBAT sizes — they are RTS costs.
+Faction
+Doctrine
+Feel in one word
+Signature toys
+Egypt
+Mass + mix. Western tanks, French/Russian jets, Sa‘ka raids, Mistral amphibious punch.
+Depth
+M1A1, Rafale, Ka-52, Mistral, Sa‘ka
+Saudi Arabia
+Air first, quality armour, money. Patriots and F-15s decide the sky.
+Altitude
+M1A2S, Bradley, F-15SA, Patriot, Apache
+UAE
+Elite, precise, expensive. Special forces and rockets, not meat waves.
+Scalpel
+Leclerc, Rabdan, HIMARS, F-16 Block 60, Apache
+Algeria
+Russian heavy metal. T-90 wall, S-400 bubble, TOS-1 and Smerch.
+Weight
+T-90SA, BMP-2, Su-30MKA, S-400, TOS-1A
+NOTE: Inventories below are DESIGN ANCHORS from open sources (GlobalMilitary, IISS-style reporting, national announcements 2024–2026). They will be wrong in places; that is fine. The rule is: do not give Egypt an F-35 or Algeria an Abrams. Do not invent magic lasers. If we need a unique unit, reskin a real platform (Egyptian ‘Ramses’ upgrade package, UAE EDGE munition, Algerian BMPT).
+4.1 Egypt — القوات المسلحة المصرية
+Doctrine: The largest conventional Arab army. Mixed logistics is a flavour, not a punishment. Player gets a toolkit that can do everything at ‘good’ rather than one thing at ‘best’. Urban and river maps are their home.
+Unique mechanic — SA‘KA INSERTION: once the Special Forces Tent is up, the player can call a helicopter-borne Sa‘ka squad onto any explored ground in a 15-second channel (interruptible). Cooldown 90s. This is Egypt’s raid tool.
+Hero — COLONEL TAREK ‘EL-NISR’ FAHMY: Sa‘ka officer. Cloak when still. Can mark a vehicle for +30% damage from all Egyptian AT for 8 seconds. Voice: gravel Cairene, dark humour.
+Superweapon — OCTOBER STRIKE: a mixed package (Rafale + F-16 + one ballistic-style conventional strike on a large radius). Long charge. Interceptable by high-tier SAM if the player invested.
+Ultimate (late) — MISTRAL OVER THE BEACH: on water-capable maps, a scripted helicopter-carrier arrival that drops two waves of vehicles. On land maps it becomes a heavy airlift of two MBTs + IFVs.
+Egypt structures
+Structure
+Unlocks / function
+MCV / Construction Yard
+Base. Packs once.
+Power Plant (gas turbine)
+Power. Can upgrade to combined-cycle.
+Oil Depot
+Accepts harvester drops. Drop-off.
+Barracks
+Infantry + engineer + Sa‘ka.
+War Factory
+Tanks, IFV, SPG, MLRS.
+Air Defense Command
+SAM site + radar. Required for advanced AA.
+Airbase
+Fighters, attack helos, AWACS-lite (vision pulse).
+Naval Yard
+Type-209 flavour sub (stealth scout + torpedo), FREMM-style frigate, missile boat.
+Sa‘ka Tent
+Hero + insertion ability.
+October Battery (SW)
+Superweapon.
+Egypt units (v1 roster — keep tight)
+Unit
+Real anchor
+Role / ability
+Rifle squad (mech infantry)
+Standard EAF infantry
+Garrison. Ability: smoke grenade.
+Kornet team
+9M133 Kornet
+AT. Ability: top-attack mode (slow, high dmg).
+Igla/Stinger team
+Igla-S / Stinger mix
+MANPADS. Ability: flare decoy (self).
+Engineer
+—
+Capture / repair. Unarmed.
+Sa‘ka operator
+El-Sa‘ka
+SF. Stealth near rocks/buildings. C4 on buildings.
+YPR-765 / BMP-1
+YPR-765, BMP-1
+IFV. Carries 1 squad. 25mm + ATGM.
+Fahd / BTR
+Fahd APC
+Cheap wheeled transport + HMG.
+M60A3
+M60A3
+Budget tank. Fast to roll. Weak vs modern AT.
+M1A1 SA ‘Ramses’
+M1A1 Abrams locally assembled
+Main tank. Ability: canister / MPAT switch.
+T-90MS (limited)
+Reported T-90MS buys
+Tier-3 tank. Fewer, tougher. Do not spam.
+M109 / K9 Thunder
+M109, K9
+155mm SPG. Ability: shoot-and-scoot.
+BM-21 Grad
+BM-21
+Cheap MLRS. Inaccurate, terrifying vs blobs.
+AH-64D Apache
+Apache
+AT helo. Hellfire. Ability: pop-up from nap-of-earth.
+Ka-52 Alligator
+Ka-52
+Heavier helo. Vikhr. Better vs armour, worse vs MANPADS.
+F-16C
+F-16 backbone
+Multirole. Ability: switch A2A / A2G loadout on airfield.
+Rafale
+Rafale DM/EM
+Premium fighter-bomber. MICA + SCALP-flavour cruise (long CD).
+MiG-29M
+MiG-29M/M2
+Dogfighter. Cheap air superiority.
+Missile boat
+EAF FAC
+Anti-ship + shore fire.
+FREMM-style frigate
+FREMM / MEKO flavour
+AA umbrella at sea + Exocet.
+Type-209 flavour sub
+Type 209/1400
+Invisible scout on water. Torpedo. Detected by sonar buildings.
+4.2 Saudi Arabia — القوات البرية الملكية / RSAF
+Doctrine: Pay more, get better. Fewer tanks than Egypt, better air force, layered Patriot/Hawk flavour AA. Economy leans on oil. Open desert maps are their home. They punish players who skip AA.
+Unique mechanic — RSAF TASKING: instead of building every aircraft at the airfield, the player spends a ‘sortie point’ (regenerates) to call an F-15 strike or Typhoon CAP from off-map. Visible inbound. Can be intercepted. This keeps the sky feeling like a kingdom-scale air force without parking 20 jets on a pad.
+Hero — PRINCE BANDAR CALLSIGN ‘SAQR’: F-15SA ace that can land and become a (vulnerable) ground hero or stay in air. Air mode is a strong fighter. Ground mode is a laser-designator that buffs incoming RSAF strikes.
+Superweapon — GREEN CRESCENT: a large Patriot-supported stand-off strike (F-15SA + Storm Shadow-flavour / long-range). Alternative late-game: DF-3 conventional variant as a theatre ballistic that can be shot down by THAAD-equivalent (UAE) or S-400 (Algeria).
+Saudi units (v1)
+Unit
+Real anchor
+Role / ability
+National Guard infantry
+SANG flavour
+Better than basic rifle, worse than SF. Ability: mount/dismount technical.
+TOW team
+TOW-2A
+AT. Wire-guided — player can steer for 2 seconds.
+Avenger / MANPADS
+Avenger, Stinger
+Mobile AA humvee.
+M2A2 Bradley
+Bradley
+Best IFV in the game vs infantry + light armour. TOW.
+M113
+M113
+Cheap metal box. Upgrade: extra armour.
+M-ATV
+Oshkosh M-ATV
+Fast desert raid, HMG or ATGM variant.
+M60A3
+M60A3
+Reserve tank.
+M1A2S Abrams
+M1A2S
+Best Western tank in the game. Ability: blow-out panel (survives one pen as ‘crit disabled’ instead of death).
+CAESAR 155
+CAESAR
+Truck SPG. Fast reposition.
+M109
+M109
+Classic SPG.
+M270 MLRS
+M270
+Precision-ish rockets. Better than Grad, worse area than Smerch.
+AH-64E Apache
+Apache E
+Best AT helo. Ability: Longbow radar reveal in a cone.
+UH-60 Black Hawk
+UH-60
+Transport + door guns.
+F-15SA / F-15EX flavour
+F-15SA, planned EX
+King of the air. Ability: heavy A2G or air superiority.
+Eurofighter Typhoon
+Typhoon
+Agile fighter, weaker payload than F-15.
+Tornado IDS (aging)
+Tornado
+Cheap strike jet. Do not win dogfights.
+E-3 Sentry pulse
+E-3A
+Support power: large reveal + detect stealth for 12s. Not a unit you micro.
+Patriot battery
+PAC-2/PAC-3
+Structure + mobile launcher unit. Best mid-high AA.
+4.3 United Arab Emirates — القوات المسلحة الإماراتية
+Doctrine: Small, rich, professional. Every unit costs more and dies less often if microed. Presidential Guard and EDGE munitions are the fantasy. They win by not taking stupid fights and by deleting a Construction Yard with HIMARS before the blob arrives.
+Unique mechanic — EDGE NETWORK: elite units (Leclerc, F-16E, HIMARS, SF) share vision when within 18 range of each other. Killing one does not break the rest. Encourages combined-arms packets, not deathballs.
+Hero — MAJOR LAYLA AL-MANSOURI ‘WIDGEON’: Presidential Guard operator. Female hero (representation + distinct silhouette). Javelin + short cloak + can call a single precision glide bomb. Voice: calm Gulf Arabic, cuts to sharp when angry.
+Superweapon — DESERT FALCON: HIMARS + F-16 Block 60 coordinated strike on a small radius but with building-delete damage. Late: THAAD shot that can intercept enemy superweapons in flight.
+UAE units (v1)
+Unit
+Real anchor
+Role / ability
+Presidential Guard squad
+Presidential Guard
+Best infantry. Expensive. Ability: breach charge.
+Javelin team
+FGM-148
+Fire-and-forget AT. Best infantry AT vs tanks.
+Nimr Ajban / Jais
+NIMR family
+Fast desert 4x4. HMG or Kornet.
+BMP-3
+BMP-3
+Heavy IFV. 100mm + 30mm. Scary vs infantry.
+Rabdan 8x8
+Al Jasoor Rabdan
+Modern wheeled IFV. Ability: smoke + dismount.
+Leclerc
+Leclerc (354 in inventory)
+Fast MBT. Best mobility of the four MBTs. Ability: autoloader burst (3 quick shots, then long reload).
+G6 Rhino
+G6 155
+Wheeled heavy SPG.
+HIMARS
+M142
+Precision MLRS. The UAE identity unit. Ability: ATACMS-flavour long shot (1 rocket, huge range, long CD).
+K239 Chunmoo (few)
+Chunmoo
+Alternate MLRS, more area.
+AH-64 Apache
+Apache
+AT helo.
+CH-47 Chinook
+Chinook
+Heavy lift. Can carry a vehicle.
+F-16E Block 60
+F-16E/F Desert Falcon
+Best-in-class multirole for the price. Conformal tanks = longer station time.
+Mirage 2000-9
+Mirage 2000-9
+Aging but cheap strike / interceptor.
+Rafale (late unlock)
+80 on order flavour
+Tier-3 jet. Do not give at game start.
+Baynunah-style corvette
+Baynunah
+Navy. Anti-ship + modest AA.
+4.4 Algeria — الجيش الوطني الشعبي
+Doctrine: The Russian catalogue with North African terrain sense. Heaviest ground game. Best integrated air defense. Worst early air force until Su-30s are out. Mountain and high-desert maps are their home. They want you to walk into the S-400 bubble.
+Unique mechanic — INTEGRATED SKY: SAM units and fighters share a ‘track’ — a jet painted by a Pantsir or S-400 takes +20% incoming missile damage from all Algerian AA for 6 seconds. Rewards AA investment.
+Hero — CAPTAIN YOUCEF ‘DJEBEL’ BENALI: mountain commando. Bonus in elevation. Can plant a radio beacon that lets Smerch / TOS fire one shot into fog of war.
+Superweapon — HELLWIND: TOS-1A + Smerch combined saturation on a large radius. Buildings burn. Infantry in the zone die. Tanks are damaged and suppressed. Late: Iskander-E flavour ballistic, interceptable.
+Algeria units (v1)
+Unit
+Real anchor
+Role / ability
+ANP rifle squad
+ANP infantry
+Cheap, stout. Ability: entrench (immobile, +armor).
+Kornet / Konkurs team
+Kornet, Konkurs
+AT.
+Igla team
+Igla
+MANPADS.
+BMP-2M Kornet
+BMP-2 with Kornet
+Workhorse IFV.
+Fuchs 2
+TPz Fuchs 2 (local)
+Wheeled APC, mine-resistant flavour.
+T-62 / T-72M
+legacy tanks
+Meat shield tanks. Cheap.
+T-90SA
+T-90SA (~600 reported)
+Main tank. Ability: Shtora dazzler (chance to break ATGM lock).
+BMPT-72 Terminator
+BMPT reported
+Tank escort. Eats infantry and ATGM teams. The ‘do not blob infantry’ unit.
+2S1 Gvozdika
+2S1
+Light SPG.
+PLZ-45
+PLZ-45
+155mm SPG.
+BM-21 Grad
+Grad
+Cheap MLRS.
+BM-30 Smerch
+Smerch
+Heavy MLRS. Identity unit.
+TOS-1A Solntsepek
+TOS-1A
+Short-range thermobaric. Horror vs garrison and infantry. Weak vs tanks from front.
+Mi-28NE / Mi-24
+Mi-28, Mi-24
+Attack helo. Less precise than Apache, tougher.
+Su-30MKA
+Su-30MKA
+Main fighter-bomber. Ability: long-range R-77 flavour shot.
+MiG-29
+MiG-29
+Cheap fighter.
+Su-24 / Su-34 flavour
+Su-24, reported Su-34
+Strike. Poor dogfight.
+Su-35 / Su-57 late
+reported deliveries
+Tier-3 air. Locked behind late tech. Do not over-fantasy stealth.
+Pantsir-S1
+Pantsir
+Mobile gun+missile AA. Best vs helos and cruise.
+S-300 / S-400 battery
+S-300PMU2, S-400 reported
+Strategic SAM structure + launchers. Defines the faction.
+Kilo-class flavour sub
+Project 636
+Naval. Club-S land-attack one-shot (long CD).
+5. Balance Philosophy (for the designer on the team)
+Rock-paper-scissors must be teachable in one skirmish: tanks beat infantry in open, ATGM beat tanks if they see them, artillery beats ATGM if they are spotted, air beats artillery if AA is missing, SAM beats air if the bubble is up.
+Do not make Saudi ‘just better Egypt’. Egypt wins on map control and numbers. Saudi wins on air and quality. UAE wins on timing attacks. Algeria wins on the late wall and the bubble.
+Naval is a mode, not a requirement. 40% of ladder maps have meaningful water. 60% are land.
+No nuclear weapons. Conventional only. Superweapons are scary, not campaign-enders unless the opponent ignored them.
+Women exist in UAE and (optionally) other factions as operators and the UAE hero. Do not make it a lecture. Just cast them.
+Israel, Iran, USA, Russia, France are NOT playable in v1. They can appear as campaign NPCs / off-map support if a mission needs it, never as a third-team stomper that steals the fantasy.
+6. Modes
+6.1 Skirmish vs AI
+Difficulties: Recruit / Officer / Staff / Marshal. Marshal cheats on economy 10% and reacts faster, does not spawn free units.
+AI personalities per faction: Egypt ‘Front’ (attacks on a broad line), Saudi ‘Sky’ (air + artillery), UAE ‘Raid’ (flank + HIMARS), Algeria ‘Fortress’ (turtle then TOS).
+Map settings: resources high/med/low, random crates on/off, superweapons on/off, revealed map on/off.
+6.2 Co-op vs AI
+2–4 humans share a side against 2–4 AI. Shared or separate bases (playlist both).
+Co-op campaign: each story mission supports 2 players with split objectives (one holds the ridge, one hits the port).
+Friendly fire off by default in co-op, on in versus.
+6.3 Versus (online)
+1v1, 2v2, 3v3, 4v4. Ranked 1v1 and 2v2 only at launch.
+Unranked custom: pick maps, modifiers (no air, no SW, sudden death, low power).
+Observers / replay. Chat with mute. Ping system.
+Anti-cheat: server-authoritative commands + replay hash. Keep it simple in v1.
+Regions: EMEA first (the audience). NA/SEA later.
+6.4 Tutorial &amp; Army School
+10-minute boot camp (move, build, counter).
+Faction primers: 1 short mission each that forces you to use the unique mechanic.
+Encyclopaedia: unit vs unit chart, like RA3.
+7. Campaign Script Outline
+Tone: geopolitical pulp, not news. Year 2029. A fictional private military-intelligence network called AL-MIZAN (‘The Balance’) has bought officers, jammed satellites, and staged false-flag attacks to set Arab armies against each other while they seize oil nodes and ports. Each campaign is that army’s version of the same month. Players who finish two campaigns unlock the co-op finale.
+No living politician is named. Presidents and kings are ‘the Command’, ‘the Palace’, ‘the Council’.
+7.1 Structure
+4 campaigns × 7 missions = 28. Plus 1 co-op finale (2 missions).
+Mission types mix: assault, defend, raid, naval landing, city clear, escort, superweapon race.
+Between missions: a simple situation room with a map of North Africa + Arabian Peninsula. Briefing is VO + text. Language: player’s UI language; radio in dialect.
+7.2 Egypt campaign — ‘THE RIVER HOLDS’
+Logline: After a drone swarm hits a Sinai radar and a false recording implicates a Gulf partner, Cairo must secure the Canal, the Delta, and a Red Sea port before Al-Mizan turns the country into a corridor.
+E1 Sinai Glass: tutorial-plus. Hold two passes against militia-flagged armour (Al-Mizan proxies using mixed surplus). Teach Kornet + M60 + one F-16.
+E2 Night on the Canal: defend / repair Suez infrastructure. Naval intro. Missile boats vs dummy freighters that spawn commandos.
+E3 Sa‘ka in the Alleys: urban Cairo-adjacent. Garrison game. Hero intro. No tanks in the old city until the player blows a wall.
+E4 Wings over Beni Suef: airfield attacked. Learn F-16 vs MiG-29M mix vs incoming strike packages.
+E5 Mistral to the Islands: amphibious. Player uses the carrier fantasy to take a Red Sea island used as a missile farm.
+E6 The False Recording: raid Al-Mizan server farm in the desert. Stealth optional. If detected, full conventional.
+E7 October, Again: defend the capital approaches against a coalition-sized proxy assault. Superweapon unlock. Ending: Egypt holds, but Al-Mizan relocates west.
+7.3 Saudi campaign — ‘GREEN BANNER’
+Logline: Oil nodes in the Eastern Province are sabotaged. The sky is full of unexplained drones. Riyadh answers with the thing it bought the most of: aircraft.
+S1 Pump Station 6: defend an oil field. Teach harvester protection + M-ATV reaction.
+S2 Empty Quarter Ghosts: recon in vast desert. Bradley + Apache. Ambush design.
+S3 Patriot Weather: first mass cruise-missile attack. Player must keep Patriot nodes alive. Teach RSAF Tasking.
+S4 The Causeway: land-naval hybrid. Teach frigate + F-15.
+S5 Palace Guard: urban Riyadh-adjacent, constrained ROE (do not flatten the district). Precision only.
+S6 Saqr Over the Ridge: hero mission. Player is mostly the ace plus a small ground screen.
+S7 Banner Unbroken: combined defence of the energy spine. Ending: Saudi sky is clean; Al-Mizan has a port in the Maghreb.
+7.4 UAE campaign — ‘FALCON PROTOCOL’
+Logline: A precision war. Someone is using the Emirates’ own logistics software against them. The Presidential Guard does not do meat waves.
+U1 Port Khalifa Shadow: counter-sabotage. SF + Nimr. Tight timer.
+U2 Leclerc at Dawn: first armour fight in open sabkha. Teach autoloader micro.
+U3 HIMARS Math: player is not allowed a tank mass. Win with rockets, drones-as-vision, and two jets.
+U4 Island Chain: naval + air. Corvettes and Block 60s.
+U5 The Hotel: urban hostage-adjacent (extract a defector). Civilian collateral fails the mission.
+U6 EDGE Broken: enemy has cloned UAE munitions. Fight a mirror kit. Identity crisis mission.
+U7 Protocol Complete: simultaneous defence of two nodes. Co-op recommended. Ending: Al-Mizan unmasked as a board, not a country.
+7.5 Algeria campaign — ‘THE TELL AND THE ERG’
+Logline: Mountain and desert. A foreign-flagged ‘stabilisation force’ (Al-Mizan) tries to peel the south. Algiers answers with T-90s and a sky that kills aircraft.
+A1 Djebel Ambush: teach elevation + Kornet + cheap T-72 screen.
+A2 Highway of Rust: defend a long road with TOS-1 ambush points.
+A3 Bubble: first S-300 mission. Player must choose where the umbrella lives.
+A4 Oran Night: naval + Kilo sub. Club-S shot as a set-piece.
+A5 Terminator Escort: a column of T-90s must cross open ground. BMPT is the star.
+A6 Smerch Conversation: counter-battery duel vs UAE-flavour HIMARS proxies.
+A7 Tell Atlas: final conventional battle. Ending: Al-Mizan burns; the four commands realise they were pointed at each other.
+7.6 Finale (unlock, 2 players recommended) — ‘THE BALANCE BREAKS’
+F1 Boardroom: raid the actual Al-Mizan site (fictional Mediterranean platform + desert bunker). Each player brings their own faction.
+F2 Four Banners: last stand / assault hybrid. If all four campaigns were beaten, a short epilogue cinematic: four command tents, four coffees, one map, no speech about unity longer than twenty seconds.
+7.7 Sample mission script (full enough to build)
+MISSION E3 — SA‘KA IN THE ALLEYS
+Setting: A dense district inspired by older Cairo / Alexandria streets. Dawn. Call to prayer in the far distance (one layer, not looping every 30s).
+Objectives: 1) Insert Colonel Tarek. 2) Clear the police HQ that Al-Mizan seized (garrisoned). 3) Defuse or escort-away a truck bomb on the corniche. 4) Optional: capture the radio station for a map reveal. 5) Extract when the armour column is two minutes out — or stay and fight it with unlocked M60s.
+Failure: Hero dies on Recruit he respawns at tent; on Marshal he is permadeath for the mission. Truck bomb detonates. Construction Yard (a forward garage) destroyed.
+Script beats:
+00:00 Briefing VO (Command, MSA with Egyptian colour): ‘The district is closed. You will not flatten it. Sa‘ka only until the bomb is moved.’
+00:40 Insertion cinematic: two Gazelle/Apache-escorted Black Hawk flavour helos. Player gets 3 Sa‘ka + hero.
+03:00 First contact. Militia with AKs on rooftops. Teach garrison.
+07:00 Radio station optional. If taken, fog lifts on the truck.
+11:00 Truck found. Engineer or Sa‘ka C4-disarm minigame (not a QT nightmare — a 20-second channel with interrupt risk).
+14:00 Al-Mizan armour (T-55s + technicals) enters from the ring road. Player may call M60s if the garage is held.
+Win sting: Tarek on radio. See voice section.
+8. Voice, Dialect &amp; 18+ Slang Bible
+This section is for the writer, the voice director, and the audio lead. Adult language is a design feature of a war game, not graffiti on the script. It is how conscripts actually talk when a tank is on fire. It is also how officers talk when they think the net is closed.
+8.1 Rules
+Three layers per faction: COMMAND (almost clean, MSA or formal dialect), OFFICER (sharp, some profanity), TROOP (full slang, 18+).
+A settings slider: Family / Military / Uncut. Family replaces 18+ lines with the clean take we also record. Default on store pages: Military. Uncut is an option in-game.
+Do not use sectarian slurs. Do not use slurs against a real ethnic or religious group. Do not sexualise children. Adult sexual insults aimed at an enemy combatant are allowed in Uncut because that is how this language is actually used in anger.
+Do not mock the Qur’an, the prayer, or the shahada. Soldiers can swear by God in the ordinary way (‘wallah’, ‘yil‘an’). Keep the sacred out of the punchline.
+Record more lines than you think. RTS units repeat. We need 8–12 selects, 6–10 moves, 6–10 attacks, 4 deaths, 3 under-fire, 2 idle jokes, 2 victory.
+English UI can stay English. Combat VO stays dialect even if the player is in English UI. Subtitles optional, off by default for Uncut.
+8.2 Faction voice palettes
+Faction
+Dialect
+Register
+Casting note
+Egypt
+Cairene Egyptian (Masri)
+Fast, nasal, funny, filthy when scared
+Men 20–50. One older nCO. Hero is 40s smoker.
+Saudi
+Najdi + light Gulf
+More clipped, more ‘ya rayyal’, still vicious
+Avoid cartoon Bedouin. Officers are urban Riyadh.
+UAE
+Gulf (Emirati / shared Khaleeji)
+Calm, then suddenly sharp
+Heroine is Emirati, not generic. Mix of Emirati and other Khaleeji extras is fine.
+Algeria
+Algerian Darija (Algiers / Oran mix)
+Dense, French loanwords, hard consonants
+Do not use Moroccan if you can help it. Get Algerian actors.
+UI / Briefing
+Modern Standard Arabic + local colour
+News-anchor clean
+Same actor can do Command layer.
+8.3 Shared combat vocabulary (all factions understand)
+Keep a few words identical so mixed co-op still reads: ‘Salakh!’ (contact), ‘Dababa!’ (tank), ‘Ta’ira!’ (aircraft), ‘Isnad!’ (support), ‘Insihab!’ (pull back), ‘Imsik!’ (hold). Then let the rest be local.
+8.4 EGYPT — sample bank (Uncut)
+Infantry rifle squad
+[SELECT]  تحت أمرك يا باشا.   —  Under your command, basha.
+[SELECT]  قول يا سيدي.   —  Say the word.
+[SELECT]  إحنا موجودين.   —  We're here.
+[MOVE]  ماشي يا عم.   —  Alright, uncle.
+[MOVE]  يا الله عليه.   —  Let's go then.
+[ATTACK]  هنفشخهم.   —  We're going to wreck them.
+[ATTACK]  اتلم يا ابن الكلب.   —  Come here, you son of a dog.
+[ATTACK]  كس أم اللي جابك الحرب دي.   —  Fuck the mother of whoever started this war.
+[UNDER FIRE]  يا خرا على المنظر.   —  Shit, look at this.
+[UNDER FIRE]  إصحى يا جدع! دبابة!   —  Wake up man! Tank!
+[UNDER FIRE]  أنا مش هموت هنا يا ولاد الوسخة.   —  I'm not dying here, you sons of bitches.
+[DEATH]  يا ابن المتناكة... آه.   —  You son of a whore… ah.
+[DEATH]  بلغوا أهلي...   —  Tell my family…
+[IDLE]  يا عم الجيش ده كله بالدوشة. اديني سيجارة.   —  This whole army is nothing but noise. Give me a cigarette.
+[IDLE — cut take]  خلي السيسي... لا استنى، خلي القيادة تسمعنا كويس.   —  (cuts himself off) Let Command hear us clean.
+Kornet team
+[SELECT]  الصاروخ في حضني زي ابني.   —  This missile sits in my lap like my son.
+[ATTACK]  دبابة؟ هخليها علبة تونة.   —  A tank? I'll make it a tuna can.
+[ATTACK]  اتفضح يا حبيبي. فوق التراك.   —  You're exposed, darling. Top of the track.
+M1A1 crew
+[SELECT]  أبرامز في الخدمة. متقلقش.   —  Abrams on duty. Don't worry.
+[MOVE]  ادوس يا معلم.   —  Floor it, boss.
+[ATTACK]  خرمتك. روح بلغ الشيطان.   —  I put a hole in you. Go tell the devil.
+[UNDER FIRE]  يا نهار أسود، صاروخ!   —  Black day, missile!
+F-16 / Rafale pilot
+[SELECT]  النسر فوق. الأرض تحت. أنتم هباء.   —  Eagle above. Ground below. You're nothing.
+[ATTACK]  قفل الرادار عليهم. يولعوا.   —  Lock them. Let them burn.
+[UNDER FIRE]  يا ابن الـ... الصاروخ ورايا!   —  You son of a— missile on me!
+Colonel Tarek (hero)
+[SELECT]  طارق. مش فاضي للدردشة.   —  Tarek. I don't have time for chat.
+[MOVE]  هخشّ من الحتة اللي محدش باصصلها.   —  I'll come in from the spot nobody's watching.
+[ATTACK]  اتعلموا الحرب من اللي اتحرقوا فيها.   —  Learn war from the people who already burned in it.
+[ATTACK]  يا أولاد الكلب، ده حارتي. مش حارتكم.   —  Sons of dogs, this is my alley. Not yours.
+[UNDER FIRE]  لو متّ، متموتش ورايا زي الخرفان.   —  If I die, don't die behind me like sheep.
+Command (clean-ish)
+[ABILITY]  القوات الخاصة في الطريق.   —  Special forces are inbound.
+[SW]  ضربة أكتوبر جاهزة. أكد الإحداثيات.   —  October Strike ready. Confirm coordinates.
+Victory / taunt
+[WIN]  خلصت؟ طيب. نشرب شاي ونكمل.   —  Done? Good. We drink tea and continue.
+[TAUNT]  روحوا ناموا. بكرة برضو هنكسّركم.   —  Go sleep. Tomorrow we'll break you again.
+8.5 SAUDI — sample bank (Uncut)
+National Guard infantry
+[SELECT]  تحت أمرك.   —  At your command.
+[SELECT]  سمعًا وطاعة.   —  Heard and obeyed.
+[MOVE]  تحركوا يا رجال.   —  Move, men.
+[ATTACK]  يا كلب، ذا آخر يومك.   —  You dog, this is your last day.
+[ATTACK]  اطلع من وجهي يا زبالة.   —  Get out of my face, you trash.
+[ATTACK]  الله يلعن اللي ورّطنا فيكم.   —  God curse whoever dragged us into you.
+[UNDER FIRE]  انقصفنا! انقصفنا!   —  We're getting shelled!
+[UNDER FIRE]  ما نتراجع. ما فيه تراجع.   —  We don't fall back. There is no falling back.
+[DEATH]  أمي...   —  Mother…
+M1A2S crew
+[SELECT]  أبرامز إس. ما يتفاهم إلا بالطلق.   —  Abrams S. It only talks in rounds.
+[ATTACK]  خلّه يشوف من اللي يوقف في الصحراء.   —  Let him see who stands in the desert.
+F-15SA pilot
+[SELECT]  صقر واحد. السماء لي.   —  Saqr One. The sky is mine.
+[ATTACK]  اقفل. أطلق. لا تناقش.   —  Lock. Release. Don't discuss.
+[WINGMAN]  يا حمار، فوقك صاروخ!   —  You donkey, missile above you!
+Command
+[ABILITY]  مهمة سلاح الجو في الطريق. أخلوا الممر.   —  Air tasking inbound. Clear the corridor.
+[PATRIOT]  البطارية جاهزة. لا تضيعوا الصاروخ.   —  Battery ready. Do not waste the missile.
+8.6 UAE — sample bank (Uncut)
+Presidential Guard
+[SELECT]  الحرس. جاهزين.   —  The Guard. Ready.
+[MOVE]  نتحرك بهدوء.   —  We move quiet.
+[ATTACK]  هدف مؤكد. اقتلوه.   —  Target confirmed. Kill him.
+[ATTACK]  يا قليل أدب، هذي مو ساحتكم.   —  You have no manners. This is not your ground.
+[UNDER FIRE]  انضربنا. غطوا بعض.   —  We're hit. Cover each other.
+Major Layla
+[SELECT]  ليلى. لا تعيد الأمر مرتين.   —  Layla. Don't give the order twice.
+[MOVE]  أقدر أمشي بينكم وما تشوفوني.   —  I can walk through you and you won't see me.
+[ATTACK]  خلّ الصاروخ يتكلم. أنا خلصت الكلام.   —  Let the missile talk. I'm done talking.
+[UNDER FIRE]  يا عيال الحرام، توقّفوا عن الهزار.   —  You bastards, stop joking around.
+[UNDER FIRE]  إذا سقطت، لا تصوّروا. كمّلوا المهمة.   —  If I go down, don't film it. Finish the mission.
+HIMARS crew
+[SELECT]  الحسابات صحيحة. الباقي على الله وعليكم.   —  The math is correct. The rest is on God and on you.
+[ATTACK]  ستة صواريخ. حيّ الله من يِستَر.   —  Six rockets. God help whoever is under them.
+F-16E pilot
+[SELECT]  فالكون. محطة طويلة. لا تستعجلني.   —  Falcon. Long station. Don't rush me.
+[ATTACK]  قفلت عليه. يِزوّل.   —  I locked him. He's gone.
+8.7 ALGERIA — sample bank (Uncut)
+ANP infantry (Darija)
+[SELECT]  واش حبّيت؟ راني هنا.   —  What do you want? I'm here.
+[MOVE]  روح. رانا نتبعوك.   —  Go. We follow you.
+[ATTACK]  يا ولد القحبة، اجي لهنا.   —  You son of a whore, come here.
+[ATTACK]  نقصّك قصّ. ماكش راجل في وجهي.   —  I'll cut you down. You're not a man in my face.
+[UNDER FIRE]  يَزّي هزْر. الطيارة فوقنا!   —  Enough talk. Jet above us!
+[DEATH]  راني مجروح... بلّغ الكومندان.   —  I'm hit… tell the commandant.
+[IDLE]  عطيني كاينة ولا سيجارة. الحرب هاذي طويلة.   —  Give me a can or a cigarette. This war is long.
+T-90 crew
+[SELECT]  تي-تسعين. ما يتّهزّش بالريح.   —  T-90. The wind doesn't move it.
+[ATTACK]  أطلق. وسكّر فمك.   —  Fire. And shut your mouth.
+[ABILITY]  صاروخ جاي! ساتوررا!   —  Missile incoming! Shtora!
+TOS-1A crew
+[SELECT]  الشمس حارقة. حنا أحرّ.   —  The sun burns. We burn hotter.
+[ATTACK]  حيّ الله اللي في المبنى. ما يخرجش.   —  God help whoever is in that building. He isn't coming out.
+Captain Youcef
+[SELECT]  يوسف. الجبل يسمع فيّا.   —  Youcef. The mountain hears me.
+[ATTACK]  نعلّملكم الحرب كيفاش تتدار في التل.   —  I'll teach you how war is done in the hills.
+[ATTACK]  يا الكلاب، هاذ الأرض شربت أكثر من دمكوم.   —  You dogs, this ground has drunk more than your blood.
+8.8 Radio protocol (all factions)
+Layer a second, quieter take for the same events that Command would allow on an open net. Example: Uncut attack ‘اتلم يا ابن الكلب’ has a Military take ‘تقدّم وأطلق’ and a Family take ‘تقدّم’. Record all three in the same session so the actor’s energy matches.
+8.9 Music
+Main theme: low brass + darbuka + electric oud + a Western RTS ostinato. Think Generals GLA theme if it had a real orchestra and no cheap ‘ethnic’ patch.
+Egypt: oud + strings, Cairo traffic percussion in menus.
+Saudi: sparse, wide, male chorus far away, air-to-air drum.
+UAE: clean, modern, pulse, little ornament.
+Algeria: bendir, gasba flavour, heavier low end.
+Superweapon sting: 8 bars, unique per faction. Must be recognizable from the first two notes (ladder readability).
+9. Map List (launch)
+12 ladder maps + campaign variants. All need a 1v1 slice and a 4v4 stretch.
+Map
+Biome
+Why it exists
+Sinai Passes
+Rock desert + ridges
+Chokepoints. Egypt home.
+Nile Fork
+River + fields + towns
+Crossings. Engineers matter.
+Empty Quarter
+Sand sea
+Saudi home. Long sightlines. Air king.
+Eastern Pumps
+Oil forest
+Many fields. Economy fights.
+Sabkha Line
+Salt flat + coast
+UAE home. HIMARS heaven if vision is held.
+Port Crescent
+Deep water + docks
+Naval. Mistral / corvette / Kilo.
+Old District
+Dense city
+Garrison. No-tank alleys + ring road.
+Tell Atlas
+Hills + forest pockets
+Algeria home. Elevation.
+Erg Road
+Dune highway
+Column fights. Ambush TOS.
+Red Sea Tooth
+Island chain
+Air + navy.
+Two Mosques Crossing
+Town + river (fictional)
+Sacred-looking but fictional. No real shrine name.
+Four Camps
+Open 4v4 desert
+Classic ladder bowl.
+10. UI / UX
+Sidebar right (C&amp;C memory). Production tabs: Infantry / Vehicles / Air / Navy / Support.
+Hotkeys: QWER grid per tab + classic numbers. Full rebind.
+Arabic UI is real RTL, not mirrored English. Hire a native for this. Buttons, chat, and replays must not break.
+Colourblind modes. Faction colour is also shape (chevron / circle / diamond / bar).
+Pause in campaign and skirmish vs AI. No pause in ranked.
+After-action: graph of resources, units lost, air kills. Shareable card for X/Twitter.
+11. Online Services (minimum)
+Account: platform login (Steam / Epic) + optional guest skirmish.
+Friends list, invite, lobby.
+Ranked: hidden MMR first season, visible ranks after we have data. Ranks named in Arabic military flavour: Jundi / ‘Arif / Mulazim / Naqib / ‘Aqid / Liwa / Fariq.
+Report: cheat / abuse / hate. Auto-mute repeat offenders in voice/text.
+Live ops later: weekly map, extra skin crate. No pay-to-win units. Cosmetics only if we ever monetise.
+12. What to Build First (for the developer)
+Do not start by modelling a Rafale. Start by proving the loop.
+12.1 Vertical slice (8–10 weeks if the team is real)
+One biome: Sinai-like desert.
+Two factions only: Egypt vs Algeria (max contrast).
+Units each: rifle, ATGM, one IFV, one cheap tank, one MBT, one SPG, one helo, one fighter, engineer, MCV, power, barracks, factory, airfield, one SAM, one superweapon dummy.
+AI that attacks in waves.
+10 Egyptian infantry lines + 10 Algerian infantry lines recorded even if placeholder actors.
+Win/lose. Replay. That's the slice. If this is not fun, nothing else matters.
+12.2 Production phases
+Phase
+Output
+0. Slice
+Fun 1v1 in 15 minutes. No campaign.
+1. Four factions greybox
+All v1 units as boxes with icons. Stats pass.
+2. Art pass 1
+Egypt + Algeria full art. Two maps pretty.
+3. Netcode
+2v2 stable. Desync tools.
+4. Voice
+Military + Uncut banks for all four. Family later.
+5. Campaign spine
+Egypt 7 missions greybox, then art.
+6. Saudi + UAE art
+Remaining factions look like themselves.
+7. Ranked beta
+Closed, Arabic + English communities.
+8. Ship
+Four factions, 12 maps, 4 campaigns, co-op finale, skirmish, ranked 1v1/2v2.
+12.3 Team sketch (small studio)
+1 director / designer (this document lives or dies here).
+1 gameplay engineer + 1 network engineer.
+1 tools / UI.
+2 gameplay scripters (missions).
+3–5 3D (units + maps). 1 animator. 1 VFX.
+1 audio + contracted composers + contracted dialect VOs.
+1 producer. QA as soon as slice exists.
+A five-person team can make the slice. They cannot ship four campaigns. Plan contractors for voice and vehicles.
+12.4 Legal / sensitivity
+Do not use official emblems without licence. Create ‘inspired by’ markings: Egypt gets a stylised eagle that is not the exact Republican Eagle; Saudi a stylised sword-and-palm that is not the exact emblem, etc. Lawyers will thank you.
+Do not depict real living commanders. Hero names are fictional.
+Music: original score. No sampled anthems.
+Age rating: PEGI 18 / ESRB M if Uncut is in the build. Store page must say strong language + violence. The Family slider is how we also talk to a wider audience.
+Published inventories are public facts. We still add a loading-screen line: ‘Unit mix is a game abstraction of publicly reported equipment.’
+13. Additional Script Packs the Writer Must Deliver
+Main menu VO one-liners per faction when highlighted.
+Defeat lines (not just victory). Egypt: ‘البلد أكبر من خسارة معركة.’ Saudi: ‘نعيد التشكيل.’ UAE: ‘نحسبها من جديد.’ Algeria: ‘ما سالاتش.’
+Unit ready / unit lost / base under attack / insufficient power / construction complete — all four dialects.
+Spectator lines if we ever add a caster pack (MSA).
+Tutorial jokes that do not break the tone.
+13.1 Sample briefing (Egypt E1)
+COMMAND (MSA, slight Egyptian colour):
+«سيناء ليست تمرينًا. الرادار سقط قبل الفجر. الذي يتحرك في الممرات ليس جيشًا نظاميًا، وهو يلبس لباس الجيوش. ستمسك الممرين. لن تترك بينهما فجوة. إذا سقط أحدهما، القناة بعدها.»
+TARIQ (coming in on the net, Masri):
+«فهمنا يا فندم. إحنا مش هنسأل هو مين. هنسأله بعد ما يقع.»
+13.2 Sample end-mission sting (UAE U3)
+LAYLA:
+«ستة صواريخ. مستودع واحد. الحساب كان صحيح. اللي يبي يعيدها، يعيدها من مسافة أبعد.»
+14. Appendix A — Inventory Anchors Used
+These are starting points for art reference and unit identity, not a spreadsheet of truth. Cross-check before locking a model.
+Egypt: M1A1 SA locally assembled, M60A3, T-62 leftovers, YPR-765, BMP-1, M109 / K9, BM-21, Kornet, Igla/Stinger, F-16C, Rafale, MiG-29M, AH-64D, Ka-52, S-300VM / Buk / Tor flavour, Type 209, FREMM/MEKO flavour, 2× Mistral-class carriers as a campaign/superweapon fantasy.
+Saudi: M1A2S, M60A3, Bradley, M113, M-ATV, CAESAR, M109, M270, AH-64D/E, UH-60, CH-47, F-15C/S/SA, Typhoon, Tornado IDS, E-3, Patriot PAC-2/3, Avenger.
+UAE: Leclerc, BMP-3, Rabdan, NIMR family, G6, M109, HIMARS, Chunmoo, AH-64, CH-47, F-16E Block 60, Mirage 2000-9, Rafale on order, THAAD + Patriot, Baynunah corvettes.
+Algeria: T-90SA, T-72, T-62, BMP-2, Fuchs 2, BMPT, 2S1, PLZ-45, Grad, Smerch, TOS-1A, Mi-28/Mi-24, Su-30MKA, MiG-29, Su-24, reported Su-35 / Su-57 limited, Pantsir, S-300/S-400, Kilo 636.
+15. Appendix B — Open Questions for the First Design Meeting
+Do we ship Uncut on all storefronts or gate it behind a free ‘language pack’?
+Is the fourth faction Algeria or Morocco? (Algeria gives Russian contrast. Morocco gives French/US contrast closer to UAE. Current call: Algeria.)
+Naval: full third axis or ‘coastal only’? Current call: full on 40% of maps.
+Heroes: one per faction or also campaign-only guest heroes?
+Do we allow same-faction mirror matches? Yes.
+Spectator delay for ranked? 2 minutes.
+Working title ASH-SHARQ vs DESERT COMMAND vs a publisher title. Do not fall in love.
+16. Closing note to the developer
+Build the slice. Record twenty lines of Cairene infantry and twenty lines of Algerian infantry before you hire a concept artist for a Rafale. If a player laughs, swears back at the speaker, and then loses a tank to a Kornet he did not see, the game is already itself.
+When the slice works, this document becomes a living wiki. Until then it is a fence: stay inside the four armies, the two resources, the one-ability rule, and the dialect rule. Everything else is decoration.
+— END OF GDD v0.1 —
+Next expected deliverables from design: unit stat sheet (spreadsheet), hotkey map, and mission E3 greybox script with trigger list.

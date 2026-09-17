@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MCA Art Pack v1 — preview</title>
+<style>
+  :root { --bg:#0c0e12; --panel:#14171d; --line:#2a2f3a; --text:#dfe3ea; --dim:#8b93a3; }
+  body { margin:0; background:var(--bg); color:var(--text); font:13px/1.45 system-ui,Segoe UI,sans-serif; }
+  header { padding:16px 20px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:18px; letter-spacing:1px; }
+  .sub { color:var(--dim); font-size:11px; letter-spacing:1px; text-transform:uppercase; }
+  main { padding:16px 20px 60px; }
+  h2 { font-size:12px; letter-spacing:2px; text-transform:uppercase; color:var(--dim); }
+  #atlas { image-rendering: pixelated; background:#111; border:1px solid var(--line); }
+  .grid { display:flex; flex-wrap:wrap; gap:8px; }
+  .cell { width:88px; text-align:center; }
+  .cell img { width:64px; height:64px; image-rendering:pixelated; background:#1a1e26; border:1px solid var(--line); }
+  .cell .k { color:var(--dim); font-size:10px; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  th,td { border-bottom:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; }
+  th { color:var(--dim); font-size:10px; letter-spacing:1px; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MCA ART PACK v1</h1>
+  <div class="sub">Atlas + display reservoir preview — open next to the JSON/PNG files</div>
+</header>
+<main>
+  <h2>Atlas</h2>
+  <p class="sub">sprites/atlas.png</p>
+  <img id="atlas" src="sprites/atlas.png" alt="atlas">
+  <h2>Cells</h2>
+  <div class="grid" id="cells"></div>
+  <h2>Structure names</h2>
+  <table id="names"><thead><tr><th>Id</th><th>HUD</th><th>Default</th><th>Faction aliases</th></tr></thead><tbody></tbody></table>
+</main>
+<script>
+fetch('data/display.json').then(r=>r.json()).then(d=>{
+  const tb=document.querySelector('#names tbody');
+  Object.values(d.structures).forEach(s=>{
+    const aliases=Object.entries(s.aliasByFaction||{}).map(([f,n])=>f+': '+n).join(' · ');
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${s.id}</td><td>${s.hud}</td><td>${s.defaultName}</td><td>${aliases}</td>`;
+    tb.appendChild(tr);
+  });
+});
+fetch('data/sprite_map.json').then(r=>r.json()).then(m=>{
+  const g=document.getElementById('cells');
+  Object.keys(m.frames).forEach(k=>{
+    const div=document.createElement('div');
+    div.className='cell';
+    div.innerHTML=`<img src="sprites/cells/${k}.png" alt="${k}"><div class="k">${k}</div>`;
+    g.appendChild(div);
+  });
+});
+</script>
+</body>
+</html>

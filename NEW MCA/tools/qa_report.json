@@ -1,0 +1,1417 @@
+[
+ {
+  "name": "map duel integrity",
+  "pass": true,
+  "detail": "{\"w\":96,\"h\":96,\"lenOk\":true,\"valsOk\":true,\"spawns\":2,\"spawnTerrain\":true,\"oil\":6,\"oilTerrain\":true,\"water\":false,\"waterOk\":true}"
+ },
+ {
+  "name": "map sinai integrity",
+  "pass": true,
+  "detail": "{\"w\":96,\"h\":96,\"lenOk\":true,\"valsOk\":true,\"spawns\":2,\"spawnTerrain\":true,\"oil\":6,\"oilTerrain\":true,\"water\":false,\"waterOk\":true}"
+ },
+ {
+  "name": "map coast integrity",
+  "pass": true,
+  "detail": "{\"w\":128,\"h\":128,\"lenOk\":true,\"valsOk\":true,\"spawns\":4,\"spawnTerrain\":true,\"oil\":10,\"oilTerrain\":true,\"water\":true,\"waterOk\":true}"
+ },
+ {
+  "name": "map tigris integrity",
+  "pass": true,
+  "detail": "{\"w\":128,\"h\":128,\"lenOk\":true,\"valsOk\":true,\"spawns\":4,\"spawnTerrain\":true,\"oil\":8,\"oilTerrain\":true,\"water\":true,\"waterOk\":true}"
+ },
+ {
+  "name": "map hormuz integrity",
+  "pass": true,
+  "detail": "{\"w\":160,\"h\":160,\"lenOk\":true,\"valsOk\":true,\"spawns\":6,\"spawnTerrain\":true,\"oil\":12,\"oilTerrain\":true,\"water\":true,\"waterOk\":true}"
+ },
+ {
+  "name": "map rubalkhali integrity",
+  "pass": true,
+  "detail": "{\"w\":160,\"h\":160,\"lenOk\":true,\"valsOk\":true,\"spawns\":6,\"spawnTerrain\":true,\"oil\":14,\"oilTerrain\":true,\"water\":false,\"waterOk\":true}"
+ },
+ {
+  "name": "deploy duel all 2 spawns",
+  "pass": true,
+  "detail": "all ConYards within 5 cells of spawn, MCVs consumed"
+ },
+ {
+  "name": "deploy sinai all 2 spawns",
+  "pass": true,
+  "detail": "all ConYards within 5 cells of spawn, MCVs consumed"
+ },
+ {
+  "name": "deploy coast all 4 spawns",
+  "pass": true,
+  "detail": "all ConYards within 5 cells of spawn, MCVs consumed"
+ },
+ {
+  "name": "deploy tigris all 4 spawns",
+  "pass": true,
+  "detail": "all ConYards within 5 cells of spawn, MCVs consumed"
+ },
+ {
+  "name": "deploy hormuz all 6 spawns",
+  "pass": true,
+  "detail": "all ConYards within 5 cells of spawn, MCVs consumed"
+ },
+ {
+  "name": "deploy rubalkhali all 6 spawns",
+  "pass": true,
+  "detail": "all ConYards within 5 cells of spawn, MCVs consumed"
+ },
+ {
+  "name": "struct SH-01 MCV / Construction Yard",
+  "pass": true,
+  "detail": "{\"standing\":true,\"cyRebuilt\":true,\"powerOut\":50,\"powerUse\":0,\"rejectedWithMcv\":\"mcv-alive\"}"
+ },
+ {
+  "name": "struct SH-02 Power Plant",
+  "pass": true,
+  "detail": "build+place+power ok"
+ },
+ {
+  "name": "struct SH-03 Oil Depot",
+  "pass": true,
+  "detail": "income +350/100t"
+ },
+ {
+  "name": "struct SH-04 Barracks",
+  "pass": true,
+  "detail": "produces EG-01"
+ },
+ {
+  "name": "struct SH-05 War Factory",
+  "pass": true,
+  "detail": "produces EG-05"
+ },
+ {
+  "name": "struct SH-06 Airfield / Helipad",
+  "pass": true,
+  "detail": "produces EG-09"
+ },
+ {
+  "name": "struct SH-07 Naval Yard",
+  "pass": true,
+  "detail": "produces IR-19"
+ },
+ {
+  "name": "struct SH-08 Command / Tech",
+  "pass": true,
+  "detail": "unlocks EG-07"
+ },
+ {
+  "name": "struct SH-09 HMG nest / bunker",
+  "pass": true,
+  "detail": "fired on EG-04"
+ },
+ {
+  "name": "struct SH-10 ATGM tower",
+  "pass": true,
+  "detail": "fired on PK-06"
+ },
+ {
+  "name": "struct SH-11 AA gun",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-12 Sa'ka Tent",
+  "pass": true,
+  "detail": "ability ungated"
+ },
+ {
+  "name": "struct SH-13 October Battery",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-14 Patriot battery",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-15 Green Crescent",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-16 THAAD / Patriot node",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-17 Desert Falcon",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-18 S-300 / S-400 battery",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-19 Hellwind",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-20 Hisar site",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-21 Siper battery",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-22 Tayfun Rain",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-23 Iron Dome battery",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-24 David's Sling",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-25 Arrow node",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-26 Adir Package",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-27 Akash / QRSAM site",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-28 S-400 battery",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-29 Cruise Battery",
+  "pass": true,
+  "detail": "ability ungated"
+ },
+ {
+  "name": "struct SH-30 Trishul",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-31 HQ-9 / HQ-16 site",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-32 Ghaznavi Rain",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "struct SH-33 Drone Workshop",
+  "pass": true,
+  "detail": "ability ungated"
+ },
+ {
+  "name": "struct SH-34 Bavar-373 battery",
+  "pass": true,
+  "detail": "fired on AE-11"
+ },
+ {
+  "name": "struct SH-35 Raad-e Fath",
+  "pass": true,
+  "detail": "charging"
+ },
+ {
+  "name": "unit EG-01 Rifle squad",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-02 Kornet team",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-03 Igla/Stinger team",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-04 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit EG-05 YPR-765 / BMP-1",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-06 M60A3",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-07 M1A1 SA Ramses",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-08 M109 / K9",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-09 AH-64D Apache",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-10 F-16C",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-11 Sa'ka operator",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-12 Fahd APC",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-13 T-90MS (limited)",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-14 BM-21 Grad",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-15 Ka-52 Alligator",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-16 Rafale",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-17 MiG-29M",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-18 Missile boat",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-19 FREMM-style frigate",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit EG-20 Type-209 flavour sub",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=AE-15 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-01 SANG infantry",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-02 TOW team",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-03 Avenger",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-04 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit SA-05 M2A2 Bradley",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-06 M-ATV",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-07 M60A3",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-08 M1A2S Abrams",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-09 CAESAR",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-10 M270 MLRS",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-11 AH-64E Apache",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-12 UH-60 Black Hawk",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-13 F-15SA",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-14 Eurofighter Typhoon",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit SA-15 Tornado IDS",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-01 Presidential Guard",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-02 Javelin team",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-03 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit AE-04 Nimr Ajban",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-05 BMP-3",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-06 Rabdan 8x8",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-07 Leclerc",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-08 G6 Rhino",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-09 HIMARS",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-10 AH-64 Apache",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-11 CH-47 Chinook",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-12 F-16E Block 60",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-13 Mirage 2000-9",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-14 Rafale (late)",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-15 Baynunah corvette",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-16 Avenger AA",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit AE-17 M60A3 (reserve)",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-01 ANP rifle squad",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-02 Kornet team",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-03 Igla team",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-04 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit DZ-05 BMP-2M Kornet",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-06 T-72M",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-07 T-90SA",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-08 TOS-1A",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-09 Mi-28NE",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-10 Su-30MKA",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-11 Fuchs 2",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-12 BMPT-72 Terminator",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-13 2S1 Gvozdika",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-14 BM-30 Smerch",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-15 Pantsir-S1",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-16 MiG-29",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-17 Su-24 / Su-34 flavour",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit DZ-18 Kilo 636 flavour",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=AE-15 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-01 Mehmet\u00e7ik squad",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-02 Bordo Bereli",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-03 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit TR-04 Kirpi MRAP",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-05 ACV-15 / Pars",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-06 M60T Sabra",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-07 Leopard 2A4",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-08 Altay T1",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-09 T-155 F\u0131rt\u0131na",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-10 Kas\u0131rga",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-11 Korkut",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-12 T129 ATAK",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-13 Bayraktar TB2",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-14 Ak\u0131nc\u0131",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-15 F-16C \u00d6zg\u00fcr / Blk70",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-16 F-4E Terminator",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-17 K\u0131z\u0131lelma (late)",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit TR-18 M\u0130LGEM corvette",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-01 Tzanhanim / Golani",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-02 Sayeret pair",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-03 Spike team",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-04 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit IL-05 Eitan 8x8",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-06 Namer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-07 Merkava Mk III",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-08 Merkava Mk IV Windbreaker",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-09 M109 Doher",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-10 PULS / Menatetz",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-11 AH-64 Saraf",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-12 Hermes 450/900",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-13 F-16I Sufa",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-14 F-15I Ra'am",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-15 F-35I Adir",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IL-16 Sa'ar 6 flavour",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-01 Rifle section",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-02 Para SF",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-03 Nag team / NAMICA",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-04 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit IN-05 BMP-2 Sarath",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-06 T-72 Ajeya",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-07 T-90S Bhishma",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-08 Arjun Mk1A",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-09 K9 Vajra",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-10 Pinaka",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-11 Prachand LCH",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-12 AH-64E",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-13 Tejas Mk1A",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-14 Su-30MKI",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-15 Rafale",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-16 Jaguar (aging)",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-17 BrahMos TEL",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-18 Kalvari flavour sub",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=AE-15 hurt=true\"}"
+ },
+ {
+  "name": "unit IN-19 INS Vikrant flavour",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-01 Infantry section",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-02 SSG pair",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-03 Baktar-Shikan",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-04 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit PK-05 Talha / M113",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-06 Al-Zarrar",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-07 T-80UD",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-08 Al-Khalid",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-09 Haider (VT-4)",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-10 M109 / SH-15",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-11 Fatah / A-100 MLRS",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-12 Z-10ME",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-13 JF-17 Block II",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-14 JF-17 Block III",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-15 F-16 MLU / Blk52",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-16 J-10CE",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-17 Mirage III/V",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-18 Babur TEL",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit PK-19 Hangor-class sub",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=AE-15 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-01 Regular infantry",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-02 Takavar flavour",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-03 Toophan / Dehlavieh",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-04 Engineer",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(13,9) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"repair 350->357, capture=true\"}"
+ },
+ {
+  "name": "unit IR-05 Boragh APC",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=inf dummy=EG-04 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-06 T-72S",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-07 Karrar",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-08 Raad SPG / M-46",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-09 Fajr-5 / Zelzal",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-10 Fateh TEL",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=bldg dummy=SH-09 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-11 Khordad-15",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-12 Herz-9 / point AA",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(16,11) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-13 AH-1 leftover / Mi-28 few",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-14 Mohajer-6 / Shahed-129",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-15 Shahed-136",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":\"n/a\",\"attackInfo\":\"\"}"
+ },
+ {
+  "name": "unit IR-16 Karrar UCAV",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":\"n/a\",\"attackInfo\":\"\"}"
+ },
+ {
+  "name": "unit IR-17 Kowsar / Saeqeh / F-14 leftover",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=air dummy=AE-11 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-18 MiG-29 / Su-24 leftover",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(11,16) terrain=0 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=TR-05 hurt=true\"}"
+ },
+ {
+  "name": "unit IR-19 Ghadir mini-sub",
+  "pass": true,
+  "detail": "{\"spawn\":true,\"spawnInfo\":\"cell(9,20) terrain=2 inFootprint=false\",\"move\":true,\"attack\":true,\"attackInfo\":\"col=armor dummy=AE-15 hurt=true\"}"
+ },
+ {
+  "name": "harvester oil income",
+  "pass": true,
+  "detail": "delta=350 over 100 ticks (expect ~350)"
+ },
+ {
+  "name": "ability Egypt (saka_insertion)",
+  "pass": true,
+  "detail": "cd=true infantry dropped=3 recast-blocked=true"
+ },
+ {
+  "name": "ability Saudi (rsaf_tasking)",
+  "pass": true,
+  "detail": "cd=true airstrike projectiles=1 recast-blocked=true"
+ },
+ {
+  "name": "ability UAE (edge_network)",
+  "pass": true,
+  "detail": "validate=passive sightBonus=2"
+ },
+ {
+  "name": "ability Algeria (integrated_sky)",
+  "pass": true,
+  "detail": "validate=passive dmgAirMult=1.2"
+ },
+ {
+  "name": "ability Turkey (siha_mesh)",
+  "pass": true,
+  "detail": "validate=passive aggroAirMult=1.2"
+ },
+ {
+  "name": "ability Israel (iron_layer)",
+  "pass": true,
+  "detail": "validate=passive trophy-unit=true"
+ },
+ {
+  "name": "ability India (brahmos_lane)",
+  "pass": true,
+  "detail": "cd=true telegraph projectiles=1 recast-blocked=true"
+ },
+ {
+  "name": "ability Pakistan (babur_window)",
+  "pass": true,
+  "detail": "cd=true cruise projectiles=2 recast-blocked=true"
+ },
+ {
+  "name": "ability Iran (shahed_rain)",
+  "pass": true,
+  "detail": "cd=true drones=5 recast-blocked=true"
+ },
+ {
+  "name": "combo Egypt @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Egypt @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Egypt @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Egypt @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Egypt @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Egypt @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Saudi @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Saudi @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Saudi @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Saudi @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Saudi @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Saudi @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo UAE @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo UAE @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo UAE @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo UAE @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo UAE @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo UAE @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Algeria @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Algeria @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Algeria @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Algeria @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Algeria @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Algeria @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Turkey @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Turkey @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Turkey @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Turkey @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Turkey @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Turkey @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Israel @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Israel @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Israel @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Israel @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Israel @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Israel @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo India @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo India @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo India @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo India @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo India @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo India @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Pakistan @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Pakistan @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Pakistan @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Pakistan @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Pakistan @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Pakistan @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Iran @ duel",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Iran @ sinai",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Iran @ coast",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Iran @ tigris",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Iran @ hormuz",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "combo Iran @ rubalkhali",
+  "pass": true,
+  "detail": "{\"tick\":600,\"cy\":true,\"pp\":true,\"rax\":true,\"built\":1,\"steps\":\"dep,b2,p2,b4,p4,tr\"}"
+ },
+ {
+  "name": "determinism same-seed checksums",
+  "pass": true,
+  "detail": "@500/1500/2500 = 3494038495/322476142/3495623107"
+ },
+ {
+  "name": "elimination conyard-kill",
+  "pass": true,
+  "detail": "{\"eliminated\":true,\"over\":true,\"winner\":0}"
+ },
+ {
+  "name": "elimination rebuild-window",
+  "pass": true,
+  "detail": "{\"survived\":true,\"rebuilt\":true,\"replaced\":true,\"eliminated\":true,\"over\":true}"
+ },
+ {
+  "name": "ai-full duel 2p",
+  "pass": true,
+  "detail": "{\"over\":true,\"winner\":0,\"tick\":5704,\"elim\":1,\"built\":104,\"units\":42,\"structs\":7}"
+ },
+ {
+  "name": "ai-full coast 4p",
+  "pass": true,
+  "detail": "{\"over\":true,\"winner\":3,\"tick\":7069,\"elim\":3,\"built\":159,\"units\":61,\"structs\":4}"
+ },
+ {
+  "name": "ai-full hormuz 6p",
+  "pass": true,
+  "detail": "{\"over\":true,\"winner\":3,\"tick\":11766,\"elim\":5,\"built\":382,\"units\":104,\"structs\":8}"
+ },
+ {
+  "name": "data unit factions known",
+  "pass": true,
+  "detail": "all 161 units map to the 9 factions"
+ },
+ {
+  "name": "data unit fields valid",
+  "pass": true,
+  "detail": "cost/build/hp/speed/sight/armor/tech/dmg-cols all valid"
+ },
+ {
+  "name": "data faction T0 kits",
+  "pass": true,
+  "detail": "each faction: tech-0 infantry + tech-0 armed + engineer + unitCount matches"
+ },
+ {
+  "name": "data structure fields valid",
+  "pass": true,
+  "detail": "types/costs/build times/Def weapons all valid"
+ },
+ {
+  "name": "perf hormuz 6p 3000-tick AI match",
+  "pass": true,
+  "detail": "3148ms {\"over\": false, \"winner\": -1, \"tick\": 3000, \"elim\": 0, \"built\": 107, \"units\": 96, \"structs\": 57}"
+ }
+]
