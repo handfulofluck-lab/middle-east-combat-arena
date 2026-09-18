@@ -486,7 +486,7 @@ def main():
         factions[name] = f
 
     game = {
-        "version": "0.10.0",
+        "version": "0.10.1",
         "knobs": knobs,
         "armorIncoming": armor_incoming,
         "factions": factions,

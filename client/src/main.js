@@ -10,6 +10,7 @@ import { initRenderer, renderFrame } from './game/render.js';
 import { initHud, updateHud, showHint, AUTO_DEPLOY_TICKS,
   updateTutorial, abortTutorial } from './game/hud.js';
 import { initMinimap, updateMinimap } from './game/minimap.js';
+import { dirArtBitmap, unitArtBitmap, structArtBitmap } from './game/sprites.js';
 import { showMenu, showPauseMenu, showEndBanner, showBriefing, showLobby,
   showMpSetup, showDesyncOverlay, closeLobbyUi } from './game/menu.js';
 import { Net } from './net/net.js';
@@ -66,6 +67,7 @@ export async function boot() {
     briefings: art.briefings || {},   // faction briefing posters (landscape plates)
     tileArt: unitart.tiles || {},     // terrain tiles + decals (sand/rock/water/…)
     thumbArt: art.thumbs || {},       // map thumbnails for the setup screen
+    menuVideo: art.menuVideo || null, // menu ambient video loop (painted v5 pack)
     state: null, ai: null, camera: null, playerSlot: 0,
     selection: [], groups: {}, pendingCmds: [],
     placement: null, targeting: null, attackMoveArmed: false,
@@ -200,6 +202,31 @@ export async function boot() {
   initMinimap(G);
   installMpUi();
   showMenu(G, (cfg) => startMatch(cfg));
+
+  // v0.10.1: prewarm the sprite caches during menu idle so bitmaps decode
+  // before the first match instead of janking the deploy click (the caches
+  // in sprites.js decode lazily on first draw otherwise). Best-effort, chunked.
+  if (typeof requestIdleCallback === 'function') {
+    const warmList = [];
+    for (const id in G.data.units) warmList.push(['d', id]);
+    for (const id in G.data.structures) warmList.push(['s', id]);
+    let wi = 0;
+    const warmStep = () => {
+      const end = Math.min(wi + 20, warmList.length);
+      for (; wi < end; wi++) {
+        try {
+          if (warmList[wi][0] === 'd') {
+            dirArtBitmap(G, warmList[wi][1]);
+            unitArtBitmap(G, warmList[wi][1]);
+          } else {
+            structArtBitmap(G, warmList[wi][1]);
+          }
+        } catch (e) { /* decode is best-effort */ }
+      }
+      if (wi < warmList.length) requestIdleCallback(warmStep);
+    };
+    requestIdleCallback(warmStep);
+  }
 
   let last = performance.now();
   let acc = 0;

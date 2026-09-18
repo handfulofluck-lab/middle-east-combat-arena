@@ -1,0 +1,201 @@
+# MCA Units & Structures Catalog (id | faction | class | domain | name | role)
+
+- EG-01 | Egypt | Infantry | Land | Rifle squad | Line
+- EG-02 | Egypt | AT infantry | Land | Kornet team | AT
+- EG-03 | Egypt | AA infantry | Land | Igla/Stinger team | AA
+- EG-04 | Egypt | Engineer | Land | Engineer | Utility
+- EG-05 | Egypt | IFV | Land | YPR-765 / BMP-1 | Transport
+- EG-06 | Egypt | Light tank | Land | M60A3 | Budget MBT
+- EG-07 | Egypt | MBT | Land | M1A1 SA Ramses | Main tank
+- EG-08 | Egypt | SPG | Land | M109 / K9 | Artillery
+- EG-09 | Egypt | Attack helo | Air | AH-64D Apache | AT air
+- EG-10 | Egypt | Fighter | Air | F-16C | Multirole
+- EG-11 | Egypt | SF | Land | Sa'ka operator | Raid
+- EG-12 | Egypt | APC | Land | Fahd APC | Taxi
+- EG-13 | Egypt | MBT | Land | T-90MS (limited) | Tier-3 tank
+- EG-14 | Egypt | MLRS | Land | BM-21 Grad | Area
+- EG-15 | Egypt | Attack helo | Air | Ka-52 Alligator | Heavy helo
+- EG-16 | Egypt | Fighter | Air | Rafale | Premium
+- EG-17 | Egypt | Fighter | Air | MiG-29M | Dogfight
+- EG-18 | Egypt | Naval | Sea | Missile boat | FAC
+- EG-19 | Egypt | Naval | Sea | FREMM-style frigate | AA sea
+- EG-20 | Egypt | Naval | Sea | Type-209 flavour sub | Stealth
+- SA-01 | Saudi | Infantry | Land | SANG infantry | Line+
+- SA-02 | Saudi | AT infantry | Land | TOW team | AT
+- SA-03 | Saudi | Mobile AA | Land | Avenger | AA humvee
+- SA-04 | Saudi | Engineer | Land | Engineer | Utility
+- SA-05 | Saudi | IFV | Land | M2A2 Bradley | Best IFV
+- SA-06 | Saudi | Light vehicle | Land | M-ATV | Raid
+- SA-07 | Saudi | Light tank | Land | M60A3 | Reserve
+- SA-08 | Saudi | MBT | Land | M1A2S Abrams | Best Western tank
+- SA-09 | Saudi | SPG | Land | CAESAR | Truck gun
+- SA-10 | Saudi | MLRS | Land | M270 MLRS | Guided-ish
+- SA-11 | Saudi | Attack helo | Air | AH-64E Apache | Best AT helo
+- SA-12 | Saudi | Transport helo | Air | UH-60 Black Hawk | Lift
+- SA-13 | Saudi | Fighter | Air | F-15SA | King of air
+- SA-14 | Saudi | Fighter | Air | Eurofighter Typhoon | Agile
+- SA-15 | Saudi | Strike jet | Air | Tornado IDS | Aging strike
+- AE-01 | UAE | Infantry | Land | Presidential Guard | Elite inf
+- AE-02 | UAE | AT infantry | Land | Javelin team | Best inf AT
+- AE-03 | UAE | Engineer | Land | Engineer | Utility
+- AE-04 | UAE | Light vehicle | Land | Nimr Ajban | Desert 4x4
+- AE-05 | UAE | IFV | Land | BMP-3 | Heavy IFV
+- AE-06 | UAE | IFV | Land | Rabdan 8x8 | Wheeled IFV
+- AE-07 | UAE | MBT | Land | Leclerc | Fast MBT
+- AE-08 | UAE | SPG | Land | G6 Rhino | Wheeled heavy
+- AE-09 | UAE | MLRS | Land | HIMARS | Precision
+- AE-10 | UAE | Attack helo | Air | AH-64 Apache | AT air
+- AE-11 | UAE | Transport helo | Air | CH-47 Chinook | Heavy lift
+- AE-12 | UAE | Fighter | Air | F-16E Block 60 | Best-in-class multi
+- AE-13 | UAE | Fighter | Air | Mirage 2000-9 | Aging
+- AE-14 | UAE | Fighter | Air | Rafale (late) | Tier-3
+- AE-15 | UAE | Naval | Sea | Baynunah corvette | Corvette
+- AE-16 | UAE | Mobile AA | Land | Avenger AA | AA humvee
+- AE-17 | UAE | Light tank | Land | M60A3 (reserve) | Reserve gun tank
+- DZ-01 | Algeria | Infantry | Land | ANP rifle squad | Line
+- DZ-02 | Algeria | AT infantry | Land | Kornet team | AT
+- DZ-03 | Algeria | AA infantry | Land | Igla team | AA
+- DZ-04 | Algeria | Engineer | Land | Engineer | Utility
+- DZ-05 | Algeria | IFV | Land | BMP-2M Kornet | Workhorse
+- DZ-06 | Algeria | Light tank | Land | T-72M | Meat shield
+- DZ-07 | Algeria | MBT | Land | T-90SA | Main tank
+- DZ-08 | Algeria | MLRS | Land | TOS-1A | Thermobaric
+- DZ-09 | Algeria | Attack helo | Air | Mi-28NE | AT air
+- DZ-10 | Algeria | Fighter | Air | Su-30MKA | Main jet
+- DZ-11 | Algeria | APC | Land | Fuchs 2 | Mine-resist
+- DZ-12 | Algeria | Tank escort | Land | BMPT-72 Terminator | Anti-infantry
+- DZ-13 | Algeria | SPG | Land | 2S1 Gvozdika | Light arty
+- DZ-14 | Algeria | MLRS | Land | BM-30 Smerch | Heavy rockets
+- DZ-15 | Algeria | Mobile AA | Land | Pantsir-S1 | Gun+missile
+- DZ-16 | Algeria | Fighter | Air | MiG-29 | Cheap air
+- DZ-17 | Algeria | Strike jet | Air | Su-24 / Su-34 flavour | A2G
+- DZ-18 | Algeria | Naval | Sea | Kilo 636 flavour | Sub
+- TR-01 | Turkey | Infantry | Land | Mehmetçik squad | Line
+- TR-02 | Turkey | SF | Land | Bordo Bereli | Raid
+- TR-03 | Turkey | Engineer | Land | Engineer | Utility
+- TR-04 | Turkey | Light vehicle | Land | Kirpi MRAP | Mine-resist
+- TR-05 | Turkey | IFV | Land | ACV-15 / Pars | IFV
+- TR-06 | Turkey | Light tank | Land | M60T Sabra | Mid tank
+- TR-07 | Turkey | MBT | Land | Leopard 2A4 | Main tank
+- TR-08 | Turkey | MBT | Land | Altay T1 | Late MBT
+- TR-09 | Turkey | SPG | Land | T-155 Fırtına | 155
+- TR-10 | Turkey | MLRS | Land | Kasırga | Rockets
+- TR-11 | Turkey | Mobile AA | Land | Korkut | Gun AA
+- TR-12 | Turkey | Attack helo | Air | T129 ATAK | AT helo
+- TR-13 | Turkey | UAV | Air | Bayraktar TB2 | ISR + light strike
+- TR-14 | Turkey | UAV | Air | Akıncı | Heavy UCAV
+- TR-15 | Turkey | Fighter | Air | F-16C Özgür / Blk70 | Main jet
+- TR-16 | Turkey | Strike jet | Air | F-4E Terminator | Aging
+- TR-17 | Turkey | UAV | Air | Kızılelma (late) | Jet UCAV
+- TR-18 | Turkey | Naval | Sea | MİLGEM corvette | Corvette
+- IL-01 | Israel | Infantry | Land | Tzanhanim / Golani | Best basic
+- IL-02 | Israel | SF | Land | Sayeret pair | Raid
+- IL-03 | Israel | AT infantry | Land | Spike team | NLOS AT
+- IL-04 | Israel | Engineer | Land | Engineer | Utility
+- IL-05 | Israel | IFV | Land | Eitan 8x8 | Wheeled
+- IL-06 | Israel | APC | Land | Namer | Heaviest taxi
+- IL-07 | Israel | Light tank | Land | Merkava Mk III | Reserve
+- IL-08 | Israel | MBT | Land | Merkava Mk IV Windbreaker | Trophy tank
+- IL-09 | Israel | SPG | Land | M109 Doher | 155
+- IL-10 | Israel | MLRS | Land | PULS / Menatetz | Guided
+- IL-11 | Israel | Attack helo | Air | AH-64 Saraf | AT air
+- IL-12 | Israel | UAV | Air | Hermes 450/900 | ISR
+- IL-13 | Israel | Fighter | Air | F-16I Sufa | Workhorse
+- IL-14 | Israel | Fighter | Air | F-15I Ra'am | Heavy strike
+- IL-15 | Israel | Fighter | Air | F-35I Adir | Stealth strike
+- IL-16 | Israel | Naval | Sea | Sa'ar 6 flavour | AA sea
+- IN-01 | India | Infantry | Land | Rifle section | Line
+- IN-02 | India | SF | Land | Para SF | Raid
+- IN-03 | India | AT infantry | Land | Nag team / NAMICA | Indigenous AT
+- IN-04 | India | Engineer | Land | Engineer | Utility
+- IN-05 | India | IFV | Land | BMP-2 Sarath | Workhorse
+- IN-06 | India | Light tank | Land | T-72 Ajeya | Meat
+- IN-07 | India | MBT | Land | T-90S Bhishma | Main tank
+- IN-08 | India | MBT | Land | Arjun Mk1A | Pride tank
+- IN-09 | India | SPG | Land | K9 Vajra | 155
+- IN-10 | India | MLRS | Land | Pinaka | Rockets
+- IN-11 | India | Attack helo | Air | Prachand LCH | Cheap helo
+- IN-12 | India | Attack helo | Air | AH-64E | Premium helo
+- IN-13 | India | Fighter | Air | Tejas Mk1A | Indigenous light
+- IN-14 | India | Fighter | Air | Su-30MKI | Sky wall
+- IN-15 | India | Fighter | Air | Rafale | Premium
+- IN-16 | India | Strike jet | Air | Jaguar (aging) | Cheap strike
+- IN-17 | India | Missile | Land | BrahMos TEL | Precision cruise
+- IN-18 | India | Naval | Sea | Kalvari flavour sub | Sub
+- IN-19 | India | Naval | Sea | INS Vikrant flavour | Carrier
+- PK-01 | Pakistan | Infantry | Land | Infantry section | Line
+- PK-02 | Pakistan | SF | Land | SSG pair | Raid
+- PK-03 | Pakistan | AT infantry | Land | Baktar-Shikan | AT
+- PK-04 | Pakistan | Engineer | Land | Engineer | Utility
+- PK-05 | Pakistan | APC | Land | Talha / M113 | Taxi
+- PK-06 | Pakistan | Light tank | Land | Al-Zarrar | Reserve
+- PK-07 | Pakistan | MBT | Land | T-80UD | Fast mid
+- PK-08 | Pakistan | MBT | Land | Al-Khalid | Main tank
+- PK-09 | Pakistan | MBT | Land | Haider (VT-4) | Premium
+- PK-10 | Pakistan | SPG | Land | M109 / SH-15 | 155
+- PK-11 | Pakistan | MLRS | Land | Fatah / A-100 MLRS | Rockets
+- PK-12 | Pakistan | Attack helo | Air | Z-10ME | AT helo
+- PK-13 | Pakistan | Fighter | Air | JF-17 Block II | Volume jet
+- PK-14 | Pakistan | Fighter | Air | JF-17 Block III | BVR light
+- PK-15 | Pakistan | Fighter | Air | F-16 MLU / Blk52 | Veteran quality
+- PK-16 | Pakistan | Fighter | Air | J-10CE | Best PAF dogfight
+- PK-17 | Pakistan | Strike jet | Air | Mirage III/V | Aging strike
+- PK-18 | Pakistan | Missile | Land | Babur TEL | Cruise
+- PK-19 | Pakistan | Naval | Sea | Hangor-class sub | AIP sub
+- IR-01 | Iran | Infantry | Land | Regular infantry | Cheap line
+- IR-02 | Iran | SF | Land | Takavar flavour | Raid
+- IR-03 | Iran | AT infantry | Land | Toophan / Dehlavieh | AT copies
+- IR-04 | Iran | Engineer | Land | Engineer | Utility
+- IR-05 | Iran | APC | Land | Boragh APC | Cheap taxi
+- IR-06 | Iran | Light tank | Land | T-72S | Main cheap tank
+- IR-07 | Iran | MBT | Land | Karrar | Best IR tank
+- IR-08 | Iran | SPG | Land | Raad SPG / M-46 | Arty
+- IR-09 | Iran | MLRS | Land | Fajr-5 / Zelzal | Heavy rockets
+- IR-10 | Iran | Missile | Land | Fateh TEL | Tactical ballistic
+- IR-11 | Iran | Mobile AA | Land | Khordad-15 | Mid SAM
+- IR-12 | Iran | Mobile AA | Land | Herz-9 / point AA | Short AA
+- IR-13 | Iran | Attack helo | Air | AH-1 leftover / Mi-28 few | Thin helo
+- IR-14 | Iran | UAV | Air | Mohajer-6 / Shahed-129 | Reusable ISR/strike
+- IR-15 | Iran | UAV | Air | Shahed-136 | One-way
+- IR-16 | Iran | UAV | Air | Karrar UCAV | Jet one-way
+- IR-17 | Iran | Fighter | Air | Kowsar / Saeqeh / F-14 leftover | Poor A2A
+- IR-18 | Iran | Strike jet | Air | MiG-29 / Su-24 leftover | Thin strike
+- IR-19 | Iran | Naval | Sea | Ghadir mini-sub | Denial
+
+# Structures
+
+- SH-01 | All | Core | MCV / Construction Yard
+- SH-02 | All | Eco | Power Plant
+- SH-03 | All | Eco | Oil Depot
+- SH-04 | All | Prod | Barracks
+- SH-05 | All | Prod | War Factory
+- SH-06 | All | Prod | Airfield / Helipad
+- SH-07 | All | Prod | Naval Yard
+- SH-08 | All | Tech | Command / Tech
+- SH-09 | All | Def | HMG nest / bunker
+- SH-10 | All | Def | ATGM tower
+- SH-11 | All | Def | AA gun
+- SH-12 | Egypt | Unique | Sa'ka Tent
+- SH-13 | Egypt | SW | October Battery
+- SH-14 | Saudi | Def | Patriot battery
+- SH-15 | Saudi | SW | Green Crescent
+- SH-16 | UAE | Def | THAAD / Patriot node
+- SH-17 | UAE | SW | Desert Falcon
+- SH-18 | Algeria | Def | S-300 / S-400 battery
+- SH-19 | Algeria | SW | Hellwind
+- SH-20 | Turkey | Def | Hisar site
+- SH-21 | Turkey | Def | Siper battery
+- SH-22 | Turkey | SW | Tayfun Rain
+- SH-23 | Israel | Def | Iron Dome battery
+- SH-24 | Israel | Def | David's Sling
+- SH-25 | Israel | Def | Arrow node
+- SH-26 | Israel | SW | Adir Package
+- SH-27 | India | Def | Akash / QRSAM site
+- SH-28 | India | Def | S-400 battery
+- SH-29 | India | Unique | Cruise Battery
+- SH-30 | India | SW | Trishul
+- SH-31 | Pakistan | Def | HQ-9 / HQ-16 site
+- SH-32 | Pakistan | SW | Ghaznavi Rain
+- SH-33 | Iran | Unique | Drone Workshop
+- SH-34 | Iran | Def | Bavar-373 battery
+- SH-35 | Iran | SW | Raad-e Fath

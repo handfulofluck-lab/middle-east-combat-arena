@@ -44,17 +44,29 @@ def data_uri(path, max_w, quality):
 
 
 # ---- unit/structure/FX sprite pack (newest pack wins) ------------------------
+PACK_V5 = os.path.join(ART, "units_v5", "mca-assets-v2")  # Kimi painted pass (hi-res)
 PACK_V4 = os.path.join(ART, "units_v4", "mca-assets-v2")  # Grok pass-3: dirs+wrecks+cameos
 PACK_V3 = os.path.join(ART, "units_v3", "mca-assets-v2")
 PACK_V2 = os.path.join(ART, "units_v2", "mca-assets-v2")
 PACK_V1 = os.path.join(ART, "units", "mca-assets")
-for _cand in (PACK_V4, PACK_V3, PACK_V2, PACK_V1):
+for _cand in (PACK_V5, PACK_V4, PACK_V3, PACK_V2, PACK_V1):
     if os.path.exists(os.path.join(_cand, "manifest.json")):
         PACK = _cand
         break
 UNITART_OUT = os.path.join(ROOT, "client", "assets", "unitart.json")
 # sprites are authored at 2x world size; inline scale per group
 PACK_SCALE = {"units": 0.75, "structures": 0.5, "effects": 0.5}
+# Per-pack pipeline options: the painted Kimi pack keeps full color (quantizing
+# gradients causes banding) and inlines slightly larger; older flat packs keep
+# the 256-color optimization that their flat palettes were designed around.
+DEFAULT_OPTS = {"quant": True, "dir": 0.5, "struct": 0.5, "icon": 0.75, "fx": 0.5}
+PACK_OPTS = {
+    # painted v5: full color; WebP q88 inlining (auto below) keeps quality high
+    # without a 20MB bundle
+    "units_v5": {"quant": False, "dir": 0.5, "struct": 0.6, "icon": 0.85, "fx": 0.6},
+}
+PACK_OPTS_KEY = os.path.basename(os.path.dirname(PACK))
+OPTS = PACK_OPTS.get(PACK_OPTS_KEY, DEFAULT_OPTS)
 
 
 def png_data_uri(path, scale, quant=False):
@@ -66,9 +78,14 @@ def png_data_uri(path, scale, quant=False):
         # flat RA-style art quantizes to 256 colors with no visible loss and
         # saves ~75% of the bytes (6117 KB -> 1142 KB for the dir strips)
         im = im.quantize(colors=256, method=Image.FASTOCTREE)
+        buf = io.BytesIO()
+        im.save(buf, "PNG", optimize=True)
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    # full-color (painted) art: lossy WebP with alpha — a fraction of PNG's
+    # size with no visible difference at RTS zoom; canvas draws it natively
     buf = io.BytesIO()
-    im.save(buf, "PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    im.save(buf, "WEBP", quality=82, method=4)
+    return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def build_unitart():
@@ -85,41 +102,41 @@ def build_unitart():
         for id_, meta in manifest["units"].items():
             strip = os.path.join(PACK, meta["strip"])
             out["dirs"][id_] = {
-                "strip": png_data_uri(strip, 0.5, quant=True),
-                "fw": max(1, round(meta["canvas_px"] * 0.5)),
+                "strip": png_data_uri(strip, OPTS["dir"], quant=OPTS["quant"]),
+                "fw": max(1, round(meta["canvas_px"] * OPTS["dir"])),
                 "frames": meta.get("strip_frames", 8),
             }
             out["wrecks"][id_] = png_data_uri(
-                os.path.join(PACK, meta["wreck"]), 0.5, quant=True)
+                os.path.join(PACK, meta["wreck"]), OPTS["struct"], quant=OPTS["quant"])
             out["icons"][id_] = png_data_uri(
-                os.path.join(PACK, meta["icon"]), 0.75, quant=True)
+                os.path.join(PACK, meta["icon"]), OPTS["icon"], quant=OPTS["quant"])
         for id_, meta in manifest["structures"].items():
             out["wrecks"][id_] = png_data_uri(
-                os.path.join(PACK, meta["wreck"]), 0.5, quant=True)
+                os.path.join(PACK, meta["wreck"]), OPTS["struct"], quant=OPTS["quant"])
             out["icons"][id_] = png_data_uri(
-                os.path.join(PACK, meta["icon"]), 0.75, quant=True)
+                os.path.join(PACK, meta["icon"]), OPTS["icon"], quant=OPTS["quant"])
         # v4 delta: damaged (~50% HP) standing states for all 35 structures
         out["damaged"] = {}
         for id_, meta in manifest["structures"].items():
             if meta.get("damaged"):
                 out["damaged"][id_] = png_data_uri(
-                    os.path.join(PACK, meta["damaged"]), 0.5, quant=True)
+                    os.path.join(PACK, meta["damaged"]), OPTS["struct"], quant=OPTS["quant"])
         # v5 delta: ConYard idle strip + ambient fx loops (rotor/radar/steam/…)
         idle_path = os.path.join(PACK, "sprites", "idle", "SH-01.png")
         if os.path.exists(idle_path):
             im = Image.open(idle_path)
             frames = im.width // im.height
             out["idle"] = {"SH-01": {
-                "strip": png_data_uri(idle_path, 0.5, quant=True),
-                "fw": max(1, round(im.height * 0.5)),
+                "strip": png_data_uri(idle_path, OPTS["struct"], quant=OPTS["quant"]),
+                "fw": max(1, round(im.height * OPTS["struct"])),
                 "frames": frames, "fps": 8,
             }}
         if manifest.get("fx_loops"):
             out["loops"] = {}
             for key, meta in manifest["fx_loops"].items():
                 out["loops"][key] = {
-                    "strip": png_data_uri(os.path.join(PACK, meta["sprite"]), 0.5, quant=True),
-                    "fw": max(1, round(meta["frame_w"] * 0.5)),
+                    "strip": png_data_uri(os.path.join(PACK, meta["sprite"]), OPTS["fx"], quant=OPTS["quant"]),
+                    "fw": max(1, round(meta["frame_w"] * OPTS["fx"])),
                     "frames": meta.get("strip_frames", 8),
                     "fps": meta.get("fps", 8),
                 }
@@ -132,7 +149,7 @@ def build_unitart():
             os.path.join(PACK, meta["sprite"]), PACK_SCALE["structures"])
     for key, meta in manifest["effects"].items():
         out["effects"][key] = png_data_uri(
-            os.path.join(PACK, meta["sprite"]), PACK_SCALE["effects"])
+            os.path.join(PACK, meta["sprite"]), OPTS["fx"])
         # v4 delta metadata (strip frame counts, projectile draw radius)
         if meta.get("strip_frames") or meta.get("radius"):
             out.setdefault("fxMeta", {})[key] = {
@@ -178,6 +195,19 @@ def main():
             os.path.splitext(f)[0]: data_uri(os.path.join(thumbs_dir, f), 220, 74)
             for f in sorted(os.listdir(thumbs_dir)) if f.endswith(".png")
         }
+    # v5 painted pass: menu ambient video loop (Kimi video-generation plugin
+    # deliverable) — inlined as a data-URI <video> for the main menu backdrop
+    for _mv in (os.path.join(PACK, "menu_ambient.mp4"),
+                os.path.join(PACK, "menu_ambient.webm")):
+        if os.path.exists(_mv):
+            import mimetypes
+            _mime = mimetypes.guess_type(_mv)[0] or "video/mp4"
+            with open(_mv, "rb") as _fh:
+                art["menuVideo"] = ("data:" + _mime + ";base64,"
+                                    + base64.b64encode(_fh.read()).decode("ascii"))
+            print(f"inlined menu video {_mv} "
+                  f"({os.path.getsize(_mv) // 1024} KB)")
+            break
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w", encoding="utf-8") as fh:
         json.dump(art, fh, separators=(",", ":"))
