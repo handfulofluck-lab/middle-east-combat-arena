@@ -1,0 +1,738 @@
+{
+  "version": "0.3.4-art1",
+  "note": "External display reservoir. Sim ids (SH-*, EG-*) never change. HUD reads hud / aliasByFaction[ownerFaction] / defaultName in that order.",
+  "howToEdit": "Edit aliasByFaction or hud here. Rebuild is not required for name-only changes once Kimi loads this JSON (or inlines it as __INLINE_DISPLAY).",
+  "factions": {
+    "Egypt": {
+      "color": "#c8a23a",
+      "emblem": "fac-egypt"
+    },
+    "Saudi": {
+      "color": "#2e7d32",
+      "emblem": "fac-saudi"
+    },
+    "UAE": {
+      "color": "#b03a2e",
+      "emblem": "fac-uae"
+    },
+    "Algeria": {
+      "color": "#616161",
+      "emblem": "fac-algeria"
+    },
+    "Turkey": {
+      "color": "#d32f2f",
+      "emblem": "fac-turkey"
+    },
+    "Israel": {
+      "color": "#1565c0",
+      "emblem": "fac-israel"
+    },
+    "India": {
+      "color": "#ef6c00",
+      "emblem": "fac-india"
+    },
+    "Pakistan": {
+      "color": "#00695c",
+      "emblem": "fac-pakistan"
+    },
+    "Iran": {
+      "color": "#6a1b9a",
+      "emblem": "fac-iran"
+    }
+  },
+  "structures": {
+    "SH-01": {
+      "id": "SH-01",
+      "faction": "All",
+      "type": "Core",
+      "defaultName": "Construction Yard",
+      "hud": "Yard",
+      "sprite": "SH-01",
+      "aliasByFaction": {
+        "Egypt": "Nile Yard",
+        "Saudi": "Diriyah Works",
+        "UAE": "Khalifa Works",
+        "Algeria": "Cherchell Yard",
+        "Turkey": "Seferberlik Yard",
+        "Israel": "Kirya Annex",
+        "India": "Command Works",
+        "Pakistan": "Rawalpindi Works",
+        "Iran": "Khatam Yard"
+      },
+      "flavorByFaction": {
+        "Egypt": "Markaz al-Maydan",
+        "Saudi": "Wizarat al-Amal",
+        "UAE": "Mashgha' Khalifa",
+        "Algeria": "Chantier de Cherchell",
+        "Turkey": "Seferberlik Merkezi",
+        "Israel": "Kirya Annex",
+        "India": "Southern Command Works",
+        "Pakistan": "GHQ Works",
+        "Iran": "Gharargah-e Khatam"
+      }
+    },
+    "SH-02": {
+      "id": "SH-02",
+      "faction": "All",
+      "type": "Eco",
+      "defaultName": "Power Plant",
+      "hud": "Plant",
+      "sprite": "SH-02",
+      "aliasByFaction": {
+        "Egypt": "High Dam Plant",
+        "Saudi": "Aramco Plant",
+        "UAE": "Taweelah Plant",
+        "Algeria": "Hassi Plant",
+        "Turkey": "Eti Plant",
+        "Israel": "IEC Node",
+        "India": "NTPC Node",
+        "Pakistan": "Tarbela Plant",
+        "Iran": "Bushehr Node"
+      },
+      "flavorByFaction": {
+        "Egypt": "Mahattat al-Sadd",
+        "Saudi": "Mahattat al-Taqa",
+        "UAE": "Taweelah",
+        "Algeria": "Centrale Hassi",
+        "Turkey": "Enerji Santrali",
+        "Israel": "Tachanat Koach",
+        "India": "Vidyut Sanyantra",
+        "Pakistan": "Bijli Plant",
+        "Iran": "Nirugah"
+      }
+    },
+    "SH-03": {
+      "id": "SH-03",
+      "faction": "All",
+      "type": "Eco",
+      "defaultName": "Oil Depot",
+      "hud": "Depot",
+      "sprite": "SH-03",
+      "aliasByFaction": {
+        "Egypt": "Suez Depot",
+        "Saudi": "Ghawar Depot",
+        "UAE": "Ruwais Depot",
+        "Algeria": "Hassi Depot",
+        "Turkey": "Batman Depot",
+        "Israel": "Negev Depot",
+        "India": "ONGC Depot",
+        "Pakistan": "Potwar Depot",
+        "Iran": "Ahvaz Depot"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-04": {
+      "id": "SH-04",
+      "faction": "All",
+      "type": "Prod",
+      "defaultName": "Barracks",
+      "hud": "Hall",
+      "sprite": "SH-04",
+      "aliasByFaction": {
+        "Egypt": "Sa'ka Hall",
+        "Saudi": "SANG Hall",
+        "UAE": "Guard Hall",
+        "Algeria": "ANP Hall",
+        "Turkey": "Piyade Hall",
+        "Israel": "Golani Hall",
+        "India": "Sena Hall",
+        "Pakistan": "Punjab Hall",
+        "Iran": "Basij Hall"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-05": {
+      "id": "SH-05",
+      "faction": "All",
+      "type": "Prod",
+      "defaultName": "War Factory",
+      "hud": "Works",
+      "sprite": "SH-05",
+      "aliasByFaction": {
+        "Egypt": "Abu Zaabal Works",
+        "Saudi": "Al-Kharj Works",
+        "UAE": "Nimr Works",
+        "Algeria": "Rouiba Works",
+        "Turkey": "BMC Works",
+        "Israel": "Merkava Works",
+        "India": "Avadi Works",
+        "Pakistan": "Taxila Works",
+        "Iran": "Dorud Works"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-06": {
+      "id": "SH-06",
+      "faction": "All",
+      "type": "Prod",
+      "defaultName": "Airfield",
+      "hud": "Field",
+      "sprite": "SH-06",
+      "aliasByFaction": {
+        "Egypt": "Almaza Field",
+        "Saudi": "King Khalid Field",
+        "UAE": "Al Dhafra Field",
+        "Algeria": "Ouargla Field",
+        "Turkey": "Akıncı Field",
+        "Israel": "Hatzor Field",
+        "India": "Hindon Field",
+        "Pakistan": "Sargodha Field",
+        "Iran": "Mehrabad Field"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-07": {
+      "id": "SH-07",
+      "faction": "All",
+      "type": "Prod",
+      "defaultName": "Naval Yard",
+      "hud": "Slip",
+      "sprite": "SH-07",
+      "aliasByFaction": {
+        "Egypt": "Alexandria Slip",
+        "Saudi": "Jeddah Slip",
+        "UAE": "Mina Zayed Slip",
+        "Algeria": "Mers El Kebir",
+        "Turkey": "Gölcük Slip",
+        "Israel": "Haifa Slip",
+        "India": "Karwar Slip",
+        "Pakistan": "Karachi Slip",
+        "Iran": "Bandar Slip"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-08": {
+      "id": "SH-08",
+      "faction": "All",
+      "type": "Tech",
+      "defaultName": "Command / Tech",
+      "hud": "Tech",
+      "sprite": "SH-08",
+      "aliasByFaction": {
+        "Egypt": "October Cell",
+        "Saudi": "MOD Cell",
+        "UAE": "Edge Cell",
+        "Algeria": "MDN Cell",
+        "Turkey": "SSB Cell",
+        "Israel": "Maf'at Cell",
+        "India": "DRDO Cell",
+        "Pakistan": "SPD Cell",
+        "Iran": "Sepah Cell"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-09": {
+      "id": "SH-09",
+      "faction": "All",
+      "type": "Def",
+      "defaultName": "HMG Nest",
+      "hud": "Nest",
+      "sprite": "SH-09",
+      "aliasByFaction": {
+        "Egypt": "Sinai Nest",
+        "Saudi": "Najd Nest",
+        "UAE": "Liwa Nest",
+        "Algeria": "Atlas Nest",
+        "Turkey": "Mehmet Nest",
+        "Israel": "Outpost",
+        "India": "Jawala Nest",
+        "Pakistan": "Frontier Nest",
+        "Iran": "Basij Nest"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-10": {
+      "id": "SH-10",
+      "faction": "All",
+      "type": "Def",
+      "defaultName": "ATGM Tower",
+      "hud": "Spike",
+      "sprite": "SH-10",
+      "aliasByFaction": {
+        "Egypt": "Kornet Spike",
+        "Saudi": "TOW Spike",
+        "UAE": "Javelin Spike",
+        "Algeria": "Kornet Spike",
+        "Turkey": "UMTAS Spike",
+        "Israel": "Spike",
+        "India": "Nag Spike",
+        "Pakistan": "Baktar Spike",
+        "Iran": "Toophan Spike"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-11": {
+      "id": "SH-11",
+      "faction": "All",
+      "type": "Def",
+      "defaultName": "AA Gun",
+      "hud": "AA",
+      "sprite": "SH-11",
+      "aliasByFaction": {
+        "Egypt": "Igla Pit",
+        "Saudi": "Avenger Pit",
+        "UAE": "Avenger Pit",
+        "Algeria": "Pantsir Pit",
+        "Turkey": "Korkut Pit",
+        "Israel": "Machbet Pit",
+        "India": "Akash Pit",
+        "Pakistan": "Anza Pit",
+        "Iran": "Herz Pit"
+      },
+      "flavorByFaction": {}
+    },
+    "SH-12": {
+      "id": "SH-12",
+      "faction": "Egypt",
+      "type": "Unique",
+      "defaultName": "Sa'ka Tent",
+      "hud": "Tent",
+      "sprite": "SH-12",
+      "aliasByFaction": {
+        "Egypt": "Sa'ka Tent"
+      },
+      "flavorByFaction": {
+        "Egypt": "Ma'askar al-Sa'ka"
+      }
+    },
+    "SH-13": {
+      "id": "SH-13",
+      "faction": "Egypt",
+      "type": "SW",
+      "defaultName": "October Battery",
+      "hud": "October",
+      "sprite": "SH-13",
+      "aliasByFaction": {
+        "Egypt": "October"
+      },
+      "flavorByFaction": {
+        "Egypt": "6 October Battery"
+      }
+    },
+    "SH-14": {
+      "id": "SH-14",
+      "faction": "Saudi",
+      "type": "Def",
+      "defaultName": "Patriot Battery",
+      "hud": "Screen",
+      "sprite": "SH-14",
+      "aliasByFaction": {
+        "Saudi": "Fahd Screen"
+      },
+      "flavorByFaction": {
+        "Saudi": "Green Shield"
+      }
+    },
+    "SH-15": {
+      "id": "SH-15",
+      "faction": "Saudi",
+      "type": "SW",
+      "defaultName": "Green Crescent",
+      "hud": "Crescent",
+      "sprite": "SH-15",
+      "aliasByFaction": {
+        "Saudi": "Crescent"
+      },
+      "flavorByFaction": {
+        "Saudi": "Green Crescent"
+      }
+    },
+    "SH-16": {
+      "id": "SH-16",
+      "faction": "UAE",
+      "type": "Def",
+      "defaultName": "Edge Node",
+      "hud": "Node",
+      "sprite": "SH-16",
+      "aliasByFaction": {
+        "UAE": "Edge Node"
+      },
+      "flavorByFaction": {
+        "UAE": "Al-Dhafra Screen"
+      }
+    },
+    "SH-17": {
+      "id": "SH-17",
+      "faction": "UAE",
+      "type": "SW",
+      "defaultName": "Desert Falcon",
+      "hud": "Falcon",
+      "sprite": "SH-17",
+      "aliasByFaction": {
+        "UAE": "Falcon"
+      },
+      "flavorByFaction": {
+        "UAE": "Saqr al-Sahra"
+      }
+    },
+    "SH-18": {
+      "id": "SH-18",
+      "faction": "Algeria",
+      "type": "Def",
+      "defaultName": "Atlas Screen",
+      "hud": "Screen",
+      "sprite": "SH-18",
+      "aliasByFaction": {
+        "Algeria": "Atlas Screen"
+      },
+      "flavorByFaction": {
+        "Algeria": "Barrage de l'Atlas"
+      }
+    },
+    "SH-19": {
+      "id": "SH-19",
+      "faction": "Algeria",
+      "type": "SW",
+      "defaultName": "Hellwind",
+      "hud": "Hellwind",
+      "sprite": "SH-19",
+      "aliasByFaction": {
+        "Algeria": "Hellwind"
+      },
+      "flavorByFaction": {
+        "Algeria": "Vent de Feu"
+      }
+    },
+    "SH-20": {
+      "id": "SH-20",
+      "faction": "Turkey",
+      "type": "Def",
+      "defaultName": "Hisar Site",
+      "hud": "Hisar",
+      "sprite": "SH-20",
+      "aliasByFaction": {
+        "Turkey": "Hisar"
+      },
+      "flavorByFaction": {
+        "Turkey": "Hisar Ring"
+      }
+    },
+    "SH-21": {
+      "id": "SH-21",
+      "faction": "Turkey",
+      "type": "Def",
+      "defaultName": "Siper Battery",
+      "hud": "Siper",
+      "sprite": "SH-21",
+      "aliasByFaction": {
+        "Turkey": "Siper"
+      },
+      "flavorByFaction": {
+        "Turkey": "Steel Dome"
+      }
+    },
+    "SH-22": {
+      "id": "SH-22",
+      "faction": "Turkey",
+      "type": "SW",
+      "defaultName": "Tayfun Rain",
+      "hud": "Tayfun",
+      "sprite": "SH-22",
+      "aliasByFaction": {
+        "Turkey": "Tayfun"
+      },
+      "flavorByFaction": {
+        "Turkey": "Tayfun Rain"
+      }
+    },
+    "SH-23": {
+      "id": "SH-23",
+      "faction": "Israel",
+      "type": "Def",
+      "defaultName": "Iron Dome Battery",
+      "hud": "Dome",
+      "sprite": "SH-23",
+      "aliasByFaction": {
+        "Israel": "Dome"
+      },
+      "flavorByFaction": {
+        "Israel": "Kipat Barzel"
+      }
+    },
+    "SH-24": {
+      "id": "SH-24",
+      "faction": "Israel",
+      "type": "Def",
+      "defaultName": "David's Sling",
+      "hud": "Sling",
+      "sprite": "SH-24",
+      "aliasByFaction": {
+        "Israel": "Sling"
+      },
+      "flavorByFaction": {
+        "Israel": "Kela David"
+      }
+    },
+    "SH-25": {
+      "id": "SH-25",
+      "faction": "Israel",
+      "type": "Def",
+      "defaultName": "Arrow Node",
+      "hud": "Arrow",
+      "sprite": "SH-25",
+      "aliasByFaction": {
+        "Israel": "Arrow"
+      },
+      "flavorByFaction": {
+        "Israel": "Hetz Node"
+      }
+    },
+    "SH-26": {
+      "id": "SH-26",
+      "faction": "Israel",
+      "type": "SW",
+      "defaultName": "Adir Package",
+      "hud": "Adir",
+      "sprite": "SH-26",
+      "aliasByFaction": {
+        "Israel": "Adir"
+      },
+      "flavorByFaction": {
+        "Israel": "Adir Package"
+      }
+    },
+    "SH-27": {
+      "id": "SH-27",
+      "faction": "India",
+      "type": "Def",
+      "defaultName": "Akash Site",
+      "hud": "Akash",
+      "sprite": "SH-27",
+      "aliasByFaction": {
+        "India": "Akash"
+      },
+      "flavorByFaction": {
+        "India": "Akash Belt"
+      }
+    },
+    "SH-28": {
+      "id": "SH-28",
+      "faction": "India",
+      "type": "Def",
+      "defaultName": "Sudarshan Screen",
+      "hud": "Sudarshan",
+      "sprite": "SH-28",
+      "aliasByFaction": {
+        "India": "Sudarshan"
+      },
+      "flavorByFaction": {
+        "India": "Sudarshan Screen"
+      }
+    },
+    "SH-29": {
+      "id": "SH-29",
+      "faction": "India",
+      "type": "Unique",
+      "defaultName": "BrahMos Cell",
+      "hud": "BrahMos",
+      "sprite": "SH-29",
+      "aliasByFaction": {
+        "India": "BrahMos Cell"
+      },
+      "flavorByFaction": {
+        "India": "Lane Battery"
+      }
+    },
+    "SH-30": {
+      "id": "SH-30",
+      "faction": "India",
+      "type": "SW",
+      "defaultName": "Trishul",
+      "hud": "Trishul",
+      "sprite": "SH-30",
+      "aliasByFaction": {
+        "India": "Trishul"
+      },
+      "flavorByFaction": {
+        "India": "Trishul"
+      }
+    },
+    "SH-31": {
+      "id": "SH-31",
+      "faction": "Pakistan",
+      "type": "Def",
+      "defaultName": "Haider Screen",
+      "hud": "Haider",
+      "sprite": "SH-31",
+      "aliasByFaction": {
+        "Pakistan": "Haider Screen"
+      },
+      "flavorByFaction": {
+        "Pakistan": "Haider Belt"
+      }
+    },
+    "SH-32": {
+      "id": "SH-32",
+      "faction": "Pakistan",
+      "type": "SW",
+      "defaultName": "Ghaznavi Rain",
+      "hud": "Ghaznavi",
+      "sprite": "SH-32",
+      "aliasByFaction": {
+        "Pakistan": "Ghaznavi"
+      },
+      "flavorByFaction": {
+        "Pakistan": "Ghaznavi Rain"
+      }
+    },
+    "SH-33": {
+      "id": "SH-33",
+      "faction": "Iran",
+      "type": "Unique",
+      "defaultName": "Drone Workshop",
+      "hud": "Workshop",
+      "sprite": "SH-33",
+      "aliasByFaction": {
+        "Iran": "Workshop"
+      },
+      "flavorByFaction": {
+        "Iran": "Shahed Khanah"
+      }
+    },
+    "SH-34": {
+      "id": "SH-34",
+      "faction": "Iran",
+      "type": "Def",
+      "defaultName": "Bavar-373",
+      "hud": "Bavar",
+      "sprite": "SH-34",
+      "aliasByFaction": {
+        "Iran": "Bavar"
+      },
+      "flavorByFaction": {
+        "Iran": "Bavar-373"
+      }
+    },
+    "SH-35": {
+      "id": "SH-35",
+      "faction": "Iran",
+      "type": "SW",
+      "defaultName": "Raad-e Fath",
+      "hud": "Raad",
+      "sprite": "SH-35",
+      "aliasByFaction": {
+        "Iran": "Raad"
+      },
+      "flavorByFaction": {
+        "Iran": "Raad-e Fath"
+      }
+    }
+  },
+  "unitClasses": {
+    "Infantry": {
+      "sprite": "infantry",
+      "hud": "Infantry"
+    },
+    "AT infantry": {
+      "sprite": "at_inf",
+      "hud": "AT infantry"
+    },
+    "AA infantry": {
+      "sprite": "aa_inf",
+      "hud": "AA infantry"
+    },
+    "Engineer": {
+      "sprite": "engineer",
+      "hud": "Engineer"
+    },
+    "SF": {
+      "sprite": "sf",
+      "hud": "SF"
+    },
+    "IFV": {
+      "sprite": "ifv",
+      "hud": "IFV"
+    },
+    "APC": {
+      "sprite": "apc",
+      "hud": "APC"
+    },
+    "Light vehicle": {
+      "sprite": "light_veh",
+      "hud": "Light vehicle"
+    },
+    "Light tank": {
+      "sprite": "light_tank",
+      "hud": "Light tank"
+    },
+    "MBT": {
+      "sprite": "mbt",
+      "hud": "MBT"
+    },
+    "SPG": {
+      "sprite": "spg",
+      "hud": "SPG"
+    },
+    "MLRS": {
+      "sprite": "mlrs",
+      "hud": "MLRS"
+    },
+    "Mobile AA": {
+      "sprite": "mobile_aa",
+      "hud": "Mobile AA"
+    },
+    "Missile": {
+      "sprite": "missile",
+      "hud": "Missile"
+    },
+    "Attack helo": {
+      "sprite": "attack_helo",
+      "hud": "Attack helo"
+    },
+    "Transport helo": {
+      "sprite": "transport_helo",
+      "hud": "Transport helo"
+    },
+    "Fighter": {
+      "sprite": "fighter",
+      "hud": "Fighter"
+    },
+    "Strike jet": {
+      "sprite": "strike_jet",
+      "hud": "Strike jet"
+    },
+    "UAV": {
+      "sprite": "uav",
+      "hud": "UAV"
+    },
+    "Naval": {
+      "sprite": "naval",
+      "hud": "Naval"
+    },
+    "MCV": {
+      "sprite": "mcv",
+      "hud": "MCV"
+    },
+    "Harvester": {
+      "sprite": "harv",
+      "hud": "Harvester"
+    },
+    "Tank escort": {
+      "sprite": "mbt",
+      "hud": "Tank escort"
+    }
+  },
+  "unitHudOverrides": {
+    "EG-13": "T-90MS",
+    "EG-19": "Frigate",
+    "EG-20": "Type-209",
+    "DZ-12": "BMPT-72",
+    "DZ-17": "Su-24/34",
+    "DZ-18": "Kilo",
+    "SA-08": "M1A2S",
+    "SA-14": "Typhoon",
+    "AE-07": "Leclerc",
+    "AE-14": "Rafale",
+    "AE-15": "Baynunah",
+    "IR-15": "Shahed-136",
+    "IR-10": "Fateh TEL",
+    "IR-19": "Ghadir",
+    "PK-18": "Babur TEL",
+    "PK-19": "Hangor"
+  },
+  "lookup": {
+    "structureName": "aliasByFaction[faction] || defaultName",
+    "structureHud": "hud",
+    "unitSprite": "unitId if in sprite_map else unitClasses[cls].sprite else shape fallback"
+  }
+}

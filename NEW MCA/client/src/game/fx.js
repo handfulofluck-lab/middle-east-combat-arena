@@ -11,6 +11,7 @@ export function initFx(game) {
   game.fx = {
     parts: [],        // {x,y,vx,vy,age,life,size,color,kind,fade}
     rings: [],        // {x,y,age,life,color,r0,r1}
+    losses: { unitsLost: 0, structsLost: 0 },
     shake: 0, sx: 0, sy: 0,
     prevU: new Map(), // id -> {x,y}
     prevS: new Map(),
@@ -55,12 +56,17 @@ function burst(game, x, y, n, opts) {
 }
 
 export function fxExplosion(game, x, y, big) {
-  burst(game, x, y, big ? 26 : 12, {
-    speed: big ? 130 : 90, life: 550, size: big ? 5 : 3,
+  // central flash: bright expanding disc, reads at any zoom
+  spawn(game, {
+    x, y, vx: 0, vy: 0, age: 0, life: big ? 260 : 180,
+    size: big ? 46 : 26, color: '#fff3c4', kind: 'flash',
+  });
+  burst(game, x, y, big ? 30 : 16, {
+    speed: big ? 170 : 120, life: 600, size: big ? 8 : 5,
     colors: ['#ffe9a0', '#ffb46a', '#ff7a45', '#e53935'], kind: 'spark',
   });
-  burst(game, x, y, big ? 10 : 4, {
-    speed: 26, life: 1400, size: big ? 9 : 6, color: 'rgba(70,70,70,0.55)', kind: 'smoke',
+  burst(game, x, y, big ? 12 : 6, {
+    speed: 30, life: 1600, size: big ? 16 : 10, color: 'rgba(70,70,70,0.5)', kind: 'smoke',
   });
 }
 
@@ -73,6 +79,7 @@ export function fxRing(game, x, y, kind) {
 }
 
 export function fxShake(game, amount) {
+  if (game.settings && game.settings.screenShake === false) return;
   game.fx.shake = Math.min(14, game.fx.shake + amount);
 }
 
@@ -94,7 +101,8 @@ export function fxObserveTick(game) {
   const fx = game.fx;
   if (!st || !fx || fx.lastTick === st.tick) return;
   fx.lastTick = st.tick;
-  if (typeof document === 'undefined') return; // headless QA: no rendering
+  // headless QA harnesses (MiniRacer) have no DOM image API — skip FX there
+  if (typeof document === 'undefined' || typeof Image === 'undefined') return;
 
   const visible = (x, y) => {
     const cx = Math.floor(x / 64), cy = Math.floor(y / 64);
@@ -112,15 +120,19 @@ export function fxObserveTick(game) {
         ? entPos(st, u.order.targetId || u.order.enemyId) : null;
       const dx = tpos ? tpos.x - u.x : 0, dy = tpos ? tpos.y - u.y : 0;
       const d = Math.sqrt(dx * dx + dy * dy) || 1;
-      burst(game, u.x + dx / d * 12, u.y + dy / d * 12, 3, {
-        vx: dx / d * 60, vy: dy / d * 60, speed: 30, life: 220,
-        size: 2.5, colors: ['#ffe9a0', '#ffd76a'], kind: 'spark',
+      burst(game, u.x + dx / d * 14, u.y + dy / d * 14, 4, {
+        vx: dx / d * 90, vy: dy / d * 90, speed: 40, life: 240,
+        size: 5, colors: ['#ffe9a0', '#ffd76a'], kind: 'spark',
+      });
+      spawn(game, {
+        x: u.x + dx / d * 14, y: u.y + dy / d * 14,
+        vx: 0, vy: 0, age: 0, life: 110, size: 14, color: '#fff3c4', kind: 'flash',
       });
       sfx('shot');
     }
     if (seen && u.lastHitTick === st.tick) {
-      burst(game, u.x, u.y, 3, {
-        speed: 55, life: 300, size: 2, colors: ['#ff8a65', '#ffd54f'], kind: 'spark',
+      burst(game, u.x, u.y, 4, {
+        speed: 70, life: 320, size: 4, colors: ['#ff8a65', '#ffd54f'], kind: 'spark',
       });
       sfx('hit');
     }
@@ -131,7 +143,7 @@ export function fxObserveTick(game) {
     if (visible(pos.x, pos.y)) {
       fxExplosion(game, pos.x, pos.y, false);
       sfx('explosion');
-      if (pos.own) fxShake(game, 3);
+      if (pos.own) { fxShake(game, 3); fx.losses.unitsLost++; }
     }
   }
   // re-store with owner for death shake
@@ -146,8 +158,8 @@ export function fxObserveTick(game) {
     const c = entPos(st, id);
     const seen = visible(c.x, c.y);
     if (seen && s.lastHitTick === st.tick) {
-      burst(game, c.x, c.y, 4, {
-        speed: 60, life: 350, size: 3, colors: ['#ff8a65', '#ffd54f', '#fff'], kind: 'spark',
+      burst(game, c.x, c.y, 6, {
+        speed: 80, life: 380, size: 5, colors: ['#ff8a65', '#ffd54f', '#fff'], kind: 'spark',
       });
       if (s.owner === game.playerSlot) sfx('alarm');
     }
@@ -159,7 +171,7 @@ export function fxObserveTick(game) {
     if (visible(pos.x, pos.y)) {
       fxExplosion(game, pos.x, pos.y, true);
       sfx('bigExplosion');
-      if (pos.own) fxShake(game, 7);
+      if (pos.own) { fxShake(game, 7); fx.losses.structsLost++; }
     }
   }
 
@@ -220,10 +232,24 @@ export function drawFx(game, ctx) {
   ctx.globalAlpha = 1;
   for (const p of fx.parts) {
     const t = p.age / p.life;
-    ctx.globalAlpha = p.kind === 'smoke' ? (1 - t) * 0.5 : 1 - t;
     ctx.fillStyle = p.color;
-    const s = p.kind === 'smoke' ? p.size * (1 + t * 1.6) : p.size * (1 - t * 0.5);
-    ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+    if (p.kind === 'flash') {
+      ctx.globalAlpha = (1 - t) * 0.9;
+      const r = p.size * (0.4 + t * 0.9);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, 7);
+      ctx.fill();
+    } else if (p.kind === 'smoke') {
+      ctx.globalAlpha = (1 - t) * 0.45;
+      const r = p.size * (1 + t * 1.8);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, 7);
+      ctx.fill();
+    } else {
+      ctx.globalAlpha = 1 - t;
+      const s = p.size * (1 - t * 0.5);
+      ctx.fillRect(p.x - s / 2, p.y - s / 2, s, s);
+    }
   }
   ctx.globalAlpha = 1;
 }

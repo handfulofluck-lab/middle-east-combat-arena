@@ -12,7 +12,7 @@ import {
   standingStructs, structCenter, ABILITY_STRUCT,
   mapHasWater, isHostile, CAPTURE_TICKS,
 } from '../sim/index.js';
-import { screenToWorld } from './camera.js';
+import { screenToWorld, centerCameraOn, clampCameraToMap } from './camera.js';
 import { shapeForUnit, shapeForStructure, initialsFor, factionColorOf } from './sprites.js';
 import { structureLabel, structureHud, unitHud } from './display.js';
 import { addPing } from './minimap.js';
@@ -166,6 +166,28 @@ export function initHud(game) {
   const menuBtn = h('button', 'tb-btn', 'Menu');
   menuBtn.addEventListener('click', () => { if (game.openMenu) game.openMenu(); });
   top.appendChild(menuBtn);
+
+  // economy alert: an oil depot with no working harvester -> income stopped
+  const oilBtn = h('button', 'tb-btn tb-alert', 'OIL HALTED');
+  oilBtn.style.display = 'none';
+  oilBtn.title = 'An oil depot has no harvester — income stopped. Click to jump to it.';
+  oilBtn.addEventListener('click', () => {
+    const st = game.state;
+    if (!st) return;
+    for (const id in st.structures) {
+      const s2 = st.structures[id];
+      if (s2.owner !== game.playerSlot || s2.defId !== 'SH-03') continue;
+      const hv = st.units[s2.harvesterId];
+      if (hv && hv.hp > 0) continue;
+      const c = structCenter(s2);
+      centerCameraOn(game.camera, c.x, c.y);
+      clampCameraToMap(game.camera, st.map.w * CELL, st.map.h * CELL);
+      sfx('alarm');
+      break;
+    }
+  });
+  top.appendChild(oilBtn);
+  game.hudOilBtn = oilBtn;
   function refreshSpeed() {
     for (const s of [1, 2, 4]) {
       speedBtns[s].classList.toggle('active', !game.paused && game.speed === s);
@@ -270,6 +292,18 @@ export function updateHud(game) {
         && cx >= s.cx && cx < s.cx + s.fp && cy >= s.cy && cy < s.cy + s.fp);
     }
     document.body.classList.toggle('capture', capCursor);
+  }
+
+  // oil-halt alert visibility
+  if (game.hudOilBtn) {
+    let halted = false;
+    for (const id in st.structures) {
+      const s2 = st.structures[id];
+      if (s2.owner !== p.slot || s2.defId !== 'SH-03') continue;
+      const hv = st.units[s2.harvesterId];
+      if (!(hv && hv.hp > 0)) { halted = true; break; }
+    }
+    game.hudOilBtn.style.display = halted && !st.over ? 'block' : 'none';
   }
 
   // persistent deploy hint until the first ConYard exists
@@ -623,6 +657,7 @@ function hideTooltip() {
 // ---- hint banners + cursor flash ----------------------------------------------
 
 export function showHint(game, text) {
+  if (game.settings && game.settings.showHints === false) return;
   const root = game.hint || document.getElementById('hint');
   if (!root) return;
   const b = h('div', 'hint-banner', text);

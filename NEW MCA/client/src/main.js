@@ -9,7 +9,11 @@ import { initHud, updateHud, showHint } from './game/hud.js';
 import { initMinimap, updateMinimap } from './game/minimap.js';
 import { showMenu, showPauseMenu, showEndBanner } from './game/menu.js';
 import { setDisplayData, loadAtlas } from './game/display.js';
-import { unlockAudio, loadAudioPrefs, sfx } from './game/audio.js';
+import { unlockAudio, loadAudioPrefs, sfx, setAudioVolume, setAudioMuted } from './game/audio.js';
+import { loadSettings, recordResult } from './game/settings.js';
+import { getSpriteMap } from './game/display.js';
+import { pickRendererName } from './game/view.js';
+import * as PixiView from './game/pixiview.js';
 
 const TICK_MS = 100; // 10 ticks/sec
 let G = null;
@@ -55,12 +59,21 @@ async function loadData() {
 
 export async function boot() {
   loadAudioPrefs();
+  const bootSettings = loadSettings();
+  setAudioVolume(bootSettings.volume);
+  setAudioMuted(bootSettings.muted);
   const { data, maps, display, spriteMap, atlasB64 } = await loadData();
   setDisplayData(display, spriteMap);
   const canvas = document.getElementById('game');
+  // decide the renderer BEFORE touching the canvas: a canvas can host only one
+  // context type, and grabbing 2D here would brick the Pixi/WebGL renderer
+  const rendererName = pickRendererName();
   G = {
-    data, maps, canvas, ctx: canvas.getContext('2d'),
+    data, maps, canvas,
+    ctx: rendererName === 'canvas' ? canvas.getContext('2d') : null,
     state: null, ai: null, camera: null, playerSlot: 0,
+    settings: loadSettings(),
+    rendererName,
     selection: [], groups: {}, pendingCmds: [],
     placement: null, targeting: null, attackMoveArmed: false,
     inspectId: 0,
@@ -89,7 +102,12 @@ export async function boot() {
           if (G.hudSyncSpeed) G.hudSyncSpeed();
         },
         onRestart: () => { G.overlay = null; startMatch(G.lastCfg); },
-        onAbandon: () => exitToMenu(),
+        onAbandon: () => {
+          // conceding is a defeat: freeze the match, report stats, record the loss
+          G.paused = true;
+          if (G.hudSyncSpeed) G.hudSyncSpeed();
+          if (!G.endShown) recordAndShowEnd(false, G.state.players[G.playerSlot]);
+        },
       });
     } else if (G.state) {
       // match finished (banner up or just over): never leave it rendered
@@ -106,6 +124,13 @@ export async function boot() {
     canvas.height = Math.round(window.innerHeight * dpr);
     if (G.camera) { G.camera.viewW = window.innerWidth; G.camera.viewH = window.innerHeight; }
   };
+  // silence the favicon 404 without touching markup (builder asset guard)
+  try {
+    const fav = document.createElement('link');
+    fav.rel = 'icon';
+    fav.href = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22><rect width=%2216%22 height=%2216%22 fill=%22%230a0c10%22/><text x=%222%22 y=%2212%22 font-size=%2211%22 fill=%22%23c8a23a%22>M</text></svg>';
+    document.head.appendChild(fav);
+  } catch (e) { /* cosmetic */ }
   window.addEventListener('resize', resize);
   const unlock = () => { unlockAudio(); };
   window.addEventListener('pointerdown', unlock, { once: true });
@@ -117,6 +142,7 @@ export async function boot() {
   initMinimap(G);
   initFx(G);
   await loadAtlas(G, atlasB64); // sprite atlas; match boots greybox if it fails
+  G.spriteMap = getSpriteMap().frames || {}; // pixiview sprite lookup
   showMenu(G, (cfg) => startMatch(cfg));
 
   let last = performance.now();
@@ -140,7 +166,10 @@ export async function boot() {
         if (steps === 6) acc = 0; // shed backlog instead of death-spiralling
         if (G.state.over) acc = 0;
       }
-      if (G.state) renderFrame(G);
+      if (G.state) {
+        if (G.rendererName === 'pixi') PixiView.renderWorld(G, dt);
+        else renderFrame(G);
+      }
     } catch (err) {
       G.frameErrors++;
       if (typeof console !== 'undefined') console.error(err);
@@ -183,6 +212,11 @@ export function startMatch(cfg) {
   G.groups = {};
   G.pendingCmds = [];
   G.placement = null;
+  // open with the MCV selected: one click from deploying (D / double-click)
+  for (const id in G.state.units) {
+    const u = G.state.units[id];
+    if (u.owner === 0 && u.defId === 'MCV') { G.selection = [u.id]; break; }
+  }
   G.targeting = null;
   G.attackMoveArmed = false;
   G.inspectId = 0;
@@ -198,8 +232,38 @@ export function startMatch(cfg) {
   if (document.body) document.body.classList.remove('in-menu');
   if (G.hudSyncSpeed) G.hudSyncSpeed();
   initRenderer(G);
+  if (G.rendererName === 'pixi') PixiView.initView(G); // async internally; ready-gated
   updateHud(G);
   updateMinimap(G);
+}
+
+// after-action report numbers for the player's current match
+function computeStats(me) {
+  let kills = 0;
+  for (const id in G.state.units) {
+    const u = G.state.units[id];
+    if (u.owner === G.playerSlot) kills += u.kills || 0;
+  }
+  return {
+    ticks: G.state.tick,
+    unitsBuilt: me.unitsBuilt || 0,
+    unitsLost: (G.fx && G.fx.losses.unitsLost) || 0,
+    structsLost: (G.fx && G.fx.losses.structsLost) || 0,
+    kills,
+    credits: me.credits || 0,
+  };
+}
+
+function recordAndShowEnd(won, me) {
+  G.endShown = true;
+  sfx(won ? 'victory' : 'defeat');
+  const stats = computeStats(me);
+  try { recordResult(won, me.faction, stats); } catch (e) { /* records are best-effort */ }
+  showEndBanner(G, {
+    won, stats,
+    onRestart: () => startMatch(G.lastCfg),
+    onMenu: () => exitToMenu(),
+  });
 }
 
 // clean exit from any match state back to the main menu: drops all match
@@ -224,6 +288,7 @@ function exitToMenu() {
   G.menuBack = null;
   G.render = null; // drop the old match's terrain/fog canvases
   clearFx(G);
+  if (G.rendererName === 'pixi') PixiView.disposeView(G);
   if (G.minimap) { G.minimap.pings = []; G.minimap.terrain = null; }
   if (G.hud) { G.hud.stateRef = null; G.hud.hintMcv.style.display = 'none'; }
   // v0.3.2: clear any still-fading hint banners so they don't bleed into the
@@ -233,9 +298,11 @@ function exitToMenu() {
     while (hintRoot.children.length > 1) hintRoot.removeChild(hintRoot.lastChild);
   }
   const c = G.ctx;
-  c.setTransform(1, 0, 0, 1, 0, 0);
-  c.fillStyle = '#0c0e12';
-  c.fillRect(0, 0, G.canvas.width, G.canvas.height);
+  if (c) { // canvas renderer paints the menu backdrop; pixi paints its own
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.fillStyle = '#0c0e12';
+    c.fillRect(0, 0, G.canvas.width, G.canvas.height);
+  }
   if (G.hudSyncSpeed) G.hudSyncSpeed();
   showMenu(G, (c2) => startMatch(c2));
 }
@@ -250,14 +317,7 @@ function simStep() {
   updateMinimap(G);
   const me = G.state.players[G.playerSlot];
   if (!G.endShown && (G.state.over || me.eliminated)) {
-    G.endShown = true;
-    const won = G.state.over && G.state.winner === me.team && !me.eliminated;
-    sfx(won ? 'victory' : 'defeat');
-    showEndBanner(G, {
-      won,
-      onRestart: () => startMatch(G.lastCfg),
-      onMenu: () => exitToMenu(),
-    });
+    recordAndShowEnd(G.state.over && G.state.winner === me.team && !me.eliminated, me);
   }
 }
 

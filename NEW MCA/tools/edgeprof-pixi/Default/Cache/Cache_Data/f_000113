@@ -1,0 +1,1363 @@
+/**
+ * Pixi v8 world renderer for MCA.
+ * (deep integration note: FX is wired via a static top-of-file module ref;
+ * the single-file builder rejects lazy module loading syntax.)
+ */
+import { drawFx } from './fx.js';
+
+const VIEW_KEY = '__pixiview'; // stashed on `game`, never on `game.state`
+const PXV_CELL = 64;           // world units per map cell
+const TERRA_PX = 16;           // terrain texture pixels per cell
+const CULL_PAD = 80;           // world-space cull margin
+
+/** cls -> atlas token (fixed table from the contract). */
+const CLASS_TOKEN = {
+  'Infantry': 'infantry',
+  'AT infantry': 'at_inf',
+  'AA infantry': 'aa_inf',
+  'Engineer': 'engineer',
+  'MBT': 'mbt',
+  'SPG': 'spg',
+  'MLRS': 'mlrs',
+  'Fighter': 'fighter',
+  'Attack helo': 'attack_helo',
+  'Naval': 'naval',
+  'MCV': 'mcv',
+  'Harvester': 'harv',
+};
+
+const PXV_TERRAIN = ['#b8a06a', '#4c4c4c', '#274b7a'];
+
+/* ------------------------------------------------------------------ *
+ * Environment guards
+ * ------------------------------------------------------------------ */
+
+function hasPixi() {
+  return typeof PIXI !== 'undefined' && !!PIXI && !!PIXI.Application && !!PIXI.Container;
+}
+
+function hasDom() {
+  return typeof document !== 'undefined' && !!document.createElement;
+}
+
+/* ------------------------------------------------------------------ *
+ * Tiny utilities
+ * ------------------------------------------------------------------ */
+
+function hexToNum(hex) {
+  if (typeof hex !== 'string') return 0xffffff;
+  let h = hex.trim();
+  if (h.charAt(0) === '#') h = h.slice(1);
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
+  return Number.isFinite(n) ? n : 0xffffff;
+}
+
+function makeCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, w | 0);
+  c.height = Math.max(1, h | 0);
+  return c;
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w * 0.5, h * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+  ctx.closePath();
+}
+
+/** Build a Pixi texture from a canvas draw callback. */
+function canvasTex(w, h, draw, smooth) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext('2d');
+  draw(ctx, c.width, c.height);
+  const tex = PIXI.Texture.from(c);
+  try {
+    if (tex.source) tex.source.scaleMode = smooth ? 'linear' : 'nearest';
+  } catch (e) { /* non-fatal */ }
+  return tex;
+}
+
+/** Track a texture we created so we can free it on rebuild/dispose. */
+function own(v, tex) {
+  if (tex) v.ownedTextures.push(tex);
+  return tex;
+}
+
+/* ------------------------------------------------------------------ *
+ * Generated procedural textures (no external assets)
+ * ------------------------------------------------------------------ */
+
+function texPad() {
+  return canvasTex(64, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#ffffff';
+    roundRectPath(ctx, 3, 3, w - 6, h - 6, 16);
+    ctx.fill();
+  }, true);
+}
+
+function texDisc() {
+  return canvasTex(64, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(w / 2, h / 2, w / 2 - 2, 0, Math.PI * 2);
+    ctx.fill();
+  }, true);
+}
+
+function texSquare() {
+  return canvasTex(64, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(5, 5, w - 10, h - 10);
+  }, true);
+}
+
+function texTriangle() {
+  return canvasTex(64, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(w / 2, 5);
+    ctx.lineTo(w - 5, h - 6);
+    ctx.lineTo(5, h - 6);
+    ctx.closePath();
+    ctx.fill();
+  }, true);
+}
+
+function texDiamond() {
+  return canvasTex(64, 64, (ctx, w, h) => {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.moveTo(w / 2, 4);
+    ctx.lineTo(w - 4, h / 2);
+    ctx.lineTo(w / 2, h - 4);
+    ctx.lineTo(4, h / 2);
+    ctx.closePath();
+    ctx.fill();
+  }, true);
+}
+
+/** Pre-render the whole map to a terrain texture (16px / cell).
+ *  With AI-painted tile assets: per-cell random crops (variation without
+ *  visible tiling), plus coast shading. Without assets: flat greybox colors. */
+function buildTerrainCanvas(map, assets) {
+  const w = map.w | 0, h = map.h | 0;
+  const c = makeCanvas(w * TERRA_PX, h * TERRA_PX);
+  const ctx = c.getContext('2d');
+  const terrain = map.terrain;
+  if (!assets) {
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const t = terrain ? (terrain[row + x] | 0) : 0;
+        ctx.fillStyle = PXV_TERRAIN[t] || PXV_TERRAIN[0];
+        ctx.fillRect(x * TERRA_PX, y * TERRA_PX, TERRA_PX, TERRA_PX);
+      }
+    }
+    return c;
+  }
+  const CROP = 192; // crop window inside the 1024px source tile
+  const hash2 = (x, y) => {
+    let hh = (x * 374761393 + y * 668265263) ^ 0x5bf03635;
+    hh = Math.imul(hh ^ (hh >>> 13), 1274126177);
+    return (hh ^ (hh >>> 16)) >>> 0;
+  };
+  const imgFor = (t, x, y) => {
+    if (t === 2) return assets.water;
+    if (t === 1) return assets.rock;
+    return (hash2(x, y) % 9 === 0 && assets.dune) ? assets.dune : assets.desert;
+  };
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const t = terrain ? (terrain[row + x] | 0) : 0;
+      const img = imgFor(t, x, y);
+      if (!img) {
+        ctx.fillStyle = PXV_TERRAIN[t] || PXV_TERRAIN[0];
+        ctx.fillRect(x * TERRA_PX, y * TERRA_PX, TERRA_PX, TERRA_PX);
+        continue;
+      }
+      const seed = hash2(x * 7 + t * 131, y * 13 + t * 57);
+      const sx = seed % Math.max(1, img.width - CROP);
+      const sy = (seed >>> 9) % Math.max(1, img.height - CROP);
+      // +0.6px overlap kills hairline gaps between cells
+      ctx.drawImage(img, sx, sy, CROP, CROP,
+        x * TERRA_PX, y * TERRA_PX, TERRA_PX + 0.6, TERRA_PX + 0.6);
+      // unify per-crop brightness shifts with a translucent flat wash so the
+      // map reads as one continuous surface, not checkerboard tiles
+      ctx.fillStyle = PXV_TERRAIN[t] || PXV_TERRAIN[0];
+      ctx.globalAlpha = 0.30;
+      ctx.fillRect(x * TERRA_PX, y * TERRA_PX, TERRA_PX + 0.6, TERRA_PX + 0.6);
+      ctx.globalAlpha = 1;
+    }
+  }
+  // coast shading: wet-sand rim on land cells touching water, surf foam rim
+  // on water cells touching land
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const t = terrain ? (terrain[row + x] | 0) : 0;
+      let nearWater = false, nearLand = false;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const nt = terrain[ny * w + nx] | 0;
+          if (nt === 2 && t !== 2) nearWater = true;
+          if (nt !== 2 && t === 2) nearLand = true;
+        }
+      }
+      const px = x * TERRA_PX, py = y * TERRA_PX;
+      if (nearWater) {
+        ctx.fillStyle = 'rgba(90,72,44,0.28)'; // wet dark sand
+        ctx.fillRect(px, py, TERRA_PX, TERRA_PX);
+      } else if (nearLand) {
+        ctx.fillStyle = 'rgba(235,228,200,0.30)'; // surf foam
+        ctx.fillRect(px, py, TERRA_PX, TERRA_PX);
+      }
+    }
+  }
+  // props: oil derricks on oil fields, scattered rocks / dry scrub on open land
+  const drawProp = (img, cx, cy, size, seed) => {
+    if (!img) return;
+    const r = (seed % 628) / 100 - 3.14; // slight rotation variety
+    // soft ground shadow
+    ctx.fillStyle = 'rgba(30,22,12,0.30)';
+    ctx.beginPath();
+    ctx.ellipse(cx + size * 0.06, cy + size * 0.16, size * 0.42, size * 0.2, 0, 0, 7);
+    ctx.fill();
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(r * 0.35);
+    ctx.drawImage(img, -size / 2, -size / 2, size, size * (img.height / img.width));
+    ctx.restore();
+  };
+  if (map.oil) {
+    for (const o of map.oil) {
+      const cx = o.x * TERRA_PX + TERRA_PX / 2;
+      const cy = o.y * TERRA_PX + TERRA_PX / 2;
+      drawProp(assets.derrick, cx, cy, TERRA_PX * 2.3, hash2(o.x, o.y));
+    }
+  }
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const t = terrain ? (terrain[row + x] | 0) : 0;
+      if (t !== 0) continue;
+      const seed = hash2(x * 31, y * 17);
+      const cx = x * TERRA_PX + TERRA_PX / 2;
+      const cy = y * TERRA_PX + TERRA_PX / 2;
+      if (seed % 29 === 0) drawProp(assets.rocks, cx, cy, TERRA_PX * 1.5, seed);
+      else if (seed % 13 === 0) drawProp(assets.scrub, cx, cy, TERRA_PX * 1.0, seed);
+    }
+  }
+  return c;
+}
+
+function texTerrain(map, assets) {
+  const c = buildTerrainCanvas(map, assets || null);
+  const tex = PIXI.Texture.from(c);
+  try {
+    if (tex.source) tex.source.scaleMode = assets ? 'linear' : 'nearest';
+  } catch (e) { /* non-fatal */ }
+  return tex;
+}
+
+/* ---- AI-painted terrain asset loading (cached module-wide) ----------- */
+let terrainAssetsCache = null;
+function loadTerrainAssets() {
+  if (terrainAssetsCache) return terrainAssetsCache;
+  if (typeof Image === 'undefined') {
+    terrainAssetsCache = Promise.resolve(null);
+    return terrainAssetsCache;
+  }
+  const files = {
+    desert: 'assets/terrain/desert.jpg',
+    rock: 'assets/terrain/rock.jpg',
+    water: 'assets/terrain/water.jpg',
+    dune: 'assets/terrain/dune.jpg',
+    derrick: 'assets/props/derrick.png',
+    rocks: 'assets/props/rocks.png',
+    scrub: 'assets/props/scrub.png',
+  };
+  const loadOne = (src) => new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = src;
+  });
+  terrainAssetsCache = Promise.all(
+    Object.keys(files).map((k) => loadOne(files[k]).then((img) => [k, img])),
+  ).then((pairs) => {
+    const out = {};
+    for (const [k, img] of pairs) out[k] = img;
+    if (!out.desert || !out.water) return null; // core pair required
+    return out;
+  }).catch(() => null);
+  return terrainAssetsCache;
+}
+
+/** Load painted terrain (cached) and swap it in when available. */
+function upgradeTerrain(v, game) {
+  try {
+    loadTerrainAssets().then((assets) => {
+      if (game[VIEW_KEY] !== v || !v.ready) return;
+      applyTerrainAssets(v, game, assets);
+    });
+  } catch (e) { /* painted terrain is an upgrade, never a blocker */ }
+  try {
+    loadStructArt().then((art) => {
+      if (game[VIEW_KEY] !== v || !v.ready) return;
+      v.structArt = art;
+      v.structTexCache.clear(); // force re-resolution with painted art
+      for (const view of v.structViews.values()) view.defId = null;
+    });
+  } catch (e) { /* painted structures are an upgrade, never a blocker */ }
+  try {
+    loadUnitArt().then((art) => {
+      if (game[VIEW_KEY] !== v || !v.ready) return;
+      v.unitArt = art;
+      v.unitTexCache.clear();
+      for (const view of v.unitViews.values()) view.defId = null;
+    });
+  } catch (e) { /* painted units are an upgrade, never a blocker */ }
+}
+
+/* ---- painted structure art (AI-generated, per defId) ------------------ */
+let structArtCache = null;
+function loadStructArt() {
+  if (structArtCache) return structArtCache;
+  if (typeof Image === 'undefined') {
+    structArtCache = Promise.resolve({});
+    return structArtCache;
+  }
+  const IDS = ['SH-01', 'SH-02', 'SH-03', 'SH-04', 'SH-05', 'SH-06', 'SH-09', 'SH-10'];
+  const loadOne = (id) => new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res([id, img]);
+    img.onerror = () => res([id, null]);
+    img.src = 'assets/structures/' + id + '.png';
+  });
+  structArtCache = Promise.all(IDS.map(loadOne)).then((pairs) => {
+    const out = {};
+    for (const [id, img] of pairs) if (img) out[id] = img;
+    return out;
+  }).catch(() => ({}));
+  return structArtCache;
+}
+
+/* ---- painted unit art (AI-generated, per class token) ----------------- */
+let unitArtCache = null;
+function loadUnitArt() {
+  if (unitArtCache) return unitArtCache;
+  if (typeof Image === 'undefined') {
+    unitArtCache = Promise.resolve({});
+    return unitArtCache;
+  }
+  const TOKENS = ['infantry', 'attack_helo', 'fighter'];
+  const loadOne = (tok) => new Promise((res) => {
+    const img = new Image();
+    img.onload = () => res([tok, img]);
+    img.onerror = () => res([tok, null]);
+    img.src = 'assets/units/' + tok + '.png';
+  });
+  unitArtCache = Promise.all(TOKENS.map(loadOne)).then((pairs) => {
+    const out = {};
+    for (const [tok, img] of pairs) if (img) out[tok] = img;
+    return out;
+  }).catch(() => ({}));
+  return unitArtCache;
+}
+
+/** Swap the flat terrain for the painted one and add the water shimmer. */
+function applyTerrainAssets(v, game, assets) {
+  if (!assets || !v.terrain || !game.state) return;
+  const map = game.state.map;
+  try {
+    v.terrain.texture = own(v, texTerrain(map, assets));
+  } catch (e) { return; }
+  // animated water shimmer: tiling water layer masked to water cells only
+  try {
+    const maskC = makeCanvas(map.w * TERRA_PX, map.h * TERRA_PX);
+    const mctx = maskC.getContext('2d');
+    mctx.fillStyle = '#fff';
+    for (let y = 0; y < map.h; y++) {
+      for (let x = 0; x < map.w; x++) {
+        if ((map.terrain[y * map.w + x] | 0) === 2) {
+          mctx.fillRect(x * TERRA_PX, y * TERRA_PX, TERRA_PX, TERRA_PX);
+        }
+      }
+    }
+    const waterTex = own(v, PIXI.Texture.from(assets.water));
+    const overlay = new PIXI.TilingSprite({
+      texture: waterTex,
+      width: map.w * PXV_CELL,
+      height: map.h * PXV_CELL,
+    });
+    overlay.alpha = 0.22;
+    try { overlay.blendMode = 'add'; } catch (e) { /* additive shimmer */ }
+    const maskSprite = new PIXI.Sprite(own(v, PIXI.Texture.from(maskC)));
+    maskSprite.renderable = false;
+    overlay.mask = maskSprite;
+    v.world.addChild(overlay);
+    v.world.addChild(maskSprite);
+    v.waterOverlay = overlay;
+  } catch (e) { /* shimmer is decorative */ }
+}
+
+/* ------------------------------------------------------------------ *
+ * initView
+ * ------------------------------------------------------------------ */
+
+export function initView(game) {
+  if (!game) return;
+  if (!hasPixi() || !hasDom()) return; // headless: silent no-op
+
+  const existing = game[VIEW_KEY];
+
+  // Rebuild-safe: reuse a live app for a new match, otherwise rebuild fully.
+  if (existing) {
+    if (existing.ready && existing.app && existing.app.renderer) {
+      try {
+        buildStage(existing, game);
+        existing.ready = true;
+        upgradeTerrain(existing, game);
+      } catch (e) {
+        /* fall through to a fresh app below */
+        try { disposeView(game); } catch (e2) { /* ignore */ }
+      }
+      return;
+    }
+    disposeView(game);
+  }
+
+  const canvas = document.getElementById('game');
+  if (!canvas) return;
+
+  let app;
+  try {
+    app = new PIXI.Application();
+  } catch (e) {
+    return; // PIXI present but unusable -> stay a no-op
+  }
+
+  const v = {
+    app,
+    game,
+    ready: false,
+    world: null,
+    terrain: null,
+    structLayer: null,
+    unitLayer: null,
+    projLayer: null,
+    fogSprite: null,
+    fxSprite: null,
+    overlay: null,
+
+    // caches / pools
+    unitViews: new Map(),
+    structViews: new Map(),
+    projViews: new Map(),
+    unitPool: [],
+    structPool: [],
+    projPool: [],
+    seenUnits: new Set(),
+    seenStructs: new Set(),
+
+    unitTexCache: new Map(),
+    structTexCache: new Map(),
+    ownerColors: new Map(),
+    ownedTextures: [],
+
+    atlasSource: null,
+
+    // fog
+    fogCanvas: null,
+    fogCtx: null,
+    fogImage: null,
+    fogTexture: null,
+    fogTick: -1,
+    waterOverlay: null,
+    structArt: null,
+    unitArt: null,
+
+    // fx
+    fxCanvas: null,
+    fxCtx: null,
+    fxTexture: null,
+    fxW: 0,
+    fxH: 0,
+    fxDraw: null,
+    fxLoaded: false,
+
+    bounds: { x0: 0, y0: 0, x1: 0, y1: 0 },
+  };
+
+  game[VIEW_KEY] = v;
+
+  const initOpts = {
+    canvas,
+    resizeTo: window,
+    background: '#000',
+    antialias: false,
+    autoDensity: true,
+    resolution: Math.min((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 2),
+    preference: 'webgl',
+  };
+
+  let p;
+  try {
+    p = app.init(initOpts);
+  } catch (e) {
+    game[VIEW_KEY] = null;
+    return;
+  }
+
+  Promise.resolve(p)
+    .then(() => {
+      if (game[VIEW_KEY] !== v) {
+        // disposed while initialising
+        try { app.destroy({ removeView: false }, { children: true }); } catch (e) { /* ignore */ }
+        return;
+      }
+      try {
+        if (app.ticker && app.ticker.stop) app.ticker.stop(); // we drive rendering ourselves
+      } catch (e) { /* ignore */ }
+      try {
+        buildStage(v, game);
+        v.ready = true;
+        upgradeTerrain(v, game);
+      } catch (e) {
+        v.ready = false;
+      }
+    })
+    .catch(() => {
+      if (game[VIEW_KEY] === v) game[VIEW_KEY] = null;
+    });
+}
+
+/* ------------------------------------------------------------------ *
+ * Stage construction (also used for rebuilds)
+ * ------------------------------------------------------------------ */
+
+function buildStage(v, game) {
+  const app = v.app;
+  const stage = app.stage;
+
+  // --- tear down previous scene -------------------------------------
+  try {
+    stage.removeChildren();
+  } catch (e) { /* ignore */ }
+
+  for (const tex of v.ownedTextures) {
+    try { tex.destroy(true); } catch (e) { /* ignore */ }
+  }
+  v.ownedTextures.length = 0;
+
+  v.unitViews.clear();
+  v.structViews.clear();
+  v.projViews.clear();
+  v.unitPool.length = 0;
+  v.structPool.length = 0;
+  v.projPool.length = 0;
+  v.unitTexCache.clear();
+  v.structTexCache.clear();
+  v.ownerColors.clear();
+  v.fogTick = -1;
+  v.fxW = 0;
+  v.fxH = 0;
+  v.waterOverlay = null;
+  v.structArt = null;
+  v.unitArt = null;
+
+  v.game = game;
+
+  const st = game.state;
+  const map = st && st.map;
+
+  // --- shared procedural textures -----------------------------------
+  v.padTex = own(v, texPad());
+  v.discTex = own(v, texDisc());
+  v.squareTex = own(v, texSquare());
+  v.triTex = own(v, texTriangle());
+  v.diamondTex = own(v, texDiamond());
+
+  // --- atlas source (may be null) -----------------------------------
+  v.atlasSource = null;
+  if (game.atlas) {
+    try {
+      const t = PIXI.Texture.from(game.atlas);
+      v.atlasSource = t ? t.source : null;
+    } catch (e) {
+      v.atlasSource = null;
+    }
+  }
+
+  // --- scene graph ---------------------------------------------------
+  const world = new PIXI.Container();
+  world.sortableChildren = false;
+
+  const structLayer = new PIXI.Container();
+  const unitLayer = new PIXI.Container();
+  const projLayer = new PIXI.Container();
+  const overlay = new PIXI.Graphics();
+
+  world.addChild(structLayer, unitLayer, projLayer);
+
+  if (map && map.w > 0 && map.h > 0) {
+    // terrain
+    v.terrain = new PIXI.Sprite(own(v, texTerrain(map)));
+    v.terrain.x = 0;
+    v.terrain.y = 0;
+    v.terrain.width = map.w * PXV_CELL;
+    v.terrain.height = map.h * PXV_CELL;
+
+    // fog overlay: 1px per cell, scaled to PXV_CELL
+    v.fogCanvas = makeCanvas(map.w, map.h);
+    v.fogCtx = v.fogCanvas.getContext('2d');
+    v.fogImage = v.fogCtx.createImageData(map.w, map.h);
+    v.fogTexture = own(v, PIXI.Texture.from(v.fogCanvas));
+    v.fogSprite = new PIXI.Sprite(v.fogTexture);
+    v.fogSprite.x = 0;
+    v.fogSprite.y = 0;
+    v.fogSprite.width = map.w * PXV_CELL;
+    v.fogSprite.height = map.h * PXV_CELL;
+
+    world.addChildAt(v.terrain, 0);
+    world.addChildAt(v.fogSprite, world.children.length); // above entities
+  } else {
+    v.terrain = null;
+    v.fogSprite = null;
+    v.fogTexture = null;
+  }
+
+  // FX blit layer (screen-sized canvas placed into world space)
+  v.fxSprite = new PIXI.Sprite();
+  v.fxSprite.visible = false;
+  world.addChild(v.fxSprite);
+
+  // selection / health / placement overlay (world space, above FX)
+  world.addChild(overlay);
+
+  stage.addChild(world);
+
+  v.world = world;
+  v.structLayer = structLayer;
+  v.unitLayer = unitLayer;
+  v.projLayer = projLayer;
+  v.overlay = overlay;
+
+  // FX overlay comes from the shared Canvas2D FX module (static import)
+  v.fxDraw = drawFx;
+  v.fxLoaded = true;
+}
+
+/* ------------------------------------------------------------------ *
+ * renderWorld
+ * ------------------------------------------------------------------ */
+
+export function renderWorld(game, dtMs) {
+  if (!game) return;
+  const v = game[VIEW_KEY];
+  if (!v || !v.ready || !v.world) return;
+
+  const st = game.state;
+  if (!st || !st.map) return;
+
+  const cam = game.camera || { x: 0, y: 0, zoom: 1, viewW: 960, viewH: 600 };
+  const z = cam.zoom > 0 ? cam.zoom : 1;
+  const vw = (cam.viewW || 960) / z;
+  const vh = (cam.viewH || 600) / z;
+
+  // camera transform: screen = (world - cam) * zoom
+  v.world.scale.set(z);
+  v.world.position.set(-cam.x * z, -cam.y * z);
+
+  const b = v.bounds;
+  b.x0 = cam.x - CULL_PAD;
+  b.y0 = cam.y - CULL_PAD;
+  b.x1 = cam.x + vw + CULL_PAD;
+  b.y1 = cam.y + vh + CULL_PAD;
+
+  syncStructures(v, game, st, b);
+  syncUnits(v, game, st, b);
+  syncProjectiles(v, game, st, b);
+  updateFog(v, st);
+  drawOverlay(v, game, st, b);
+  renderFx(v, game, cam, z, vw, vh);
+
+  // animated water shimmer
+  if (v.waterOverlay) {
+    v.waterOverlay.tilePosition.x = (v.waterOverlay.tilePosition.x + dtMs * 0.006) % 512;
+    v.waterOverlay.tilePosition.y = (v.waterOverlay.tilePosition.y + dtMs * 0.0035) % 512;
+  }
+
+  try {
+    v.app.renderer.render(v.app.stage);
+  } catch (e) {
+    /* renderer hiccup must never kill the match loop */
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Structures
+ * ------------------------------------------------------------------ */
+
+function createStructView(v) {
+  const pooled = v.structPool.pop();
+  if (pooled) {
+    pooled.container.visible = true;
+    return pooled;
+  }
+  const c = new PIXI.Container();
+  const pad = new PIXI.Sprite(v.padTex);
+  pad.anchor.set(0.5);
+  pad.alpha = 0.35;
+  const spr = new PIXI.Sprite(v.squareTex);
+  spr.anchor.set(0.5);
+  c.addChild(pad, spr);
+  v.structLayer.addChild(c); // parent once at creation (pooled views keep it)
+  return { container: c, pad, spr, defId: null, owner: -1, fp: 0 };
+}
+
+function releaseStructView(v, view) {
+  view.container.visible = false;
+  if (v.structPool.length < 128) v.structPool.push(view);
+}
+
+function structSpriteTex(v, game, defId) {
+  let tex = v.structTexCache.get(defId);
+  if (tex !== undefined) return tex;
+  tex = null;
+  const painted = v.structArt && v.structArt[defId];
+  if (painted) {
+    try { tex = own(v, PIXI.Texture.from(painted)); } catch (e) { tex = null; }
+  }
+  if (!tex && v.atlasSource && game.spriteMap) {
+    const f = game.spriteMap[defId];
+    if (f && f.sw > 0 && f.sh > 0) {
+      try {
+        tex = new PIXI.Texture({
+          source: v.atlasSource,
+          frame: new PIXI.Rectangle(f.sx, f.sy, f.sw, f.sh),
+        });
+      } catch (e) {
+        tex = null;
+      }
+    }
+  }
+  v.structTexCache.set(defId, tex);
+  return tex;
+}
+
+function syncStructures(v, game, st, b) {
+  const views = v.structViews;
+  const seen = v.seenStructs;
+  seen.clear();
+  const defs = st.structDefs || {};
+
+  for (const id in st.structures) {
+    const s = st.structures[id];
+    if (!s) continue;
+    seen.add(id);
+
+    const def = defs[s.defId];
+    const fp = (def && def.fp) || s.fp || 1;
+    const cx = (s.cx + fp / 2) * PXV_CELL;
+    const cy = (s.cy + fp / 2) * PXV_CELL;
+    const half = (fp * PXV_CELL) / 2;
+
+    const inView =
+      cx + half >= b.x0 && cx - half <= b.x1 &&
+      cy + half >= b.y0 && cy - half <= b.y1;
+
+    let view = views.get(id);
+    if (!inView) {
+      if (view) view.container.visible = false;
+      continue;
+    }
+
+    if (!view) {
+      view = createStructView(v);
+      views.set(id, view);
+    }
+    view.container.visible = true;
+    view.container.position.set(cx, cy);
+
+    if (view.defId !== s.defId || view.owner !== s.owner || view.fp !== fp) {
+      view.defId = s.defId;
+      view.owner = s.owner;
+      view.fp = fp;
+
+      const col = ownerColor(v, st, s.owner);
+      view.pad.tint = col;
+      view.pad.width = fp * PXV_CELL * 0.96;
+      view.pad.height = fp * PXV_CELL * 0.96;
+
+      const tex = structSpriteTex(v, game, s.defId);
+      if (tex && tex.width > 0 && tex.height > 0) {
+        view.spr.texture = tex;
+        const target = fp * PXV_CELL * 1.15;
+        const k = target / Math.max(tex.width, tex.height);
+        view.spr.width = tex.width * k;
+        view.spr.height = tex.height * k;
+        view.spr.tint = 0xffffff;
+        view.spr.alpha = 1;
+      } else {
+        view.spr.texture = v.squareTex;
+        view.spr.width = fp * PXV_CELL * 0.8;
+        view.spr.height = fp * PXV_CELL * 0.8;
+        view.spr.tint = 0x9a9a9a;
+        view.spr.alpha = 0.95;
+      }
+    }
+  }
+
+  if (views.size !== seen.size) {
+    for (const [id, view] of views) {
+      if (!seen.has(id)) {
+        views.delete(id);
+        releaseStructView(v, view);
+      }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Units
+ * ------------------------------------------------------------------ */
+
+function createUnitView(v) {
+  const pooled = v.unitPool.pop();
+  if (pooled) {
+    pooled.container.visible = true;
+    return pooled;
+  }
+  const c = new PIXI.Container();
+  const pad = new PIXI.Sprite(v.padTex);
+  pad.anchor.set(0.5);
+  pad.alpha = 0.35;
+  const body = new PIXI.Sprite(v.discTex);
+  body.anchor.set(0.5);
+  const spr = new PIXI.Sprite();
+  spr.anchor.set(0.5);
+  spr.visible = false;
+  c.addChild(pad, body, spr);
+  v.unitLayer.addChild(c); // parent once at creation (pooled views keep it)
+  return { container: c, pad, body, spr, defId: null, owner: -1 };
+}
+
+function releaseUnitView(v, view) {
+  view.container.visible = false;
+  if (v.unitPool.length < 512) v.unitPool.push(view);
+}
+
+function unitSpriteTex(v, game, defId, cls) {
+  let tex = v.unitTexCache.get(defId);
+  if (tex !== undefined) return tex;
+  tex = null;
+  const token = CLASS_TOKEN[cls];
+  const painted = v.unitArt && token && v.unitArt[token];
+  if (painted) {
+    try { tex = own(v, PIXI.Texture.from(painted)); } catch (e) { tex = null; }
+  }
+  if (!tex && v.atlasSource && game.spriteMap) {
+  const key = token ? 'cls-' + token : defId;
+  const f = game.spriteMap[key];
+  if (f && f.sw > 0 && f.sh > 0) {
+    try {
+      tex = new PIXI.Texture({
+        source: v.atlasSource,
+        frame: new PIXI.Rectangle(f.sx, f.sy, f.sw, f.sh),
+      });
+    } catch (e) {
+      tex = null;
+    }
+  }
+  }
+  v.unitTexCache.set(defId, tex);
+  return tex;
+}
+
+function isInfantryCls(cls) {
+  return cls === 'Infantry' || cls === 'AT infantry' ||
+         cls === 'AA infantry' || cls === 'Engineer';
+}
+
+function syncUnits(v, game, st, b) {
+  const views = v.unitViews;
+  const seen = v.seenUnits;
+  seen.clear();
+  const defs = st.unitDefs || {};
+
+  for (const id in st.units) {
+    const u = st.units[id];
+    if (!u) continue;
+    seen.add(id);
+
+    const x = u.x;
+    const y = u.y;
+
+    let view = views.get(id);
+    if (x < b.x0 || x > b.x1 || y < b.y0 || y > b.y1) {
+      if (view) view.container.visible = false;
+      continue;
+    }
+
+    if (!view) {
+      view = createUnitView(v);
+      views.set(id, view);
+    }
+    view.container.visible = true;
+    view.container.position.set(x, y);
+
+    if (view.defId !== u.defId || view.owner !== u.owner) {
+      view.defId = u.defId;
+      view.owner = u.owner;
+
+      const def = defs[u.defId];
+      const cls = def && def.cls;
+      const dom = def && def.domain;
+      const inf = isInfantryCls(cls);
+      const size = inf ? 20 : 28;
+
+      const col = ownerColor(v, st, u.owner);
+      view.pad.tint = col;
+      view.pad.width = size + 12;
+      view.pad.height = size + 12;
+      view.body.tint = col;
+      view.body.width = size;
+      view.body.height = size;
+
+      const tex = unitSpriteTex(v, game, u.defId, cls);
+      if (tex && tex.width > 0 && tex.height > 0) {
+        view.spr.texture = tex;
+        const k = (size + 8) / Math.max(tex.width, tex.height);
+        view.spr.width = tex.width * k;
+        view.spr.height = tex.height * k;
+        view.spr.tint = 0xffffff;
+        view.spr.visible = true;
+      } else if (dom === 'Air') {
+        view.spr.texture = v.triTex;
+        view.spr.width = size + 6;
+        view.spr.height = size + 6;
+        view.spr.tint = 0x2b2b2b;
+        view.spr.visible = true;
+      } else if (dom === 'Sea') {
+        view.spr.texture = v.diamondTex;
+        view.spr.width = size + 6;
+        view.spr.height = size + 6;
+        view.spr.tint = 0x2b2b2b;
+        view.spr.visible = true;
+      } else if (inf) {
+        view.spr.visible = false; // disc *is* the infantry silhouette
+      } else {
+        view.spr.texture = v.squareTex;
+        view.spr.width = size + 6;
+        view.spr.height = size + 6;
+        view.spr.tint = 0x2b2b2b;
+        view.spr.visible = true;
+      }
+    }
+  }
+
+  if (views.size !== seen.size) {
+    for (const [id, view] of views) {
+      if (!seen.has(id)) {
+        views.delete(id);
+        releaseUnitView(v, view);
+      }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Projectiles (state.projectiles is optional in the contract)
+ * ------------------------------------------------------------------ */
+
+function syncProjectiles(v, game, st, b) {
+  const src = st.projectiles;
+  const layer = v.projLayer;
+  const views = v.projViews;
+
+  if (!src) {
+    if (views.size) {
+      for (const view of views.values()) {
+        view.container.visible = false;
+        if (v.projPool.length < 256) v.projPool.push(view);
+      }
+      views.clear();
+    }
+    return;
+  }
+
+  let i = 0;
+  const isArr = Array.isArray(src);
+  for (const key in src) {
+    const p = isArr ? src[key] : src[key];
+    if (!p) { i++; continue; }
+    const x = p.x, y = p.y;
+    if (typeof x !== 'number' || typeof y !== 'number') { i++; continue; }
+
+    let view = views.get(i);
+    if (x < b.x0 || x > b.x1 || y < b.y0 || y > b.y1) {
+      if (view) view.container.visible = false;
+      i++;
+      continue;
+    }
+    if (!view) {
+      view = v.projPool.pop();
+      if (!view) {
+        const c = new PIXI.Container();
+        const s = new PIXI.Sprite(v.discTex);
+        s.anchor.set(0.5);
+        s.width = 7;
+        s.height = 7;
+        s.tint = 0xffd45e;
+        c.addChild(s);
+        view = { container: c, spr: s };
+      }
+      view.container.visible = true;
+      views.set(i, view);
+      layer.addChild(view.container);
+    }
+    view.container.visible = true;
+    view.container.position.set(x, y);
+    i++;
+  }
+
+  if (views.size !== i) {
+    for (const [k, view] of views) {
+      if (k >= i) {
+        views.delete(k);
+        view.container.visible = false;
+        if (v.projPool.length < 256) v.projPool.push(view);
+      }
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Fog of war
+ * ------------------------------------------------------------------ */
+
+function localSlot(game) {
+  const cands = [game.mySlot, game.playerSlot, game.localSlot, game.slot, game.viewSlot];
+  for (const c of cands) {
+    if (typeof c === 'number' && c >= 0) return c | 0;
+  }
+  return 0;
+}
+
+function updateFog(v, st) {
+  const sprite = v.fogSprite;
+  if (!sprite) return;
+
+  const map = st.map;
+  const slot = localSlot(v.game);
+  const fog = st.fog && st.fog[slot];
+  if (!fog || !fog.visible || !fog.seen) {
+    sprite.visible = false;
+    return;
+  }
+  sprite.visible = true;
+
+  const tick = (typeof st.tick === 'number') ? st.tick : -1;
+  if (tick !== -1 && tick === v.fogTick) return;
+  v.fogTick = tick;
+
+  const w = map.w | 0, h = map.h | 0;
+  const n = w * h;
+  const data = v.fogImage.data;
+  const vis = fog.visible;
+  const seen = fog.seen;
+
+  for (let i = 0; i < n; i++) {
+    // 0.0 visible / 0.51 seen / 1.0 unexplored, black
+    const a = vis[i] ? 0 : (seen[i] ? 130 : 255);
+    const o = i << 2;
+    data[o] = 0;
+    data[o + 1] = 0;
+    data[o + 2] = 0;
+    data[o + 3] = a;
+  }
+
+  try {
+    v.fogCtx.putImageData(v.fogImage, 0, 0);
+    if (v.fogTexture && v.fogTexture.source) v.fogTexture.source.update();
+  } catch (e) { /* ignore */ }
+}
+
+/* ------------------------------------------------------------------ *
+ * FX blit
+ * ------------------------------------------------------------------ */
+
+function ensureFxSurface(v, w, h) {
+  w = Math.max(1, Math.round(w));
+  h = Math.max(1, Math.round(h));
+  if (v.fxCtx && v.fxW === w && v.fxH === h) return true;
+
+  v.fxW = w;
+  v.fxH = h;
+  if (!v.fxCanvas) v.fxCanvas = makeCanvas(w, h);
+  else {
+    v.fxCanvas.width = w;
+    v.fxCanvas.height = h;
+  }
+  v.fxCtx = v.fxCanvas.getContext('2d');
+  if (!v.fxCtx) return false;
+
+  const old = v.fxTexture;
+  try {
+    v.fxTexture = PIXI.Texture.from(v.fxCanvas);
+    if (v.fxTexture.source) v.fxTexture.source.scaleMode = 'linear';
+    v.fxSprite.texture = v.fxTexture;
+  } catch (e) {
+    return false;
+  }
+  if (old) {
+    try { old.destroy(true); } catch (e) { /* ignore */ }
+  }
+  return true;
+}
+
+function renderFx(v, game, cam, z, vw, vh) {
+  const sprite = v.fxSprite;
+  if (!sprite) return;
+
+  if (!v.fxDraw) {
+    sprite.visible = false;
+    return;
+  }
+
+  if (!ensureFxSurface(v, vw, vh)) {
+    sprite.visible = false;
+    return;
+  }
+
+  const ctx = v.fxCtx;
+  try {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, v.fxW, v.fxH);
+    ctx.save();
+    ctx.scale(z, z);
+    ctx.translate(-cam.x, -cam.y);
+    v.fxDraw(game, ctx);
+    ctx.restore();
+
+    if (v.fxTexture && v.fxTexture.source) v.fxTexture.source.update();
+  } catch (e) {
+    // A broken fx module must not spam the console every frame.
+    v.fxDraw = null;
+    sprite.visible = false;
+    return;
+  }
+
+  sprite.visible = true;
+  sprite.x = cam.x;
+  sprite.y = cam.y;
+  sprite.width = v.fxW / z;
+  sprite.height = v.fxH / z;
+}
+
+/* ------------------------------------------------------------------ *
+ * Overlay: selection, ranges, health bars, placement ghost, crosshair
+ * ------------------------------------------------------------------ */
+
+function ownerColor(v, st, owner) {
+  let c = v.ownerColors.get(owner);
+  if (c !== undefined) return c;
+  c = 0xffffff;
+  try {
+    const p = st.players && st.players[owner];
+    const fname = p && p.faction;
+    const f = fname && st.data && st.data.factions && st.data.factions[fname];
+    if (f && f.color) c = hexToNum(f.color);
+  } catch (e) { /* default white */ }
+  v.ownerColors.set(owner, c);
+  return c;
+}
+
+function strokeBrackets(g, x, y, r, width, color, alpha) {
+  const c = r * 0.5;
+  g.moveTo(x - r, y - r + c); g.lineTo(x - r, y - r); g.lineTo(x - r + c, y - r);
+  g.moveTo(x + r - c, y - r); g.lineTo(x + r, y - r); g.lineTo(x + r, y - r + c);
+  g.moveTo(x + r, y + r - c); g.lineTo(x + r, y + r); g.lineTo(x + r - c, y + r);
+  g.moveTo(x - r + c, y + r); g.lineTo(x - r, y + r); g.lineTo(x - r, y + r - c);
+  g.stroke({ width, color, alpha, cap: 'round', join: 'round' });
+}
+
+function drawHealthBar(g, x, y, w, h, frac) {
+  if (frac >= 1) return;
+  g.rect(x, y, w, h).fill({ color: 0x000000, alpha: 0.55 });
+  const col = frac > 0.6 ? 0x53d769 : (frac > 0.3 ? 0xf0c419 : 0xe74c3c);
+  if (frac > 0) g.rect(x, y, w * frac, h).fill({ color: col, alpha: 0.95 });
+}
+
+function drawOverlay(v, game, st, b) {
+  const g = v.overlay;
+  if (!g) return;
+
+  try {
+    g.clear();
+
+    const defs = st.unitDefs || {};
+    const sdefs = st.structDefs || {};
+
+    // --- selection -------------------------------------------------
+    const sel = game.selection;
+    if (sel && sel.length) {
+      for (let i = 0; i < sel.length; i++) {
+        const id = sel[i];
+        const u = st.units && st.units[id];
+        if (u) {
+          if (u.x < b.x0 || u.x > b.x1 || u.y < b.y0 || u.y > b.y1) continue;
+          const def = defs[u.defId];
+          const inf = def && isInfantryCls(def.cls);
+          const r = inf ? 15 : 20;
+          strokeBrackets(g, u.x, u.y, r, 2, 0x8ffc5a, 0.95);
+
+          const range = def && def.rangeWu;
+          if (range > 0) {
+            g.circle(u.x, u.y, range).stroke({ width: 1, color: 0x7fd4ff, alpha: 0.35 });
+          }
+
+          const frac = u.maxHp > 0 ? Math.max(0, Math.min(1, u.hp / u.maxHp)) : 1;
+          drawHealthBar(g, u.x - 16, u.y - r - 9, 32, 4, frac);
+          continue;
+        }
+
+        const s = st.structures && st.structures[id];
+        if (s) {
+          const def = sdefs[s.defId];
+          const fp = (def && def.fp) || s.fp || 1;
+          const cx = (s.cx + fp / 2) * PXV_CELL;
+          const cy = (s.cy + fp / 2) * PXV_CELL;
+          const half = (fp * PXV_CELL) / 2;
+          if (cx + half < b.x0 || cx - half > b.x1 || cy + half < b.y0 || cy - half > b.y1) continue;
+          strokeBrackets(g, cx, cy, half + 3, 2, 0x8ffc5a, 0.95);
+          const frac = s.maxHp > 0 ? Math.max(0, Math.min(1, s.hp / s.maxHp)) : 1;
+          drawHealthBar(g, cx - fp * PXV_CELL * 0.4, cy - half - 12, fp * PXV_CELL * 0.8, 5, frac);
+        }
+      }
+    }
+
+    // --- health bars for damaged, unselected entities --------------
+    for (const id in st.units) {
+      const u = st.units[id];
+      if (!u || u.maxHp <= 0 || u.hp >= u.maxHp) continue;
+      if (sel && sel.indexOf(id) !== -1) continue; // already drawn
+      if (u.x < b.x0 || u.x > b.x1 || u.y < b.y0 || u.y > b.y1) continue;
+      drawHealthBar(g, u.x - 12, u.y - 22, 24, 3, Math.max(0, u.hp / u.maxHp));
+    }
+
+    // --- placement ghost -------------------------------------------
+    const place = game.placement;
+    const mouse = game.mouse;
+    if (place && mouse && typeof mouse.sx === 'number') {
+      const wp = viewScreenToWorld(game, mouse.sx, mouse.sy);
+      const cx = Math.floor(wp.x / PXV_CELL);
+      const cy = Math.floor(wp.y / PXV_CELL);
+      const defId = place.defId || place.id;
+      const sd = sdefs[defId];
+      const fp = (sd && sd.fp) || place.fp || 1;
+      const off = Math.floor(fp / 2);
+      const ox = cx - off;
+      const oy = cy - off;
+      const map = st.map;
+
+      for (let yy = 0; yy < fp; yy++) {
+        for (let xx = 0; xx < fp; xx++) {
+          const gx = ox + xx;
+          const gy = oy + yy;
+          const inb = gx >= 0 && gy >= 0 && gx < map.w && gy < map.h;
+          const open = inb && map.terrain && map.terrain[gy * map.w + gx] === 0;
+          const ok = inb && open;
+          const col = ok ? 0x38d430 : 0xe04040;
+          const px = gx * PXV_CELL;
+          const py = gy * PXV_CELL;
+          g.rect(px, py, PXV_CELL, PXV_CELL).fill({ color: col, alpha: 0.28 });
+          g.rect(px + 1, py + 1, PXV_CELL - 2, PXV_CELL - 2).stroke({ width: 1, color: col, alpha: 0.65 });
+        }
+      }
+    }
+
+    // --- targeting / attack-move crosshair ---------------------------
+    if ((game.targeting || game.attackMoveArmed) && mouse && typeof mouse.sx === 'number') {
+      const wp = viewScreenToWorld(game, mouse.sx, mouse.sy);
+      const col = game.attackMoveArmed ? 0xffcc33 : 0xff4444;
+      g.circle(wp.x, wp.y, 16).stroke({ width: 2, color: col, alpha: 0.9 });
+      g.moveTo(wp.x - 24, wp.y); g.lineTo(wp.x - 7, wp.y);
+      g.moveTo(wp.x + 7, wp.y); g.lineTo(wp.x + 24, wp.y);
+      g.moveTo(wp.x, wp.y - 24); g.lineTo(wp.x, wp.y - 7);
+      g.moveTo(wp.x, wp.y + 7); g.lineTo(wp.x, wp.y + 24);
+      g.stroke({ width: 2, color: col, alpha: 0.9 });
+    }
+  } catch (e) {
+    // Overlay is cosmetic; never let it break the frame.
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Screen <-> world (pure math, headless safe)
+ * ------------------------------------------------------------------ */
+
+export function viewScreenToWorld(game, sx, sy) {
+  const cam = game && game.camera;
+  if (!cam) return { x: sx, y: sy };
+  const z = cam.zoom > 0 ? cam.zoom : 1;
+  return { x: cam.x + sx / z, y: cam.y + sy / z };
+}
+
+/* ------------------------------------------------------------------ *
+ * disposeView
+ * ------------------------------------------------------------------ */
+
+export function disposeView(game) {
+  if (!game) return;
+  const v = game[VIEW_KEY];
+  if (!v) return;
+  game[VIEW_KEY] = null;
+
+  v.ready = false;
+  v.fxDraw = null;
+
+  for (const tex of v.ownedTextures) {
+    try { tex.destroy(true); } catch (e) { /* ignore */ }
+  }
+  v.ownedTextures.length = 0;
+
+  v.unitViews.clear();
+  v.structViews.clear();
+  v.projViews.clear();
+  v.unitPool.length = 0;
+  v.structPool.length = 0;
+  v.projPool.length = 0;
+
+  if (v.app) {
+    try {
+      if (v.app.ticker && v.app.ticker.stop) v.app.ticker.stop();
+    } catch (e) { /* ignore */ }
+    try {
+      // Keep the <canvas id="game"> element in the DOM for the next initView.
+      v.app.destroy({ removeView: false }, { children: true, texture: false, textureSource: false });
+    } catch (e) { /* ignore */ }
+  }
+
+  v.app = null;
+  v.world = null;
+  v.overlay = null;
+  v.fogSprite = null;
+  v.fxSprite = null;
+  v.fogTexture = null;
+  v.fxTexture = null;
+}

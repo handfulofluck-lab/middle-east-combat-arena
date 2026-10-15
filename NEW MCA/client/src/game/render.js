@@ -18,17 +18,68 @@ export function initRenderer(game) {
   terrain.width = map.w * TS;
   terrain.height = map.h * TS;
   const tc = terrain.getContext('2d');
+  // deterministic per-cell hash -> subtle tone jitter (no flat 1990s fills)
+  const hash = (x, y) => {
+    let h = (x * 374761393 + y * 668265263) ^ (x * y * 1274126177);
+    h = (h ^ (h >> 13)) * 1103515245;
+    return ((h ^ (h >> 16)) >>> 0) / 4294967295;
+  };
+  const base = [[184, 160, 106], [76, 76, 76], [39, 75, 122]]; // open / rock / water
   for (let y = 0; y < map.h; y++) {
     for (let x = 0; x < map.w; x++) {
-      tc.fillStyle = TERRAIN_COLORS[map.terrain[y * map.w + x]];
+      const t = map.terrain[y * map.w + x];
+      const j = (hash(x, y) - 0.5) * 22; // ±11 tone jitter
+      const c = base[t];
+      tc.fillStyle = 'rgb(' + Math.round(c[0] + j) + ',' + Math.round(c[1] + j * 0.9)
+        + ',' + Math.round(c[2] + j * 0.7) + ')';
       tc.fillRect(x * TS, y * TS, TS, TS);
+      // speckle: two faint dots per open cell break the flatness at zoom-in
+      if (t === 0) {
+        tc.fillStyle = 'rgba(60,48,28,' + (0.05 + hash(y, x) * 0.08) + ')';
+        tc.fillRect(x * TS + (hash(x * 3, y) * (TS - 3)) | 0,
+          y * TS + (hash(x, y * 7) * (TS - 3)) | 0, 2, 2);
+      } else if (t === 1) {
+        // rock highlight ridge
+        tc.fillStyle = 'rgba(255,255,255,0.07)';
+        tc.fillRect(x * TS, y * TS, TS, 2);
+        tc.fillStyle = 'rgba(0,0,0,0.18)';
+        tc.fillRect(x * TS, y * TS + TS - 2, TS, 2);
+      } else {
+        // water: moving-look shading via static wave strokes
+        tc.fillStyle = 'rgba(255,255,255,' + (0.04 + hash(x + 9, y + 4) * 0.07) + ')';
+        tc.fillRect(x * TS + 2, y * TS + 3 + (hash(x, y) * 6) | 0, TS - 5, 1);
+      }
     }
   }
-  tc.fillStyle = '#1a1a1a';
+  // coast foam: brighten open/rock cells that touch water
+  tc.fillStyle = 'rgba(220,230,235,0.28)';
+  for (let y = 0; y < map.h; y++) {
+    for (let x = 0; x < map.w; x++) {
+      if (map.terrain[y * map.w + x] === 2) continue;
+      let wet = false;
+      for (let dy = -1; dy <= 1 && !wet; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= map.w || ny >= map.h) continue;
+          if (map.terrain[ny * map.w + nx] === 2) { wet = true; break; }
+        }
+      }
+      if (wet) tc.fillRect(x * TS + 1, y * TS + 1, TS - 2, TS - 2);
+    }
+  }
+  // oil fields: dark pad + derrick glyph
   for (const o of map.oil) {
+    const cx = o.x * TS + TS / 2, cy = o.y * TS + TS / 2;
+    tc.fillStyle = '#151310';
     tc.beginPath();
-    tc.arc(o.x * TS + TS / 2, o.y * TS + TS / 2, TS * 0.7, 0, 7);
+    tc.arc(cx, cy, TS * 0.7, 0, 7);
     tc.fill();
+    tc.strokeStyle = '#e8c84a';
+    tc.lineWidth = 1.5;
+    tc.beginPath();
+    tc.moveTo(cx - 4, cy + 4); tc.lineTo(cx, cy - 5); tc.lineTo(cx + 4, cy + 4);
+    tc.moveTo(cx - 3, cy - 1); tc.lineTo(cx + 3, cy - 1);
+    tc.stroke();
   }
   const fog = document.createElement('canvas');
   fog.width = map.w;

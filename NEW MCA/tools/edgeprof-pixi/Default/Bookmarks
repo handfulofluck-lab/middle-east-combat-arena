@@ -1,0 +1,73 @@
+{
+   "checksum": "b18a3ca944480b33657705a5289cf9db",
+   "roots": {
+      "bookmark_bar": {
+         "children": [ {
+            "date_added": "13339610933977505",
+            "date_last_used": "0",
+            "guid": "42261977-886b-4770-b00c-2a1f2ae4f8a4",
+            "id": "7",
+            "name": "Skolera LMS for school",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://skolera.com/en/",
+            "visit_count": 0
+         }, {
+            "date_added": "13339610946327113",
+            "date_last_used": "0",
+            "guid": "dab979ae-7c6a-4fb1-87c4-f4a06799391e",
+            "id": "8",
+            "name": "Skolera | Login",
+            "show_icon": false,
+            "source": "sync",
+            "type": "url",
+            "url": "https://skolera.com/en/login",
+            "visit_count": 0
+         } ],
+         "date_added": "13434296762799761",
+         "date_last_used": "0",
+         "date_modified": "13339610946327113",
+         "guid": "0bc5d13f-2cba-5d74-951f-3f233fe6c908",
+         "id": "1",
+         "name": "Favorites bar",
+         "source": "unknown",
+         "type": "folder"
+      },
+      "other": {
+         "children": [  ],
+         "date_added": "13434296762799761",
+         "date_last_used": "0",
+         "date_modified": "0",
+         "guid": "82b081ec-3dd3-529c-8475-ab6c344590dd",
+         "id": "2",
+         "name": "Other favorites",
+         "source": "unknown",
+         "type": "folder"
+      },
+      "synced": {
+         "children": [  ],
+         "date_added": "13434296762799761",
+         "date_last_used": "0",
+         "date_modified": "0",
+         "guid": "4cf2e351-0e85-532b-bb37-df045d8f8d0f",
+         "id": "3",
+         "name": "Mobile favorites",
+         "source": "unknown",
+         "type": "folder"
+      },
+      "workspaces_v2": {
+         "children": [  ],
+         "date_added": "13434296762799761",
+         "date_last_used": "0",
+         "date_modified": "0",
+         "guid": "75aa6670-344f-549d-b742-660f029506ab",
+         "id": "5",
+         "name": "Workspaces",
+         "source": "unknown",
+         "type": "folder"
+      }
+   },
+   "sync_metadata": "CjEKDgiIgQISCD4FnrqgAQAAEgAqGEJ2R01KeUNwanNtckxzbEdJYkJCK3c9PUgDoAYMEowBCAMShwEKHG5qZ0R1ODhlQ3J2WHA4NnBEN2ZIR2NxRnA4OD0SJGY2MDlmOWI4LWYwYTMtNTZiOC05NzA2LTBiZmM0ODVhMmMwYxgAIAAoADDB7K7dtS448vyMlvIvQPL8jJbyL0oceXpOQjAxY241NEE3Y1JVMHVUKy9QZ21UdFVvPWUAAAAAwj4CYAASjAEIARKHAQoceXhKLzZmdmtlY3I3a3A1RVF6QjR0V0xwZGJFPRIkMTA1ZWVmZWQtMDk5Ny01YzJmLTlmMjUtYjJiMjk2ZWFhMDFjGAAgACgAMLzsrt21Ljik/IyW8i9ApPyMlvIvShxhUkNXTGdoRjliNUlucUtJRHZ1Si9qdlFrRmM9ZQAAAADCPgJgABKsAQgHEqcBChwyK09WeDlJQTF6a3h6MGt1NXZoYmtRb2M5M2c9EiQ0MjI2MTk3Ny04ODZiLTQ3NzAtYjAwYy0yYTFmMmFlNGY4YTQYACAAKAAwuor41Is0ONPUlL6sMUC6ivjUizRKHEFONmxqQnc4aWRaNHlvMkpndml3Z29KUko2ST1aHiIcMk40dW9DNWwvWittbG9oUjk0T0VvajB1d3ZBPWUAAAAAwj4CYAUSrAEICBKnAQocRW5KUEZtVm1OczVPNERQYTJQODhZdy9pYXlzPRIkZGFiOTc5YWUtN2M2YS00ZmIxLTg3YzQtZjRhMDY3OTkzOTFlGAAgACgAMLmK+NSLNDiH1ZS+rDFAuYr41Is0ShxCc3JEZnpFR2lPMGIySnVLbnpFQ2JVQ2xXcEk9Wh4iHGtLWFd5RUdsYmdCc2N6TVZaaGNPMHllcnRHbz1lAAAAAMI+AmAFEowBCAIShwEKHFljU1RvbnZFU1B3cUNzNEwyY3JWaHY2OEw5OD0SJDcyZGQyOWIxLTljMDEtNTYyMy04MmMyLTNlYzZiNTc4ZmVmZBgAIAAoADC97K7dtS44tPyMlvIvQLT8jJbyL0ocb1BWa2h3QlJiVjY1S0NXUjIrSU9OSFdvT3U4PWUAAAAAwj4CYAASjAEIBRKHAQocd1JCclpMKzZQQTlhdktnak5QN0pYRExjZnZzPRIkNmRkOGRiN2QtYzRjNy01NzE1LTlkZWItZGNmZGQ3MjNkNjEzGAAgACgAMPTqp9OkMzjh66fTpDNA4eun06QzShxubXg2NXNRRHZ4SThUZ0VlditBK250dG9TbjQ9ZQAAAADCPgJgADAAOAA=",
+   "version": 1
+}

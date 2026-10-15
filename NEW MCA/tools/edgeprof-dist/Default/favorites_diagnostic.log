@@ -1,0 +1,63 @@
+2026-09-19 16:41:42.682: [INFO] CurrentProfilePath: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-19 16:41:42.682: [INFO] Profiles total count: 1
+2026-09-19 16:41:42.682: [INFO] Profile: name=Profile 1 path=C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default lastActive=null
+2026-09-19 16:41:42.682: [INFO] LastUsedProfileDir: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-19 16:41:42.682: [INFO] VisibilityChanged: 0
+2026-09-19 16:41:42.720: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.721: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.724: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.726: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.728: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.730: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.732: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.733: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.735: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.736: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:42.751: [INFO] OnDoneLoading sync enabled: 0
+2026-09-19 16:41:42.751: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-09-19 16:41:42.751: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-09-19 16:41:42.751: [INFO] BookmarksSnapshot Startup total=0 bar=0 other=0 mobile=0 showBar=0 showBarNTP=1
+2026-09-19 16:41:42.857: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:48.904: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 0
+2026-09-19 16:41:48.915: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 3
+2026-09-19 16:41:48.925: [INFO] Primary account changed.
+2026-09-19 16:41:48.925: [INFO] OnPrimaryAccountChanged PrimaryAccountChangeEvent::Type::kSet
+2026-09-19 16:41:48.950: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 3
+2026-09-19 16:41:48.990: [INFO] RecordSyncInitDuration has_sync_been_enabled: 0 state: 3
+2026-09-19 16:41:54.870: [INFO] BookmarkNodeAdded, ABU: 0
+2026-09-19 16:41:54.870: [INFO] BookmarkNodeAdded, ABU: 0
+2026-09-19 16:41:54.884: [INFO] BookmarkBarPrefChanged showBar=0 showBarNTP=1
+2026-09-19 16:41:55.473: [INFO] Sync initialization duration: 6242ms
+2026-09-19 17:01:47.646: [INFO] CurrentProfilePath: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-19 17:01:47.646: [INFO] Profiles total count: 1
+2026-09-19 17:01:47.646: [INFO] Profile: name=Personal path=C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default lastActive=2026-09-19T16:41:42.713Z
+2026-09-19 17:01:47.646: [INFO] LastUsedProfileDir: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-19 17:01:47.646: [INFO] MostRecentlyActiveProfile: name=Personal path=C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default lastActive=2026-09-19T16:41:42.713Z
+2026-09-19 17:01:47.646: [INFO] VisibilityChanged: 0
+2026-09-19 17:01:47.723: [INFO] OnDoneLoading sync enabled: 1
+2026-09-19 17:01:47.723: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-09-19 17:01:47.723: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-09-19 17:01:47.723: [INFO] BookmarksSnapshot Startup total=2 bar=2 other=0 mobile=0 showBar=0 showBarNTP=1
+2026-09-19 17:01:52.124: [INFO] Sync initialization duration: 3623ms
+2026-09-20 16:51:30.937: [INFO] CurrentProfilePath: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-20 16:51:30.937: [INFO] Profiles total count: 1
+2026-09-20 16:51:30.937: [INFO] Profile: name=Personal path=C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default lastActive=2026-09-19T17:01:47.692Z
+2026-09-20 16:51:30.937: [INFO] LastUsedProfileDir: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-20 16:51:30.937: [INFO] MostRecentlyActiveProfile: name=Personal path=C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default lastActive=2026-09-19T17:01:47.692Z
+2026-09-20 16:51:30.937: [INFO] VisibilityChanged: 0
+2026-09-20 16:51:30.991: [INFO] OnDoneLoading sync enabled: 1
+2026-09-20 16:51:30.991: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-09-20 16:51:30.991: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-09-20 16:51:30.991: [INFO] BookmarksSnapshot Startup total=2 bar=2 other=0 mobile=0 showBar=0 showBarNTP=1
+2026-09-20 16:51:31.264: [INFO] Sync initialization duration: 71ms
+2026-09-20 17:03:56.693: [INFO] CurrentProfilePath: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-20 17:03:56.693: [INFO] Profiles total count: 1
+2026-09-20 17:03:56.694: [INFO] Profile: name=Personal path=C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default lastActive=2026-09-20T16:51:30.962Z
+2026-09-20 17:03:56.694: [INFO] LastUsedProfileDir: C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default
+2026-09-20 17:03:56.694: [INFO] MostRecentlyActiveProfile: name=Personal path=C:\KARIM\mca\NEW MCA\tools\edgeprof-dist\Default lastActive=2026-09-20T16:51:30.962Z
+2026-09-20 17:03:56.694: [INFO] VisibilityChanged: 0
+2026-09-20 17:03:56.752: [INFO] OnDoneLoading sync enabled: 1
+2026-09-20 17:03:56.752: [INFO] BookmarkModelLoaded, ids_reassigned: 0
+2026-09-20 17:03:56.752: [INFO] BookmarksLoadDropped droppedNodes=0
+2026-09-20 17:03:56.752: [INFO] BookmarksSnapshot Startup total=2 bar=2 other=0 mobile=0 showBar=0 showBarNTP=1
+2026-09-20 17:03:56.997: [INFO] Sync initialization duration: 29ms

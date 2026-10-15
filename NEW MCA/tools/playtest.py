@@ -106,7 +106,7 @@ def main() -> int:
             return js(f"""(function(){{
               let found=null;
               (function walk(el){{
-                if(!found && el.tagName==='BUTTON' && el.textContent.trim().startsWith({json.dumps(text)})) found=el;
+                if(!found && el.tagName==='BUTTON' && (el.textContent||'').indexOf({json.dumps(text)}) >= 0) found=el;
                 for(const c of el.children||[]) walk(c);
               }})(document.getElementById({json.dumps(rootid)}));
               if(found){{found.click();return true}} return false;

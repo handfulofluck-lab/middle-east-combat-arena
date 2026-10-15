@@ -1,0 +1,7 @@
+#!/bin/bash
+TOOL="C:/Users/admin/AppData/Roaming/kimi-desktop/daimon-share/daimon/runtime/kimi-code/home/plugins/managed/image_generation/scripts/image_generation_tool.py"
+OUT="/c/KARIM/mca/NEW MCA/client/assets/props"
+nohup python "$TOOL" generate --description "Video game prop sprite, top-down slightly angled view of an oil pumpjack derrick machine, weathered steel painted in faded yellow and grey, small industrial oil well pump, crisp silhouette, centered, isolated object, strategy RTS game asset style, photorealistic detail" --size 1024x1024 --background transparent --output "$OUT/derrick.png" > /tmp/imggen_derrick.log 2>&1 &
+nohup python "$TOOL" generate --description "Video game prop sprite, top-down slightly angled view of a single arid desert boulder cluster, sun-bleached grey-brown rocks with subtle warm tone, crisp silhouette, centered, isolated object, strategy RTS game asset style, photorealistic detail" --size 1024x1024 --background transparent --output "$OUT/rocks.png" > /tmp/imggen_rocks.log 2>&1 &
+nohup python "$TOOL" generate --description "Video game prop sprite, top-down slightly angled view of a dry desert scrub bush, sparse grey-green twigs and dry tan branches, crisp silhouette, centered, isolated object, strategy RTS game asset style, photorealistic detail" --size 1024x1024 --background transparent --output "$OUT/scrub.png" > /tmp/imggen_scrub.log 2>&1 &
+echo "launched 3 prop jobs"

@@ -1,5 +1,10 @@
 // Main menu, match setup, and end-of-match banner. Pure DOM overlay;
 // calls back into main.js via the supplied callbacks.
+import { sfx, setAudioVolume as setVol, setAudioMuted as setMuted } from './audio.js';
+import { frameForFaction, drawFrame } from './display.js';
+import {
+  loadSettings, saveSettings, loadRecords, MCA_VERSION, MCA_BUILD,
+} from './settings.js';
 const PERSONALITIES = ['Front', 'Sky', 'Raid', 'Fortress'];
 const DIFFICULTIES = ['recruit', 'veteran', 'elite', 'marshal'];
 // (smoke harness inlines all modules into one scope: no const shared with hud.js)
@@ -45,19 +50,39 @@ function h(tag, cls, text) {
   return el;
 }
 
-function selectEl(options, value) {
-  const sel = document.createElement('select');
-  for (const o of options) {
-    const opt = document.createElement('option');
-    opt.value = o;
-    opt.textContent = o;
-    if (o === value) opt.selected = true;
-    sel.appendChild(opt);
-  }
-  return sel;
+// button that clicks with a sound
+function btn(cls, text) {
+  const b = h('button', cls, text);
+  b.addEventListener('click', () => sfx('ui'));
+  return b;
+}
+
+// small faction emblem from the atlas next to the color swatch (best effort)
+function emblemCanvas(game, faction, size) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  c.style.width = size + 'px';
+  c.style.height = size + 'px';
+  c.style.imageRendering = 'auto';
+  try {
+    const ctx2 = c.getContext('2d');
+    const frame = frameForFaction(faction);
+    if (!drawFrame(ctx2, game.atlas, frame, 0, 0, size, size)) {
+      // fallback: faction color diamond
+      const col = (game.data.factions[faction] || {}).color || '#888';
+      ctx2.fillStyle = col;
+      ctx2.save();
+      ctx2.translate(size / 2, size / 2);
+      ctx2.rotate(Math.PI / 4);
+      ctx2.fillRect(-size * 0.28, -size * 0.28, size * 0.56, size * 0.56);
+      ctx2.restore();
+    }
+  } catch (e) { /* emblem is decorative */ }
+  return c;
 }
 
 export function showMenu(game, onStart) {
+  game._onStart = onStart;
   game.overlay = 'menu';
   game.resumePause = null;
   game.menuBack = null;
@@ -70,15 +95,143 @@ export function showMenu(game, onStart) {
   const root = document.getElementById('menu');
   root.classList.remove('hidden');
   root.innerHTML = '';
-  const box = h('div', 'menu-box');
-  box.appendChild(h('h1', null, 'MCA — Middle East Combat Arena'));
-  box.appendChild(h('p', null, 'Offline greybox skirmish RTS'));
-  const start = h('button', 'menu-btn', 'Skirmish');
+  const box = h('div', 'menu-box title-box');
+  const title = h('h1', 'game-title', 'MCA');
+  box.appendChild(title);
+  box.appendChild(h('p', 'game-sub', 'Middle East Combat Arena — modern skirmish RTS'));
+
+  const row1 = h('div', 'menu-row title-row');
+  const start = btn('menu-btn primary', '▶  Skirmish');
   start.addEventListener('click', () => showSetup(game, root, onStart));
-  box.appendChild(start);
+  const how = btn('menu-btn', 'How to Play');
+  how.addEventListener('click', () => showHowTo(game, root));
+  const set = btn('menu-btn', 'Settings');
+  set.addEventListener('click', () => showSettings(game, root));
+  row1.appendChild(start); row1.appendChild(how); row1.appendChild(set);
+  box.appendChild(row1);
+
+  // service record
+  const rec = loadRecords();
+  const recLine = h('div', 'records-line');
+  if (rec.wins + rec.losses > 0) {
+    const fac = Object.entries(rec.byFaction)
+      .map(([f, r2]) => f + ' ' + r2.w + 'W/' + r2.l + 'L').join(' · ');
+    recLine.textContent = 'Service record: ' + rec.wins + 'W / ' + rec.losses + 'L'
+      + (fac ? '  —  ' + fac : '');
+    if (rec.lastMatch && rec.lastMatch.stats) {
+      const s = rec.lastMatch.stats;
+      recLine.textContent += '  ·  last: ' + (rec.lastMatch.won ? 'victory' : 'defeat')
+        + ' in ' + fmtDur(s.ticks) + ', ' + s.unitsBuilt + ' built';
+    }
+  } else {
+    recLine.textContent = 'No matches on record — deploy your MCV, commander.';
+  }
+  const stamp = 'MCA v' + MCA_VERSION
+    + (MCA_BUILD.indexOf('__') === 0 ? '' : ' · built ' + MCA_BUILD);
+  box.appendChild(h('div', 'build-stamp', stamp));
+  box.appendChild(recLine);
   root.appendChild(box);
   const banner = document.getElementById('banner');
   banner.classList.add('hidden');
+}
+
+function fmtDur(ticks) {
+  const s = Math.floor(ticks / 10);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+// ---- How to Play ---------------------------------------------------------------
+
+function showHowTo(game, root) {
+  game.overlay = 'setup'; // Esc goes Back, same as setup
+  root.innerHTML = '';
+  const box = h('div', 'menu-box');
+  box.appendChild(h('h1', null, 'How to Play'));
+  const sections = [
+    ['Objective', 'Destroy every enemy Construction Yard (or all their builders). Lose yours and you are out — one ConYard rebuild is allowed.'],
+    ['Camera', 'Arrow keys / screen edges / middle-mouse drag to pan · mouse wheel to zoom · Space centers the selection · Home jumps to your base.'],
+    ['Deploy', 'Your MCV deploys into the Construction Yard: select it, press D (or double-click it). Build power first, then an Oil Depot on an oil field for income.'],
+    ['Build & train', 'Build bar at the bottom (hotkeys Q W E R T F G, Tab for next page). Structures queue, then place them green-lit on the map. Right-click a tile cancels queue; right-click the map sets rally points.'],
+    ['Orders', 'Left-click select, drag box-select, Shift adds. Right-click = move / attack / capture (Engineers). A = attack-move, S = stop. Ctrl+1..9 assign control groups, 1..9 recall.'],
+    ['Intel', 'Fog of war is live: scout with cheap units. Minimap pings mark finished structures and base under attack. Hover anything for a full tooltip.'],
+    ['Faction ability', 'Each faction has a signature ability (some passive, some need their unique structure) plus a superweapon — buttons sit right of the build bar.'],
+  ];
+  for (const [t2, d] of sections) {
+    box.appendChild(h('h2', null, t2));
+    box.appendChild(h('p', 'howto-line', d));
+  }
+  const back = btn('menu-btn', 'Back');
+  const goBack = () => showMenu(game, game._onStart || ((c) => {}));
+  game.menuBack = goBack;
+  back.addEventListener('click', goBack);
+  box.appendChild(back);
+  root.appendChild(box);
+}
+
+// ---- Settings --------------------------------------------------------------------
+
+function showSettings(game, root) {
+  game.overlay = 'setup';
+  root.innerHTML = '';
+  const box = h('div', 'menu-box');
+  box.appendChild(h('h1', null, 'Settings'));
+  const s = game.settings || loadSettings();
+
+  function row(labelText, input) {
+    const r = h('div', 'menu-row setting-row');
+    r.appendChild(h('span', 'setting-label', labelText));
+    r.appendChild(input);
+    box.appendChild(r);
+  }
+  function persist() { saveSettings(s); if (game.settings) Object.assign(game.settings, s); }
+
+  const vol = document.createElement('input');
+  vol.type = 'range'; vol.min = '0'; vol.max = '100'; vol.value = String(Math.round(s.volume * 100));
+  const volVal = h('span', 'setting-val', vol.value + '%');
+  vol.addEventListener('input', () => {
+    s.volume = Number(vol.value) / 100;
+    volVal.textContent = vol.value + '%';
+    persist();
+    setVol(s.volume);
+  });
+  const volRow = h('div', 'menu-row setting-row');
+  volRow.appendChild(h('span', 'setting-label', 'Volume'));
+  volRow.appendChild(vol); volRow.appendChild(volVal);
+  box.appendChild(volRow);
+
+  const mute = document.createElement('input');
+  mute.type = 'checkbox'; mute.checked = !!s.muted;
+  mute.addEventListener('change', () => { s.muted = mute.checked; persist(); setMuted(s.muted); });
+  row('Mute all audio', mute);
+
+  const shake = document.createElement('input');
+  shake.type = 'checkbox'; shake.checked = s.screenShake !== false;
+  shake.addEventListener('change', () => { s.screenShake = shake.checked; persist(); });
+  row('Screen shake', shake);
+
+  const hints = document.createElement('input');
+  hints.type = 'checkbox'; hints.checked = s.showHints !== false;
+  hints.addEventListener('change', () => { s.showHints = hints.checked; persist(); });
+  row('Hint banners', hints);
+
+  const back = btn('menu-btn', 'Back');
+  const goBack = () => showMenu(game, game._onStart || ((c) => {}));
+  game.menuBack = goBack;
+  back.addEventListener('click', goBack);
+  box.appendChild(back);
+  root.appendChild(box);
+}
+
+function selectEl(options, value) {
+  const sel = document.createElement('select');
+  for (const o of options) {
+    const opt = document.createElement('option');
+    opt.value = o;
+    opt.textContent = o;
+    if (o === value) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  return sel;
 }
 
 function showSetup(game, root, onStart) {
@@ -119,10 +272,8 @@ function showSetup(game, root, onStart) {
   const facBtns = {};
   for (const fname of Object.keys(game.data.factions)) {
     const f = game.data.factions[fname];
-    const b = h('button', 'menu-btn fac-btn' + (cfg.faction === fname ? ' sel' : ''));
-    const sw = h('span', 'sw');
-    sw.style.background = f.color;
-    b.appendChild(sw);
+    const b = btn('menu-btn fac-btn' + (cfg.faction === fname ? ' sel' : ''));
+    b.appendChild(emblemCanvas(game, fname, 22));
     b.appendChild(document.createTextNode(fname));
     b.appendChild(h('span', 'ident', f.identity || ''));
     const pl = perkLine(f);
@@ -204,12 +355,12 @@ function showSetup(game, root, onStart) {
 
   // start
   const row = h('div', 'menu-row');
-  const start = h('button', 'menu-btn start', 'Start match');
+  const start = btn('menu-btn start', 'Start match');
   start.addEventListener('click', () => {
     root.classList.add('hidden');
     onStart(cfg);
   });
-  const back = h('button', 'menu-btn', 'Back');
+  const back = btn('menu-btn', 'Back');
   const goBack = () => showMenu(game, onStart);
   game.menuBack = goBack; // Esc on the setup screen goes Back
   back.addEventListener('click', goBack);
@@ -229,7 +380,7 @@ export function showPauseMenu(game, opts) {
   const box = h('div', 'menu-box');
   box.appendChild(h('h1', null, 'Paused'));
   const row = h('div', 'menu-row');
-  const resume = h('button', 'menu-btn start', 'Resume');
+  const resume = btn('menu-btn start', 'Resume');
   const doResume = () => {
     root.classList.add('hidden');
     if (document.body && document.body.classList) document.body.classList.remove('in-menu');
@@ -238,12 +389,12 @@ export function showPauseMenu(game, opts) {
   };
   resume.addEventListener('click', doResume);
   game.resumePause = doResume; // Esc == Resume while this overlay is up
-  const restart = h('button', 'menu-btn', 'Restart');
+  const restart = btn('menu-btn', 'Restart');
   restart.addEventListener('click', () => {
     root.classList.add('hidden');
     opts.onRestart();
   });
-  const abandon = h('button', 'menu-btn', 'Abandon match');
+  const abandon = btn('menu-btn', 'Abandon match');
   let armed = false;
   abandon.addEventListener('click', () => {
     if (!armed) {
@@ -267,13 +418,32 @@ export function showEndBanner(game, opts) {
   banner.innerHTML = '';
   const box = h('div', 'menu-box');
   box.appendChild(h('h1', null, opts.won ? 'VICTORY' : 'DEFEAT'));
+  if (opts.stats) {
+    const s = opts.stats;
+    const grid = h('div', 'aar-grid');
+    const cells = [
+      ['Match time', fmtDur(s.ticks)],
+      ['Units built', s.unitsBuilt],
+      ['Units lost', s.unitsLost],
+      ['Structures lost', s.structsLost],
+      ['Confirmed kills', s.kills],
+      ['Credits banked', Math.floor(s.credits)],
+    ];
+    for (const [label, val] of cells) {
+      const cell = h('div', 'aar-cell');
+      cell.appendChild(h('div', 'aar-val', String(val)));
+      cell.appendChild(h('div', 'aar-label', label));
+      grid.appendChild(cell);
+    }
+    box.appendChild(grid);
+  }
   const row = h('div', 'menu-row');
-  const again = h('button', 'menu-btn start', 'Restart');
+  const again = btn('menu-btn start', 'Restart');
   again.addEventListener('click', () => {
     banner.classList.add('hidden');
     opts.onRestart();
   });
-  const menu = h('button', 'menu-btn', 'Menu');
+  const menu = btn('menu-btn', 'Menu');
   menu.addEventListener('click', () => {
     banner.classList.add('hidden');
     opts.onMenu();

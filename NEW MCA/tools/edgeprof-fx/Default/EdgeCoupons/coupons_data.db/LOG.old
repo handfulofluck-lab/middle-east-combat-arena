@@ -1,0 +1,15 @@
+2026/09/19-19:00:21.289 4944 Reusing MANIFEST C:\KARIM\mca\NEW MCA\tools\edgeprof-fx\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/09/19-19:00:21.348 4944 Recovering log #16
+2026/09/19-19:00:21.348 4944 Reusing old log C:\KARIM\mca\NEW MCA\tools\edgeprof-fx\Default\EdgeCoupons/coupons_data.db/000016.log 
+2026/09/19-19:00:21.436 27f4 Level-0 table #20: started
+2026/09/19-19:00:21.443 27f4 Level-0 table #20: 683444 bytes OK
+2026/09/19-19:00:21.447 27f4 Delete type=0 #16
+2026/09/19-19:00:21.447 4a0 Compacting 4@0 + 1@1 files
+2026/09/19-19:00:21.456 4a0 Generated table #21@0: 4 keys, 683352 bytes
+2026/09/19-19:00:21.456 4a0 Compacted 4@0 + 1@1 files => 683352 bytes
+2026/09/19-19:00:21.460 4a0 compacted to: files[ 0 1 1 0 0 0 0 ]
+2026/09/19-19:00:21.461 4a0 Delete type=2 #8
+2026/09/19-19:00:21.461 4a0 Delete type=2 #11
+2026/09/19-19:00:21.462 4a0 Delete type=2 #14
+2026/09/19-19:00:21.462 4a0 Delete type=2 #17
+2026/09/19-19:00:21.462 4a0 Delete type=2 #20

@@ -1412,6 +1412,6 @@
  {
   "name": "perf hormuz 6p 3000-tick AI match",
   "pass": true,
-  "detail": "3148ms {\"over\": false, \"winner\": -1, \"tick\": 3000, \"elim\": 0, \"built\": 107, \"units\": 96, \"structs\": 57}"
+  "detail": "3034ms {\"over\": false, \"winner\": -1, \"tick\": 3000, \"elim\": 0, \"built\": 107, \"units\": 96, \"structs\": 57}"
  }
 ]

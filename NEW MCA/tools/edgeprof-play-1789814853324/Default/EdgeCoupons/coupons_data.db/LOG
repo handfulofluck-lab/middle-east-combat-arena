@@ -1,0 +1,5 @@
+2026/09/19-14:47:40.043 3754 Creating DB C:\KARIM\mca\NEW MCA\tools\edgeprof-play-1789814853324\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/09/19-14:47:40.158 3754 Reusing MANIFEST C:\KARIM\mca\NEW MCA\tools\edgeprof-play-1789814853324\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/09/19-14:47:41.029 452c Level-0 table #5: started
+2026/09/19-14:47:41.039 452c Level-0 table #5: 683273 bytes OK
+2026/09/19-14:47:41.042 452c Delete type=0 #3
