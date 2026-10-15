@@ -1,1 +1,27 @@
-{"maps":["sinai","jerusalem","arabia","gulf","redsea","maghreb","anatolia","indus","gulfstates"]}
+{
+  "maps": [
+    "sinai",
+    "jerusalem",
+    "arabia",
+    "gulf",
+    "redsea",
+    "maghreb",
+    "anatolia",
+    "indus",
+    "gulfstates",
+    "bab_el_mandeb",
+    "nile_delta",
+    "cyprus_levant",
+    "zagros_pass",
+    "kyzylkum_steppe",
+    "arabian_sea_convoy"
+  ],
+  "argon_new_maps": [
+    "bab_el_mandeb",
+    "nile_delta",
+    "cyprus_levant",
+    "zagros_pass",
+    "kyzylkum_steppe",
+    "arabian_sea_convoy"
+  ]
+}

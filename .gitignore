@@ -5,3 +5,5 @@ client/assets/*.json
 dist/MCA.html
 dist/README.html
 tools/qa_report.json
+
+tools/edgeprof-*/
