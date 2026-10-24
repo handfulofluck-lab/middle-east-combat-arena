@@ -1421,7 +1421,13 @@ function pushAlert(game, text, wx, wy) {
   while (root.children.length >= 4) root.removeChild(root.children[0]);
   const b = h('div', 'alert-banner', text);
   let removed = false;
-  const drop = () => { if (!removed) { removed = true; root.removeChild(b); } };
+  const drop = () => {
+    if (removed) return;
+    removed = true;
+    // the 4-card cap may have already evicted this banner; only remove if attached
+    if (b.parentNode) b.parentNode.removeChild(b);
+    else if (root.children.indexOf(b) >= 0) root.removeChild(b);
+  };
   b.addEventListener('click', () => {
     if (game.state && game.camera) {
       const cam = game.camera;

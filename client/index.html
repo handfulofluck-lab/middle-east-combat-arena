@@ -8,7 +8,61 @@
   html, body { margin:0; padding:0; overflow:hidden; background:#0a0c10;
     font:13px/1.45 system-ui, "Segoe UI", Roboto, Arial, sans-serif; color:#dfe6f2; }
   #game { position:fixed; inset:0; width:100vw; height:100vh; display:block;
-    cursor:crosshair; }
+    cursor:crosshair; z-index:0; }
+  /* v0.11.0: 3D layers. #gl-canvas is created by gl.js (z 2);
+     #ui-overlay carries 2D selection boxes / drag lines above it. */
+  #ui-overlay { position:fixed; inset:0; width:100vw; height:100vh;
+    display:none; pointer-events:none; z-index:3; }
+  #menu-3d { position:fixed; inset:0; width:100vw; height:100vh;
+    display:none; pointer-events:none; z-index:1; background:#0b0d10; }
+  /* 3D menu flyby: the menu plate becomes a translucent scrim so the
+     cinematic reads behind it (the rule needs !important because menu.js
+     also sets an inline keyart background). */
+  body.menu-3d #menu { background:linear-gradient(180deg,
+    rgba(10,8,5,0.26), rgba(8,10,13,0.60)) !important; }
+  /* full-bleed intro / victory: the HUD would only clutter the sequence */
+  body.cinematic #topbar, body.cinematic #buildbar,
+  body.cinematic #sel-panel, body.cinematic #army-panel,
+  body.cinematic #minimap, body.cinematic #hint,
+  body.cinematic #alerts, body.cinematic #cursor-label,
+  body.cinematic #tooltip, body.cinematic #spec-badge,
+  body.cinematic #pause-banner, body.cinematic #gfx-toggle {
+    display:none !important; }
+  /* graphics preference chip (main menu / setup only) */
+  #gfx-toggle { position:fixed; right:22px; bottom:20px; z-index:12;
+    display:none; align-items:center; gap:8px; padding:8px 12px;
+    background:rgba(10,12,16,0.9); border:1px solid var(--accent-dim);
+    border-radius:4px; font-size:11px; letter-spacing:0.08em;
+    text-transform:uppercase; color:#cfd6e2; }
+  #gfx-toggle label { display:flex; align-items:center; gap:7px; cursor:pointer; }
+  #gfx-toggle input { accent-color:var(--accent); }
+  #gfx-toggle .note { color:#8a94a6; font-size:9px; letter-spacing:0.06em; }
+  /* in-engine cinematics overlay */
+  #cinematic { position:fixed; inset:0; z-index:11; display:none;
+    flex-direction:column; align-items:center; justify-content:center;
+    gap:10px; text-align:center; pointer-events:auto;
+    background:radial-gradient(ellipse at 50% 45%, rgba(5,6,8,0.08),
+      rgba(5,6,8,0.58)); font-family:"Segoe UI", Roboto, Arial, sans-serif; }
+  #cinematic.show { display:flex; }
+  #cinematic .cine-kicker { color:#d8cda9; font-size:12px;
+    letter-spacing:0.42em; text-transform:uppercase; opacity:0.9; }
+  #cinematic .cine-title { color:#f4e4b6; font-size:clamp(40px, 8vw, 92px);
+    font-weight:800; letter-spacing:0.10em; text-transform:uppercase;
+    text-shadow:0 4px 26px rgba(0,0,0,0.7); }
+  #cinematic .cine-sub { color:#e9dfc4; font-size:16px;
+    letter-spacing:0.20em; text-transform:uppercase; }
+  #cinematic .cine-vs { color:#b9b29b; font-size:12px;
+    letter-spacing:0.24em; text-transform:uppercase; margin-top:4px; }
+  #cinematic .cine-skip { position:absolute; bottom:8%; color:#9c967f;
+    font-size:10px; letter-spacing:0.18em; text-transform:uppercase; }
+  #cinematic.victory .cine-title { color:#ffe39a;
+    text-shadow:0 0 30px rgba(255,196,80,0.45), 0 4px 26px rgba(0,0,0,0.8); }
+  #cinematic.defeat .cine-title { color:#ff9b86;
+    text-shadow:0 0 30px rgba(210,50,30,0.35), 0 4px 26px rgba(0,0,0,0.8); }
+  #cinematic.intro, #cinematic.victory, #cinematic.defeat {
+    background:radial-gradient(ellipse at 50% 45%, rgba(5,6,8,0.34),
+      rgba(5,6,8,0.66)); }
+  #cinematic .cine-skip.hide { display:none; }
 
   .panel { background:rgba(12,14,18,0.85); border:1px solid var(--accent-dim);
     border-radius:5px; }
@@ -481,6 +535,8 @@
 </head>
 <body>
 <canvas id="game"></canvas>
+<canvas id="menu-3d"></canvas>
+<canvas id="ui-overlay"></canvas>
 <div id="topbar"></div>
 <div id="buildbar"></div>
 <div id="sel-panel"></div>
@@ -500,6 +556,18 @@
 </div>
 <div id="menu"></div>
 <div id="banner" class="hidden"></div>
+<div id="gfx-toggle">
+  <label><input type="checkbox" id="gfx3d" checked> 3D graphics</label>
+  <span class="note" id="gfx-note"></span>
+</div>
+<div id="cinematic">
+  <div class="cine-kicker" id="cine-kicker"></div>
+  <div class="cine-title" id="cine-title"></div>
+  <div class="cine-sub" id="cine-sub"></div>
+  <div class="cine-vs" id="cine-vs"></div>
+  <div class="cine-skip" id="cine-skip">Click or press any key to skip</div>
+</div>
+<script src="vendor/three.min.js"></script>
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

@@ -1,7 +1,0 @@
-#!/bin/bash
-TOOL="C:/Users/admin/AppData/Roaming/kimi-desktop/daimon-share/daimon/runtime/kimi-code/home/plugins/managed/image_generation/scripts/image_generation_tool.py"
-OUT="/c/KARIM/mca/NEW MCA/client/assets/terrain"
-nohup python "$TOOL" generate --description "Seamless tileable game terrain texture, top-down orthographic view of rocky arid desert ground, grey-brown stones, gravel and small rock clusters, warm dry climate tones, diffuse daylight, no objects, no shadows, photorealistic, uniform edges for tiling, RTS strategy game map tile" --size 2048x2048 --background opaque --output "$OUT/rock.jpg" > /tmp/imggen_rock3.log 2>&1 &
-nohup python "$TOOL" generate --description "Seamless tileable game water texture, top-down orthographic view of calm shallow coastal sea water, gentle small ripple patterns, deep blue to turquoise tones, subtle wave light highlights, no objects, photorealistic, uniform edges for tiling, RTS strategy game map water tile" --size 2048x2048 --background opaque --output "$OUT/water.jpg" > /tmp/imggen_water3.log 2>&1 &
-nohup python "$TOOL" generate --description "Seamless tileable game terrain texture, top-down orthographic view of desert dunes edge meeting a dry salt-flat pan, smooth wind-rippled sand transitioning to pale cracked silt, warm tones, diffuse daylight, no objects, no shadows, photorealistic, uniform edges for tiling, RTS strategy game map tile" --size 2048x2048 --background opaque --output "$OUT/dune.jpg" > /tmp/imggen_dune3.log 2>&1 &
-echo "launched 3 jobs"

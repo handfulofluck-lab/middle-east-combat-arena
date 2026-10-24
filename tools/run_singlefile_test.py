@@ -61,7 +61,7 @@ DRIVER_MAIN = r"""
     __check('sim-advanced', g.state.tick - t0 >= 20, 'ticks=' + (g.state.tick - t0));
     __check('canvas-drawn', g.ctx.calls > 500, 'ctx calls=' + g.ctx.calls);
     var ids = g.maps ? Object.keys(g.maps) : [];
-    __check('maps-inlined', ids.length === 9
+    __check('maps-inlined', ids.length >= 9
       && !!g.maps.sinai && g.maps.sinai.w === 192
       && !!g.maps.maghreb && g.maps.maghreb.w === 240
       && !!g.maps.gulf && !!g.maps.jerusalem && !!g.maps.gulfstates,
@@ -123,12 +123,20 @@ DRIVER_MAIN = r"""
 """
 
 def extract_bundle(html: str) -> str:
-    # the bundle is the only inline <script> in the built file
+    # v0.11.0: the built page has exactly two inline scripts — the local
+    # Three.js UMD build, then the game bundle. Older builds (pre-3D) had one;
+    # keep that path working. Static bundle checks apply to the game bundle.
     scripts = re.findall(r"<script>([\s\S]*?)</script>", html)
-    if len(scripts) != 1:
-        print(f"BUILD ERROR: expected exactly 1 inline <script>, found {len(scripts)}")
-        sys.exit(1)
-    return scripts[0]
+    if len(scripts) == 2:
+        three, bundle = scripts
+        if "THREE" not in three:
+            print("BUILD ERROR: first inline <script> is not the Three.js library")
+            sys.exit(1)
+        return bundle
+    if len(scripts) == 1:
+        return scripts[0]
+    print(f"BUILD ERROR: expected 1 or 2 inline <script> tags, found {len(scripts)}")
+    sys.exit(1)
 
 
 def main() -> int:

@@ -7,6 +7,11 @@ import * as Sim from './sim/index.js';
 import { createCamera, centerCameraOn, clampCameraToMap, worldToScreen } from './game/camera.js';
 import { initInput, handleInputFrame } from './game/input.js';
 import { initRenderer, renderFrame } from './game/render.js';
+import { initGl, glFrame, focusGl, setGlVisible, syncLegacyFog,
+  glWorldToScreen } from './game/gl.js';
+import { initCinematics, updateCinematics, startMenuCinematic,
+  stopMenuCinematic, playIntro, playOutro, skipCinematic,
+  cancelCinematics, isCinematicActive } from './game/cinematics.js';
 import { initHud, updateHud, showHint, AUTO_DEPLOY_TICKS,
   updateTutorial, abortTutorial } from './game/hud.js';
 import { initMinimap, updateMinimap } from './game/minimap.js';
@@ -24,6 +29,163 @@ const TICK_MS = 100; // 10 ticks/sec
 const DROP_AFTER_MS = 6000;
 const TAKEOVER_DELAY_TICKS = 3; // drop -> AI active tick alignment
 let G = null;
+
+const GFX_KEY = 'mca.gfx3d';
+
+function installErrorProbe() {
+  if (!globalThis.__glErrors) globalThis.__glErrors = [];
+  if (globalThis.__mcaErrHooks) return;
+  globalThis.__mcaErrHooks = true;
+  const push = (msg) => {
+    try { globalThis.__glErrors.push(String(msg)); } catch (e) { /* no-op */ }
+  };
+  if (globalThis.addEventListener) {
+    globalThis.addEventListener('error', (e) => {
+      const where = e && e.filename ? ' @ ' + e.filename + ':' + e.lineno : '';
+      push(String(e && e.message || e) + where);
+    });
+    globalThis.addEventListener('unhandledrejection', (e) => {
+      const r = e && e.reason;
+      push('unhandled rejection: ' + (r && r.stack ? r.stack : String(r)));
+    });
+  }
+}
+
+// WebGL detection must not trust a stubbed canvas: the smoke/single-file
+// harness FakeCtx answers getContext('webgl') too, so require the real
+// WebGLRenderingContext constructor as well.
+function webglAvailable() {
+  try {
+    if (typeof globalThis.WebGLRenderingContext === 'undefined') return false;
+    const cv = document.createElement('canvas');
+    const gl = cv.getContext('webgl') || cv.getContext('experimental-webgl');
+    return !!(gl && typeof gl.getParameter === 'function'
+      && typeof gl.createShader === 'function');
+  } catch (e) {
+    return false;
+  }
+}
+
+function readGfxPref() {
+  let on = true;
+  try {
+    const v = globalThis.localStorage && globalThis.localStorage.getItem(GFX_KEY);
+    if (v === '0' || v === 'false') on = false;
+    if (v === '1' || v === 'true') on = true;
+  } catch (e) { /* default on */ }
+  try {
+    const q = globalThis.location && globalThis.location.search;
+    if (q) {
+      const m = /(?:^|[?&])gfx=(2d|3d)(?:&|$)/.exec(q);
+      if (m) on = m[1] === '3d';
+    }
+  } catch (e) { /* no location in harness */ }
+  return on;
+}
+
+function saveGfxPref(mode) {
+  try {
+    if (globalThis.localStorage) {
+      globalThis.localStorage.setItem(GFX_KEY, mode === '3d' ? '1' : '0');
+    }
+  } catch (e) { /* private mode */ }
+}
+
+function syncGfxUi() {
+  if (!G) return;
+  const box = document.getElementById('gfx-toggle');
+  if (!box) return;
+  const cb = document.getElementById('gfx3d');
+  const note = document.getElementById('gfx-note');
+  const show = !G.state && (G.overlay === 'menu' || G.overlay === 'setup');
+  box.style.display = show ? 'flex' : 'none';
+  if (cb) {
+    cb.checked = G.gfx === '3d';
+    cb.disabled = !G.gfxSupported;
+  }
+  if (note) {
+    note.textContent = G.gfxSupported ? '' : 'WebGL unavailable';
+  }
+}
+
+function syncMenuCinematic() {
+  if (!G) return;
+  const want = G.gfx === '3d' && G.gfxSupported && !G.state
+    && (G.overlay === 'menu' || G.overlay === 'setup')
+    && typeof startMenuCinematic === 'function';
+  if (want) {
+    if (!G.cinema) { try { initCinematics(G); } catch (e) { /* 2D fallback */ } }
+    if (G.cinema && !G.cinema.menuFailed) {
+      if (!G.cinema.menu || !G.cinema.menu.active) {
+        let ok = false;
+        try { ok = startMenuCinematic(G); } catch (e) { ok = false; }
+        if (!ok) G.cinema.menuFailed = true;
+      }
+    }
+  } else if (typeof stopMenuCinematic === 'function') {
+    try { stopMenuCinematic(G); } catch (e) { /* no-op */ }
+  }
+}
+
+function setGfxMode(mode, fromUser) {
+  if (!G) return;
+  if (mode === '3d' && !G.gfxSupported) mode = '2d';
+  const changed = G.gfx !== mode;
+  G.gfx = mode;
+  if (document.body && document.body.classList) {
+    document.body.classList.toggle('gfx-3d', mode === '3d');
+  }
+  if (changed && fromUser) saveGfxPref(mode);
+  if (mode !== '3d') {
+    if (typeof stopMenuCinematic === 'function') {
+      try { stopMenuCinematic(G); } catch (e) { /* no-op */ }
+    }
+  }
+  syncMenuCinematic();
+  syncGfxUi();
+  if (fromUser) {
+    if (G.state) {
+      showHint(G, 'Graphics setting applies to the next match.');
+    } else if (mode === '3d') {
+      showHint(G, '3D graphics enabled (WebGL).');
+    } else {
+      showHint(G, '2D fallback enabled.');
+    }
+  }
+}
+
+function draw3dOverlays(game) {
+  const ctx = game.uiCtx;
+  if (!ctx) return;
+  const dpr = game.dpr || 1;
+  const w = game.camera ? game.camera.viewW : (globalThis.innerWidth || 1280);
+  const h = game.camera ? game.camera.viewH : (globalThis.innerHeight || 720);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const d = game.drag;
+  if (d && !game.placement && !game.targeting && !game.attackMoveArmed) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(Math.min(d.x0, d.x1) + 0.5, Math.min(d.y0, d.y1) + 0.5,
+      Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
+    ctx.setLineDash([]);
+  }
+  const dm = game.dragMove;
+  if (dm) {
+    const a = glWorldToScreen(game, dm.ux, dm.uy);
+    if (a) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.82)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(dm.x1, dm.y1);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+}
 
 export function getGame() {
   return G;
@@ -49,10 +211,16 @@ async function loadData() {
 }
 
 export async function boot() {
+  installErrorProbe();
   const { data, maps, art, unitart } = await loadData();
   const canvas = document.getElementById('game');
+  const supports3d = webglAvailable();
+  const want3d = readGfxPref();
   G = {
     data, maps, canvas, ctx: canvas.getContext('2d'),
+    gfx: (supports3d && want3d) ? '3d' : '2d',
+    gfxSupported: supports3d,
+    gl: null, uiCanvas: null, uiCtx: null, cinema: null,
     art: art || {}, // menu keyart / setup backdrop / faction posters (data-URIs)
     unitArt: unitart.units || {},     // RA-style unit sprites by defId (data-URIs)
     structArt: unitart.structures || {}, // structure sprites by defId
@@ -96,6 +264,21 @@ export async function boot() {
     dpr: 1,         // devicePixelRatio at last resize (canvas backing-store scale)
     render: null, minimap: null, hud: null,
   };
+  G.uiCanvas = document.getElementById('ui-overlay');
+  if (G.uiCanvas && G.uiCanvas.getContext) G.uiCtx = G.uiCanvas.getContext('2d');
+  if (document.body && document.body.classList) {
+    document.body.classList.toggle('gfx-3d', G.gfx === '3d');
+  }
+  const gfxCb = document.getElementById('gfx3d');
+  if (gfxCb && gfxCb.addEventListener) {
+    gfxCb.addEventListener('change', () => {
+      setGfxMode(gfxCb.checked ? '3d' : '2d', true);
+    });
+  }
+  syncGfxUi();
+  if (G.gfx === '3d' && typeof initCinematics === 'function') {
+    try { initCinematics(G); } catch (e) { /* cinematics are optional */ }
+  }
   G.openMenu = () => {
     if (G.overlay) return; // an overlay is already up — ignore
     if (G.state && !G.state.over && !G.endShown) {
@@ -133,6 +316,12 @@ export async function boot() {
     // rally / placement landed dpr-times away from the cursor.
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
+    if (G.uiCanvas) {
+      G.uiCanvas.width = Math.round(window.innerWidth * dpr);
+      G.uiCanvas.height = Math.round(window.innerHeight * dpr);
+      G.uiCanvas.style.width = window.innerWidth + 'px';
+      G.uiCanvas.style.height = window.innerHeight + 'px';
+    }
     if (G.camera) { G.camera.viewW = window.innerWidth; G.camera.viewH = window.innerHeight; }
   };
   window.addEventListener('resize', resize);
@@ -202,6 +391,8 @@ export async function boot() {
   initMinimap(G);
   installMpUi();
   showMenu(G, (cfg) => startMatch(cfg));
+  syncGfxUi();
+  syncMenuCinematic();
 
   // v0.10.1: prewarm the sprite caches during menu idle so bitmaps decode
   // before the first match instead of janking the deploy click (the caches
@@ -231,12 +422,19 @@ export async function boot() {
   let last = performance.now();
   let acc = 0;
   const frame = (now) => {
+    // probe capture: freeze every layer (renderer + sim + menus) on request
+    if (globalThis.__glPaused) {
+      requestAnimationFrame(frame);
+      return;
+    }
     // a bad frame must never kill the loop (v0.3.1: a missing import once
     // bricked rendering mid-match and made every later menu flow look broken)
     try {
       const dt = Math.min(250, now - last);
       last = now;
+      syncMenuCinematic();
       handleInputFrame(G, dt);
+      if (G.cinema && typeof updateCinematics === 'function') updateCinematics(G, dt);
       if (G.tutor) updateTutorial(G); // guided-sandbox step machine (UI-only)
       // v0.7.1: the briefing overlay auto-dismisses at its deadline; while it
       // is up the accumulator stays frozen so the sim can't fast-forward on
@@ -267,10 +465,19 @@ export async function boot() {
         processPendingDrops();
       }
       if (G.net && G.net.active) Net.netTick(); // peer RTT probes (lobby + match)
-      if (G.state) renderFrame(G);
-      if (G.dragMove) drawDragMoveLine(G); // v0.6.0 drag-move order line
+      if (G.state) {
+        if (G.gfx === '3d' && G.gl && typeof glFrame === 'function') {
+          glFrame(G, dt);
+          draw3dOverlays(G);
+        } else {
+          renderFrame(G);
+          if (G.dragMove) drawDragMoveLine(G); // 2D drag-move order line
+        }
+      }
+      syncGfxUi();
     } catch (err) {
       G.frameErrors++;
+      if (globalThis.__glErrors) globalThis.__glErrors.push(String(err && err.stack || err));
       if (typeof console !== 'undefined') console.error(err);
       if (G.frameErrors === 1) {
         showHint(G, 'Render/sim error — ' + (err && err.message || err));
@@ -306,6 +513,11 @@ function drawDragMoveLine(G) {
 
 export function startMatch(cfg) {
   G.lastCfg = cfg;
+  const menuRoot = typeof document !== 'undefined' ? document.getElementById('menu') : null;
+  if (menuRoot && menuRoot.classList) menuRoot.classList.add('hidden');
+  const bannerRoot = typeof document !== 'undefined' ? document.getElementById('banner') : null;
+  if (bannerRoot && bannerRoot.classList) bannerRoot.classList.add('hidden');
+  if (document.body && document.body.classList) document.body.classList.remove('in-menu');
   if (G.briefing && G.briefing.dismiss) G.briefing.dismiss(); // stale overlay
   G.briefing = null;
   const map = G.maps[cfg.map];
@@ -411,21 +623,94 @@ export function startMatch(cfg) {
   if (G.minimap) { G.minimap.pings = []; G.minimap.terrain = null; }
   if (document.body) document.body.classList.remove('in-menu');
   if (G.hudSyncSpeed) G.hudSyncSpeed();
+  if (typeof cancelCinematics === 'function' && G.cinema) {
+    try { cancelCinematics(G); } catch (e) { /* optional */ }
+  }
+  if (typeof stopMenuCinematic === 'function') {
+    try { stopMenuCinematic(G); } catch (e) { /* optional */ }
+  }
+  // 2D fallback renderer is always built: the minimap consumes its fog canvas,
+  // and it must be ready if 3D initialization fails on this machine.
   initRenderer(G);
+
+  let use3d = G.gfx === '3d' && G.gfxSupported;
+  if (use3d) {
+    try {
+      if (typeof initGl !== 'function') throw new Error('3D renderer module missing');
+      initGl(G);
+      if (typeof setGlVisible === 'function') setGlVisible(G, true);
+      if (G.gl) G.gl.wasdPan = false; // A/S/D are game orders, not camera pan
+      if (G.uiCanvas) G.uiCanvas.style.display = 'block';
+      if (G.gl && G.gl.canvas && !G._input3dBound) {
+        initInput(G, G.gl.canvas);
+        G._input3dBound = true;
+      }
+      if (typeof focusGl === 'function' && G.gl) {
+        const spw = map.spawns[G.playerSlot % map.spawns.length];
+        focusGl(G, spw.x * Sim.CELL + Sim.CELL / 2,
+          spw.y * Sim.CELL + Sim.CELL / 2, 52, 0.45, 0.60);
+        if (G.gl.proxy) G.gl.proxy.ready = false;
+      }
+      G.gfx = '3d';
+      if (document.body && document.body.classList) {
+        document.body.classList.add('gfx-3d');
+      }
+    } catch (err) {
+      use3d = false;
+      G.gfx = '2d';
+      if (G.uiCanvas) G.uiCanvas.style.display = 'none';
+      if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
+      if (document.body && document.body.classList) {
+        document.body.classList.remove('gfx-3d');
+      }
+      showHint(G, '3D unavailable — using the 2D renderer.');
+    }
+  }
+  if (!use3d) {
+    if (G.uiCanvas) G.uiCanvas.style.display = 'none';
+    if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
+  }
+
   updateHud(G);
   updateMinimap(G);
   if (G.tutor) updateTutorial(G); // show the first briefing prompt immediately
-  // v0.7.1: faction briefing plate gates the first sim ticks (Rematch/Restart
-  // land here too); no-op when the pack or the faction's plate is missing.
-  // v0.10.0: never shown in MP — the briefing overlay must not gate the sim
-  // while peers are already ticking (peers share no local UI state).
-  if (!mp) showBriefing(G, cfg.faction);
+  // v0.7.1: the 2D faction briefing plate gates the first sim ticks. In 3D the
+  // flyover carries the same faction/operation information instead.
+  if (!use3d && !mp) showBriefing(G, cfg.faction);
+  else if (use3d && !mp && !cfg.tutorial && typeof playIntro === 'function') {
+    const me = G.state.players[G.playerSlot];
+    const mine = me ? me.faction : (cfg.faction || 'MCA');
+    const myTeam = me ? me.team : 0;
+    const foes = [];
+    for (const p of players) {
+      if (!p || p.team === myTeam) continue;
+      const f = (G.state.players.find((q) => q.slot === p.slot) || {}).faction || p.faction;
+      if (f && foes.indexOf(f) < 0) foes.push(f);
+    }
+    try {
+      playIntro(G, {
+        faction: mine,
+        mapName: map.name || cfg.map,
+        vs: foes.length ? mine + '  vs  ' + foes.join(' / ') : '',
+      }, null);
+    } catch (e) { /* intro is optional */ }
+  }
+  syncGfxUi();
+  syncMenuCinematic();
 }
 
 // clean exit from any match state back to the main menu: drops all match
 // state and repaints the canvas with the theme background so no stale frame
 // (or HUD chrome) lingers under the menu
 function exitToMenu() {
+  if (typeof cancelCinematics === 'function' && G.cinema) {
+    try { cancelCinematics(G); } catch (e) { /* optional */ }
+  }
+  if (typeof stopMenuCinematic === 'function') {
+    try { stopMenuCinematic(G); } catch (e) { /* optional */ }
+  }
+  if (G.uiCanvas) G.uiCanvas.style.display = 'none';
+  if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
   if (G.briefing && G.briefing.dismiss) G.briefing.dismiss();
   G.briefing = null;
   // v0.10.0: leaving to the menu ends any MP session (room leave is a no-op
@@ -472,6 +757,8 @@ function exitToMenu() {
   c.fillRect(0, 0, G.canvas.width, G.canvas.height);
   if (G.hudSyncSpeed) G.hudSyncSpeed();
   showMenu(G, (c2) => startMatch(c2));
+  syncGfxUi();
+  syncMenuCinematic();
 }
 
 function simStep() {
@@ -481,17 +768,28 @@ function simStep() {
   for (const c of G.pendingCmds) cmds.push(c);
   G.pendingCmds.length = 0;
   Sim.tick(G.state, cmds);
+  if (G.gfx === '3d' && G.gl && typeof syncLegacyFog === 'function') syncLegacyFog(G);
   updateHud(G, true); // per-tick: heavy scans gated to ~10 Hz real time
   updateMinimap(G);
   const me = G.state.players[G.playerSlot];
   if (!G.endShown && (G.state.over || me.eliminated)) {
     G.endShown = true;
     const won = G.state.over && G.state.winner === me.team && !me.eliminated;
-    showEndBanner(G, {
+    const banner = () => showEndBanner(G, {
       won,
       onRestart: () => startMatch(G.lastCfg),
       onMenu: () => exitToMenu(),
     });
+    if (G.gfx === '3d' && G.gl && typeof playOutro === 'function') {
+      const mapName = (G.state.map && G.state.map.name) || (G.lastCfg && G.lastCfg.map) || '';
+      try {
+        playOutro(G, { won, faction: me.faction, mapName }, banner);
+      } catch (e) {
+        banner();
+      }
+    } else {
+      banner();
+    }
   }
 }
 
@@ -784,8 +1082,31 @@ function installMpUi() {
   }
 }
 
+// v0.11.0 probe/debug surface. The headless probe boots the real game and
+// calls startMatch directly; everything here is render/UI only.
+if (typeof globalThis !== 'undefined') {
+  // The inline 2D harness rewrites `Sim.` call sites and does not provide a
+  // namespace object; keep the probe surface null there instead of throwing.
+  const SimNS = (typeof Sim !== 'undefined') ? Sim : null;
+  globalThis.__mca = {
+    boot,
+    getGame,
+    startMatch,
+    Sim: SimNS,
+    focus: (game, wx, wy, dist, yaw, pitch) =>
+      (typeof focusGl === 'function' ? focusGl(game, wx, wy, dist, yaw, pitch) : null),
+    skipCinematic: (game) => {
+      if (typeof skipCinematic === 'function') skipCinematic(game || getGame());
+    },
+    setGfx: (mode) => setGfxMode(mode, true),
+    gfx: () => (G ? G.gfx : null),
+  };
+}
+
 if (typeof document !== 'undefined' && !globalThis.__MCA_NO_AUTOBOOT) {
   boot().catch((e) => {
+    installErrorProbe();
+    if (globalThis.__glErrors) globalThis.__glErrors.push('boot: ' + (e && e.stack || e));
     const el = document.getElementById('hint');
     if (el) {
       el.style.display = 'block';

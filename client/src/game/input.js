@@ -3,6 +3,7 @@
 // never mutates sim state directly.
 import { CELL, cellOf, isHostile, entityPos, structCenter, teamOf, isInfantryCls, formationOffsetsAir } from '../sim/index.js';
 import { screenToWorld, panCameraBy, zoomCameraAt, clampCameraToMap, centerCameraOn } from './camera.js';
+import { glScreenToWorld, glWorldToScreen, panGlBy, zoomGlBy } from './gl.js';
 import { resolvePlacement, placementBlockReason } from './placement.js';
 import { rallyCommand } from './rally.js';
 import { flashAtCursor, skipTutorial } from './hud.js';
@@ -13,6 +14,22 @@ const EDGE_PX = 12;      // screen-edge pan margin
 const PAN_SPEED = 600;   // screen px / s (at 1x zoom; panCameraBy scales by zoom)
 const DRAG_MIN = 6;      // px before a drag becomes a box-select / drag-move
 const WHEEL_PAN_PX = 120; // v0.6.0: wheel = map pan, CSS px per notch
+
+// v0.11.0: 3D adapter. The 2D top-down camera mapping does not exist in the
+// perspective view, so pointing uses a ray onto the ground plane. All other
+// input semantics (selection, orders, rally, placement) stay identical.
+function is3d(game) {
+  return !!(game && game.gfx === '3d' && game.gl);
+}
+
+export function screenToWorld3d(game, sx, sy) {
+  return glScreenToWorld(game, sx, sy);
+}
+
+function worldAt(game, sx, sy) {
+  if (is3d(game)) return screenToWorld3d(game, sx, sy);
+  return screenToWorld(game.camera, sx, sy);
+}
 
 // audio.js ships concurrently (v0.3.7); headless harnesses strip the import,
 // so every call site is guarded — audio is always best-effort
@@ -68,6 +85,10 @@ const GRID_KEYS = {
 };
 
 export function initInput(game, canvas) {
+  if (!game._inputCanvases) game._inputCanvases = new Set();
+  if (game._inputCanvases.has(canvas)) return;
+  game._inputCanvases.add(canvas);
+  game.inputCanvas = canvas;
   const on = (target, type, fn) => target.addEventListener(type, fn);
 
   on(canvas, 'contextmenu', (e) => e.preventDefault());
@@ -80,7 +101,11 @@ export function initInput(game, canvas) {
     if (game.drag) { game.drag.x1 = game.mouse.sx; game.drag.y1 = game.mouse.sy; }
     if (game.dragMove) { game.dragMove.x1 = game.mouse.sx; game.dragMove.y1 = game.mouse.sy; }
     if (game.midDrag) {
-      panCameraBy(game.camera, game.midDrag.lx - game.mouse.sx, game.midDrag.ly - game.mouse.sy);
+      if (is3d(game)) {
+        panGlBy(game, game.midDrag.lx - game.mouse.sx, game.midDrag.ly - game.mouse.sy);
+      } else {
+        panCameraBy(game.camera, game.midDrag.lx - game.mouse.sx, game.midDrag.ly - game.mouse.sy);
+      }
       game.midDrag.lx = game.mouse.sx; game.midDrag.ly = game.mouse.sy;
     }
   });
@@ -98,7 +123,7 @@ export function initInput(game, canvas) {
       // box-select too (shift = add-to-selection).
       if (!e.shiftKey && game.state && !game.state.over && !game.paused
         && !game.placement && !game.targeting && !game.attackMoveArmed) {
-        const w = screenToWorld(game.camera, game.mouse.sx, game.mouse.sy);
+        const w = worldAt(game, game.mouse.sx, game.mouse.sy);
         const ent = pickOwnAt(game, w.x, w.y);
         if (ent && ent.cx === undefined && game.selection.includes(ent.id)) {
           game.dragMove = {
@@ -113,6 +138,10 @@ export function initInput(game, canvas) {
       // is reverted). Camera panning stays on the wheel (v0.6.0), middle-drag,
       // screen edges and arrow keys.
       game.drag = { x0: game.mouse.sx, y0: game.mouse.sy, x1: game.mouse.sx, y1: game.mouse.sy };
+    } else if (e.button === 2 && is3d(game)) {
+      // gl.js right-drag orbits; input issues the context order only when the
+      // pointer did not travel (checked on mouseup).
+      game._rightDown = { x: game.mouse.sx, y: game.mouse.sy };
     }
   });
 
@@ -131,7 +160,7 @@ export function initInput(game, canvas) {
         if (game.state && !game.state.over && !game.paused) {
           const ids = selectedUnitIds(game);
           if (ids.length) {
-            const w = screenToWorld(game.camera, game.mouse.sx, game.mouse.sy);
+            const w = worldAt(game, game.mouse.sx, game.mouse.sy);
             const cmd = { type: 'move', unitIds: ids, x: Math.round(w.x), y: Math.round(w.y) };
             const offs = orderOffsets(game.state, ids, cmd.x, cmd.y);
             if (offs) cmd.offsets = offs;
@@ -149,12 +178,19 @@ export function initInput(game, canvas) {
     // dropped (the top-bar buttons are DOM and stay live)
     if (!game.state || game.state.over || game.paused) { game.drag = null; return; }
     if (e.button === 0) handleLeftUp(game, e);
-    else if (e.button === 2) handleRightClick(game, e);
+    else if (e.button === 2) {
+      const rd = game._rightDown;
+      game._rightDown = null;
+      const moved = rd ? Math.max(Math.abs(game.mouse.sx - rd.x),
+        Math.abs(game.mouse.sy - rd.y)) : 0;
+      if (!is3d(game) || moved < DRAG_MIN) handleRightClick(game, e);
+    }
     game.drag = null;
   });
 
   on(canvas, 'wheel', (e) => {
     e.preventDefault();
+    if (is3d(game)) return; // gl.js wheel = perspective zoom
     const cam = game.camera;
     if (!cam) return;
     if (e.ctrlKey) {
@@ -177,7 +213,7 @@ export function initInput(game, canvas) {
   // double-click: deploy an MCV, otherwise select all of the same type on screen
   on(canvas, 'dblclick', () => {
     if (!game.state || game.state.over || game.placement || game.paused) return;
-    const w = screenToWorld(game.camera, game.mouse.sx, game.mouse.sy);
+    const w = worldAt(game, game.mouse.sx, game.mouse.sy);
     const ent = pickOwnAt(game, w.x, w.y);
     if (!ent) return;
     if (ent.defId === 'MCV') {
@@ -185,30 +221,46 @@ export function initInput(game, canvas) {
       return;
     }
     if (ent.cx !== undefined) return; // structures: no mass-select
-    const cam = game.camera;
-    const a = screenToWorld(cam, 0, 0);
-    const b = screenToWorld(cam, cam.viewW, cam.viewH);
     const sel = [];
-    for (const id in game.state.units) {
-      const u = game.state.units[id];
-      if (u.owner === game.playerSlot && u.defId === ent.defId
-        && u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y) sel.push(u.id);
+    if (is3d(game)) {
+      const cw = game.gl.canvas.clientWidth || 1;
+      const ch = game.gl.canvas.clientHeight || 1;
+      for (const id in game.state.units) {
+        const u = game.state.units[id];
+        if (u.owner !== game.playerSlot || u.defId !== ent.defId) continue;
+        const p = glWorldToScreen(game, u.x, u.y);
+        if (p && p.x >= 0 && p.y >= 0 && p.x <= cw && p.y <= ch) sel.push(u.id);
+      }
+    } else {
+      const cam = game.camera;
+      const a = screenToWorld(cam, 0, 0);
+      const b = screenToWorld(cam, cam.viewW, cam.viewH);
+      for (const id in game.state.units) {
+        const u = game.state.units[id];
+        if (u.owner === game.playerSlot && u.defId === ent.defId
+          && u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y) sel.push(u.id);
+      }
     }
     if (sel.length) game.selection = sel;
   });
 
-  on(window, 'keydown', (e) => handleKey(game, e, true));
-  on(window, 'keyup', (e) => handleKey(game, e, false));
-  // v0.9.1: alt-tab while an arrow key is held leaves it stuck in game.keys
-  // (the keyup lands in the other window) — clear the set on window blur so
-  // camera panning can't run away in the background
-  on(window, 'blur', () => { if (game.keys) game.keys.clear(); });
+  if (!game._inputWinBound) {
+    game._inputWinBound = true;
+    on(window, 'keydown', (e) => handleKey(game, e, true));
+    on(window, 'keyup', (e) => handleKey(game, e, false));
+    // v0.9.1: alt-tab while an arrow key is held leaves it stuck in game.keys
+    // (the keyup lands in the other window) — clear the set on window blur so
+    // camera panning can't run away in the background
+    on(window, 'blur', () => { if (game.keys) game.keys.clear(); });
+  }
 }
 
 // ---- per-frame pan (arrows + screen edge) -----------------------------------
 
 export function handleInputFrame(game, dtMs) {
   if (!game.camera || !game.state) return;
+  // v0.11.0: in 3D the perspective camera (gl.js) owns keyboard + edge pan.
+  if (is3d(game)) return;
   const dt = dtMs / 1000;
   let dx = 0, dy = 0;
   const k = game.keys;
@@ -243,7 +295,7 @@ function selectedUnitIds(game) {
 
 function handleLeftUp(game, e) {
   const cam = game.camera;
-  const w = screenToWorld(cam, game.mouse.sx, game.mouse.sy);
+  const w = worldAt(game, game.mouse.sx, game.mouse.sy);
 
   // structure placement mode: forgiving snap + Shift to chain
   if (game.placement) {
@@ -289,15 +341,29 @@ function handleLeftUp(game, e) {
   const dragDist = d ? Math.max(Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)) : 0;
   if (d && dragDist >= DRAG_MIN) {
     // box-select (unchanged semantics): non-shift replaces, shift adds; an
-    // empty box clears the selection (v0.6.0 deselect path)
+    // empty box clears the selection (v0.6.0 deselect path). In 3D the
+    // screen rectangle is tested against camera-projected unit positions.
     if (!e.shiftKey) { game.selection = []; game.inspectId = 0; }
-    const a = screenToWorld(cam, Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
-    const b = screenToWorld(cam, Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
-    for (const id in game.state.units) {
-      const u = game.state.units[id];
-      if (u.owner !== game.playerSlot) continue;
-      if (u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y) {
-        if (!game.selection.includes(u.id)) game.selection.push(u.id);
+    if (is3d(game)) {
+      const x0 = Math.min(d.x0, d.x1), x1 = Math.max(d.x0, d.x1);
+      const y0 = Math.min(d.y0, d.y1), y1 = Math.max(d.y0, d.y1);
+      for (const id in game.state.units) {
+        const u = game.state.units[id];
+        if (u.owner !== game.playerSlot) continue;
+        const p = glWorldToScreen(game, u.x, u.y);
+        if (p && p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) {
+          if (!game.selection.includes(u.id)) game.selection.push(u.id);
+        }
+      }
+    } else {
+      const a = screenToWorld(cam, Math.min(d.x0, d.x1), Math.min(d.y0, d.y1));
+      const b = screenToWorld(cam, Math.max(d.x0, d.x1), Math.max(d.y0, d.y1));
+      for (const id in game.state.units) {
+        const u = game.state.units[id];
+        if (u.owner !== game.playerSlot) continue;
+        if (u.x >= a.x && u.x <= b.x && u.y >= a.y && u.y <= b.y) {
+          if (!game.selection.includes(u.id)) game.selection.push(u.id);
+        }
       }
     }
     game.hudDirty = true;
@@ -358,7 +424,7 @@ function handleRightClick(game, e) {
   if (game.placement) { game.placement = null; return; }
   if (game.targeting) { game.targeting = null; return; }
   if (game.attackMoveArmed) { game.attackMoveArmed = false; return; }
-  const w = screenToWorld(game.camera, game.mouse.sx, game.mouse.sy);
+  const w = worldAt(game, game.mouse.sx, game.mouse.sy);
   const ids = selectedUnitIds(game);
   // patrol mode (P): right-click sets the far end of the patrol loop
   if (game.patrolArmed) {
@@ -518,6 +584,10 @@ function pickHostileAt(game, wx, wy) {
 
 // v0.6.0: +/- zoom at the screen middle (the wheel now pans the map)
 function zoomAtCenter(game, factor) {
+  if (is3d(game)) {
+    zoomGlBy(game, factor);
+    return;
+  }
   const cam = game.camera;
   if (!cam) return;
   zoomCameraAt(cam, factor, cam.viewW / 2, cam.viewH / 2);

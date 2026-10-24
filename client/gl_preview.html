@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>MCA — 3D Preview</title>
+<style>
+  :root { --gold:#c8a23a; --ink:#0c0e11; --text:#e7e2d4; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; overflow:hidden; background:#0b0d10; }
+  #game { position:fixed; inset:0; width:100vw; height:100vh; display:block;
+    cursor:grab; touch-action:none; }
+  #game:active { cursor:grabbing; }
+  .overlay { position:fixed; z-index:5; pointer-events:none;
+    font-family:"Segoe UI", Roboto, Helvetica, Arial, sans-serif; color:var(--text); }
+  #caption { left:22px; top:20px; padding:10px 16px 11px;
+    background:linear-gradient(180deg, rgba(18,16,11,0.92), rgba(10,9,6,0.78));
+    border:1px solid var(--gold); border-left:4px solid var(--gold);
+    box-shadow:0 8px 26px rgba(0,0,0,0.45); border-radius:3px; }
+  #caption b { display:block; font-size:15px; letter-spacing:0.26em;
+    text-transform:uppercase; color:#f5e7bf; font-weight:700; }
+  #caption span { display:block; margin-top:3px; font-size:10px;
+    letter-spacing:0.18em; text-transform:uppercase; color:#b9ae91; }
+  #hint { left:24px; bottom:20px; font-size:11px; letter-spacing:0.06em;
+    color:#cfc7b3; background:rgba(10,9,6,0.62); border:1px solid rgba(200,162,58,0.35);
+    border-radius:3px; padding:6px 10px; }
+  #status { right:22px; top:22px; font-size:11px; line-height:1.55;
+    letter-spacing:0.06em; text-align:right; background:rgba(10,9,6,0.72);
+    border:1px solid rgba(200,162,58,0.4); border-radius:3px; padding:8px 12px;
+    color:#d8d0ba; font-variant-numeric:tabular-nums; }
+  #status b { color:#f0dda8; font-weight:600; }
+  #errbox { left:22px; top:96px; right:22px; max-width:780px; display:none;
+    font-family:Consolas, "Courier New", monospace; font-size:11px;
+    color:#ffd0c0; background:rgba(70,12,10,0.9); border:1px solid #c05244;
+    padding:10px 12px; white-space:pre-wrap; border-radius:3px; }
+  #loading { position:fixed; inset:0; z-index:6; display:flex; align-items:center;
+    justify-content:center; background:radial-gradient(circle at 50% 45%, #1b1a14, #0a0b0d);
+    color:#cdbf98; font-family:"Segoe UI", sans-serif; letter-spacing:0.2em;
+    font-size:12px; text-transform:uppercase; transition:opacity 0.5s; }
+  #loading.done { opacity:0; visibility:hidden; }
+  #vignette { position:fixed; inset:0; z-index:4; pointer-events:none;
+    background:radial-gradient(ellipse at 50% 46%, rgba(0,0,0,0) 42%,
+      rgba(8,6,3,0.24) 100%); }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="vignette"></div>
+<div id="loading">Generating 3D battlefield…</div>
+<div id="caption" class="overlay">
+  <b>3D Preview</b>
+  <span>MCA — Middle East Combat Arena · WebGL prototype</span>
+</div>
+<div id="status" class="overlay">Booting renderer…</div>
+<div id="hint" class="overlay">Right-drag orbit · wheel zoom · WASD / arrows pan</div>
+<div id="errbox" class="overlay"></div>
+
+<script src="/client/vendor/three.min.js"></script>
+<script>
+  window.__glErrors = [];
+  window.__glError = function (msg) {
+    window.__glErrors.push(String(msg));
+    var box = document.getElementById('errbox');
+    if (box) {
+      box.style.display = 'block';
+      box.textContent = window.__glErrors.join('\n\n');
+    }
+  };
+  window.onerror = function (message, source, line, col, err) {
+    var where = source ? (' @ ' + source + ':' + line + ':' + col) : '';
+    var detail = err && err.stack ? ('\n' + err.stack) : '';
+    window.__glError(String(message) + where + detail);
+    return false;
+  };
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    window.__glError('Unhandled rejection: ' + (r && r.stack ? r.stack : String(r)));
+  });
+</script>
+<script type="module">
+import * as Sim from '/client/src/sim/index.js';
+import { initGl, glFrame, focusGl } from '/client/src/game/gl.js';
+
+const CEIL = Sim.CELL;
+const S = 2;
+const statusEl = document.getElementById('status');
+const loadingEl = document.getElementById('loading');
+
+function push(msg) {
+  if (window.__glError) window.__glError(msg);
+  else window.__glErrors.push(String(msg));
+}
+
+async function loadJson(url) {
+  const res = await fetch(url + '?v=' + Date.now());
+  if (!res.ok) throw new Error('fetch ' + url + ' -> HTTP ' + res.status);
+  return res.json();
+}
+
+const cellWu = (cx, cy) => ({ x: cx * CEIL + CEIL / 2, y: cy * CEIL + CEIL / 2 });
+const worldOf = (state, wx, wy) => ({
+  x: (wx / CEIL - state.map.w / 2) * S,
+  z: (wy / CEIL - state.map.h / 2) * S,
+});
+
+function spawnUnit(state, defId, owner, cx, cy) {
+  const p = cellWu(cx, cy);
+  return Sim.addUnit(state, defId, owner, p.x, p.y);
+}
+
+function attackMove(u, cx, cy) {
+  const p = cellWu(cx, cy);
+  if (Sim.clearPath) Sim.clearPath(u);
+  u.order = { type: 'attackMove', x: Math.round(p.x), y: Math.round(p.y), targetId: 0, enemyId: 0 };
+}
+
+async function boot() {
+  const [data, map] = await Promise.all([
+    loadJson('/client/data/game.json'),
+    loadJson('/client/maps/coast.json'),
+  ]);
+
+  // Real deterministic match on the coast map (water exists for the navy).
+  const state = Sim.createMatch({
+    data,
+    map,
+    players: [
+      { faction: 'Egypt', slot: 0, team: 0 },
+      { faction: 'Algeria', slot: 1, team: 1 },
+    ],
+    seed: 1,
+  });
+
+  // "Deploy" both starting MCVs: drop the vehicles, raise a Construction Yard
+  // for player 0 at its spawn base, then the supporting base on the coast shelf.
+  for (const id of Object.keys(state.units)) {
+    if (state.units[id].defId === 'MCV') delete state.units[id];
+  }
+
+  const baseStructs = [
+    ['SH-01', 17, 17], // Construction Yard (4x4)
+    ['SH-02', 23, 17], // Power Plant
+    ['SH-03', 17, 22], // Oil Depot
+    ['SH-04', 22, 22], // Barracks
+    ['SH-05', 18, 26], // War Factory
+    ['SH-06', 26, 22], // Airfield / Helipad
+    ['SH-09', 26, 26], // HMG bunker (showcases the defense-tower model)
+  ];
+  for (const [defId, cx, cy] of baseStructs) {
+    Sim.addStructure(state, defId, 0, cx, cy);
+  }
+
+  // Egypt spearhead: 3 MBTs, 3 rifle squads, attack helo, fighter, 2 ships.
+  const egypt = [
+    ['EG-07', 24, 27], ['EG-07', 27, 29], ['EG-07', 24, 31],
+    ['EG-01', 23, 33], ['EG-01', 27, 33], ['EG-01', 21, 35],
+    ['EG-09', 28, 31], ['EG-10', 30, 35],
+    ['EG-18', 15, 31], ['EG-19', 14, 35],
+  ];
+  const egyptUnits = egypt.map(([defId, cx, cy]) => spawnUnit(state, defId, 0, cx, cy));
+
+  // Algeria opposition, including a coastal IFV and a diesel sub in the inlet.
+  const algeria = [
+    ['DZ-07', 31, 24], ['DZ-12', 32, 27], ['DZ-01', 30, 30], ['DZ-02', 29, 32],
+    ['DZ-05', 20, 33], ['DZ-09', 33, 28], ['DZ-15', 34, 23], ['DZ-18', 15, 39],
+  ];
+  const algeriaUnits = algeria.map(([defId, cx, cy]) => spawnUnit(state, defId, 1, cx, cy));
+
+  // Give both spearheads a destination so the 10 Hz sim keeps acquiring,
+  // driving and firing without any AI dependency.
+  for (const u of egyptUnits) {
+    if (u.defId === 'EG-18' || u.defId === 'EG-19') attackMove(u, 20, 33);
+    else attackMove(u, 31, 28);
+  }
+  for (const u of algeriaUnits) attackMove(u, 21, 27);
+
+  const game = { state, canvas: document.getElementById('game') };
+  initGl(game);
+  focusGl(game, cellWu(25, 27.5).x, cellWu(25, 27.5).y, 50, 0.45, 0.58);
+
+  window.__glDemo = {
+    renderer: game.gl.renderer,
+    scene: game.gl.scene,
+    camera: game.gl.camera,
+    state,
+    THREE: window.THREE,
+    gl: game.gl,
+    sim: Sim,
+  };
+
+  // 10 Hz deterministic simulation with catch-up: software WebGL can block
+  // the main thread for hundreds of ms per frame, and the match should still
+  // advance in real time.
+  let tickErrors = 0;
+  let simLast = performance.now();
+  const simTimer = setInterval(() => {
+    try {
+      const now = performance.now();
+      let due = Math.floor((now - simLast) / 100);
+      if (due <= 0) return;
+      if (due > 120) { simLast = now - 100; due = 1; }
+      simLast += due * 100;
+      due = Math.min(due, 80);
+      for (let i = 0; i < due && !state.over; i++) Sim.tick(state, []);
+    } catch (err) {
+      tickErrors++;
+      if (tickErrors < 4) push('sim tick: ' + (err && err.stack ? err.stack : err));
+      if (tickErrors >= 8) clearInterval(simTimer);
+    }
+  }, 100);
+
+  loadingEl.classList.add('done');
+
+  // Probe hooks: freeze the frame (and optionally the sim) before a CDP
+  // screenshot so the software compositor has a stable canvas to capture.
+  let last = performance.now();
+  let frames = 0, fps = 0, fpsT = last;
+  function refreshStatus(paused) {
+    const stats = game.gl.stats || {};
+    statusEl.innerHTML = '<b>' + state.tick + '</b> ticks · 10 Hz sim<br>'
+      + (game.gl.units ? game.gl.units.size : 0) + ' units · '
+      + (game.gl.structs ? game.gl.structs.size : 0) + ' structures<br>'
+      + (stats.meshes || 0) + ' meshes · ' + (paused ? 'still' : (fps + ' fps'));
+  }
+  window.__glPaused = false;
+  window.__glPauseRender = () => {
+    window.__glPaused = true;
+    refreshStatus(true);
+  };
+  window.__glStopSim = () => clearInterval(simTimer);
+
+  function loop(ts) {
+    if (window.__glPaused) return;
+    const dt = Math.min(200, ts - last);
+    last = ts;
+    frames++;
+    if (ts - fpsT > 500) {
+      fps = Math.round(frames * 1000 / (ts - fpsT));
+      frames = 0;
+      fpsT = ts;
+      refreshStatus();
+    }
+    try {
+      glFrame(game, dt);
+    } catch (err) {
+      push('glFrame: ' + (err && err.stack ? err.stack : err));
+      return;
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+}
+
+boot().catch((err) => {
+  push('boot: ' + (err && err.stack ? err.stack : err));
+  const s = document.getElementById('status');
+  if (s) s.textContent = 'FAILED — see error box';
+  loadingEl.classList.add('done');
+});
+</script>
+</body>
+</html>

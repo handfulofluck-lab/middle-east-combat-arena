@@ -200,11 +200,27 @@ def build() -> Path:
     tag = '<script type="module" src="src/main.js"></script>'
     if tag not in html:
         fail("index.html module script tag not found")
-    html = html.replace(tag, "<script>\n" + bundle + "\n</script>")
-    # the game layer references no external assets; guard against any appearing
+    three_tag = '<script src="vendor/three.min.js"></script>'
+    if three_tag not in html:
+        fail("index.html three.js script tag not found")
+    # v0.11.0: inline the local Three.js UMD build ahead of the game bundle.
+    # It is prepended inside the SAME <script> so the build keeps its
+    # one-inline-script self-containment invariant (run_singlefile_test).
+    three = (CLIENT / "vendor/three.min.js").read_text(encoding="utf-8")
+    three = "\n".join(ln for ln in three.splitlines()
+                      if "sourceMappingURL" not in ln)
+    if "</script" in three.lower():
+        fail("three.min.js contains a literal </script")
+    html = html.replace(three_tag, "__MCA_THREE__")
+    html = html.replace(tag, "<script>\n__MCA_BUNDLE__\n</script>")
+    # Guard the page markup/CSS before the third-party namespace strings are
+    # injected (three.min.js contains the XHTML namespace URL, not a network
+    # asset). The game bundle itself is already guarded above.
     for pat in ("<link", "<img", "url(", "@font-face", "http://", "https://"):
         if pat in html:
             fail(f"index.html references an external asset pattern: {pat!r}")
+    html = html.replace("__MCA_THREE__", "<script>\n" + three + "\n</script>")
+    html = html.replace("__MCA_BUNDLE__", bundle)
 
     DIST.mkdir(exist_ok=True)
     out = DIST / "MCA.html"

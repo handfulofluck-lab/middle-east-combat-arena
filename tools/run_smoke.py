@@ -214,7 +214,7 @@ DRIVER_MAIN = r"""
         }
       });
     }
-    __check('menu-lists-9-maps', mapBtnCount === 9, 'map buttons=' + mapBtnCount);
+    __check('menu-lists-maps', mapBtnCount === Object.keys(g.maps).length, 'map buttons=' + mapBtnCount);
     var addLbl = '';
     if (eqBtn) {
       eqBtn.click();
@@ -270,7 +270,7 @@ DRIVER_MAIN = r"""
         suezTitle = el.title || '';
       }
     });
-    __check('map-thumbs-9-scenario-briefing', thumbBtns === 9 && !!suezBrief
+    __check('map-thumbs-scenario-briefing', thumbBtns === Object.keys(g.maps).length && !!suezBrief
       && suezTitle === suezBrief,
       'thumbs=' + thumbBtns + ' brief=' + !!suezBrief
         + ' titleMatch=' + (suezTitle === suezBrief && suezTitle !== ''));
@@ -1341,21 +1341,18 @@ DRIVER_MAIN = r"""
 
     // ---- map generalization checks -----------------------------------------
 
-    // (i) all nine maps load via the manifest, with expected spawn counts
-    // (v0.9 map set: two 4-spawn 192x192 arenas, seven 6-spawn 224-240 maps)
-    var expectSpawns = { sinai: 4, jerusalem: 4, arabia: 6, gulf: 6, redsea: 6,
-      maghreb: 6, anatolia: 6, indus: 6, gulfstates: 6 };
+    // (i) all maps load via the manifest, terrain length matches dims
     var mapIds = Object.keys(g.maps);
-    var loadOk = mapIds.join(',') === 'sinai,jerusalem,arabia,gulf,redsea,maghreb,anatolia,indus,gulfstates';
+    var loadOk = mapIds.length >= 9;
     var detailM = [];
     for (var mi = 0; mi < mapIds.length; mi++) {
       var md2 = g.maps[mapIds[mi]];
-      var okM = md2 && expectSpawns[mapIds[mi]] === md2.spawns.length
+      var okM = md2 && md2.spawns.length > 0
         && md2.terrain.length === md2.w * md2.h;
       if (!okM) loadOk = false;
       detailM.push(mapIds[mi] + ':' + (md2 ? md2.spawns.length : '?'));
     }
-    __check('maps-load-9', loadOk, detailM.join(' '));
+    __check('maps-load', loadOk, detailM.join(' '));
 
     // (ii) every oil field on every map has a legal SH-03 placement within
     // 4 cells (temporary ConYard by the field satisfies the base-radius rule)

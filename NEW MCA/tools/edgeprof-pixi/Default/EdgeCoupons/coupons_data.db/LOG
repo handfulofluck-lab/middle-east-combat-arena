@@ -1,6 +1,0 @@
-2026/09/20-20:10:43.302 2120 Reusing MANIFEST C:\KARIM\mca\NEW MCA\tools\edgeprof-pixi\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
-2026/09/20-20:10:43.307 2120 Recovering log #36
-2026/09/20-20:10:43.308 2120 Reusing old log C:\KARIM\mca\NEW MCA\tools\edgeprof-pixi\Default\EdgeCoupons/coupons_data.db/000036.log 
-2026/09/20-20:10:43.436 1b54 Level-0 table #40: started
-2026/09/20-20:10:43.444 1b54 Level-0 table #40: 683444 bytes OK
-2026/09/20-20:10:43.446 1b54 Delete type=0 #36
