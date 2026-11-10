@@ -5,7 +5,7 @@
 //
 //   noise:white | noise:pink | noise:brown   loop-seamless noise beds
 //   crackle                                  sparse debris / fire pops
-//   ir:desert | ir:hall                      stereo reverb impulse responses
+//   ir:desert | ir:hall                      reverb impulse responses (mono)
 //   drum:<name>                              percussion one-shots (dsp.js)
 //   pluck:<oud|qanun|bass>:<midi>            Karplus-Strong plucked strings
 import {
@@ -24,7 +24,7 @@ const IR_DESERT = {
 };
 // Large dark hall for the score.
 const IR_HALL = {
-  dur: 2.0, t60: 2.2, predelay: 0.024, bright: 0.55, floor: 0.05, dampTime: 0.7, lowCut: 190,
+  dur: 2.2, t60: 2.3, predelay: 0.024, bright: 0.55, floor: 0.05, dampTime: 0.7, lowCut: 190,
   early: [
     { t: 0.019, g: 0.3, pan: -0.6 }, { t: 0.033, g: 0.28, pan: 0.5 },
     { t: 0.047, g: 0.22, pan: 0.1 }, { t: 0.071, g: 0.2, pan: -0.3 },
@@ -74,9 +74,8 @@ function buildAsset(key, sr) {
     case 'crackle':
       return [renderCrackle(sr, 3, rng, 55)];
     case 'ir':
-      // the hall is true stereo; the desert tail is mono (widened in the graph)
-      if (parts[1] === 'hall') return renderImpulse(sr, IR_HALL, rng);
-      return [renderImpulse(sr, IR_DESERT, rng)[0]];
+      // mono responses; the engine widens the reverb returns in the graph
+      return [renderImpulse(sr, parts[1] === 'hall' ? IR_HALL : IR_DESERT, rng)[0]];
     case 'drum': {
       if (parts[1] === 'taiko_ens') {
         // two drums in one buffer: the main taiko plus a larger one (a third

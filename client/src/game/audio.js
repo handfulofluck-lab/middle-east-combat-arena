@@ -11,8 +11,20 @@
 //  - the AudioContext is created lazily on the first user gesture
 //    (unlockAudio; this module also listens for the first pointer / key
 //    event itself so menu music can start before the HUD exists);
-//  - nothing here touches sim state, and nothing blocks a frame: asset
-//    generation runs in a worker and all scheduling is on the audio clock.
+//  - nothing here touches sim state, and calls return at once: buffers are
+//    generated in a worker, one-off set-up work (baking SFX, reverb kernels)
+//    is deferred to idle time, and all scheduling is on the audio clock.
+//
+// Public API (signatures are a contract with hud / renderer / cinematics):
+//   initAudio(game)  unlockAudio()  resetAudioThrottles()  stopAmbient()
+//   playSfx(game, name)  playSfxAt(game, name, pan, dist, gain)
+//   playMusicTrack(game, name)  setMusicIntensity(x)  playStinger(game, name)
+//   setMusicOn(game, on)  getMusicOn()  setMuted(game, muted)  isMuted(game)
+//   getVolume(kind)  setVolume(kind, v)   kind: master | music | sfx | voice
+//   startLoop(game, name) -> { set(pan, dist, gain[, pitch]), stop() } | null
+//   getLevels() -> { rms, low, mid, high, peak }   playVoice(game, faction, key, detail)
+// SFX names live in ../audio/sfx.js (SFX_GROUPS); unknown names are ignored.
+// Try everything in client/audio_lab.html.
 //
 // Persisted preferences (localStorage): mca_muted, mca_music ('0' = off;
 // music is ON by default), mca.vol.master / .music / .sfx / .voice.
@@ -341,7 +353,7 @@ function loadVolumes() {
 
 // the legacy slider keeps working live: when its key changes, adopt it
 function pollLegacyVolume(now) {
-  if (now - __legacyAt < 400) return;
+  if (now - __legacyAt < 1900) return;
   __legacyAt = now;
   const s = lsGet('mca_vol');
   if (s === __legacyVol) return;
@@ -361,10 +373,19 @@ function syncMusic() {
   __eng.music.play(__musicOn ? __track : null);
 }
 
+// The ambience bed runs while a match exists: wanted (initAudio) and the game
+// has a state. It pauses in menus and comes back with the next match.
 function syncAmbient() {
   if (!__eng) return;
-  if (__game && __game.state === null) __ambWanted = false; // match is gone
-  __eng.ambience(__ambWanted);
+  __eng.ambience(__ambWanted && !!(__game && __game.state));
+}
+
+// once a second, from the engine heartbeat
+function housekeeping() {
+  try {
+    syncAmbient();
+    pollLegacyVolume(nowMs());
+  } catch (e) { /* never throws */ }
 }
 
 function bindLoop(h) {
@@ -501,6 +522,7 @@ export function unlockAudio() {
       return;
     }
     __eng.music.intensity(__intensity);
+    __eng.everySecond = housekeeping;
     __eng.run();
     applyMuteState();
     resumeContext();
@@ -514,12 +536,14 @@ function emit(name, pan, dist, gain, positional) {
   try {
     if (__muted) return;
     const eng = __eng;
-    if (eng && __game && __game.state === null && __ambWanted) syncAmbient();
+    if (eng && eng.bed && !(__game && __game.state)) syncAmbient(); // match is gone
     const table = sfxTable();
     const def = table ? table[name] : null;
     if (!def) return; // unknown name: silent no-op
     if (!eng || !__ctx || __ctx.state !== 'running') return; // inaudible pre-gesture
-    pollLegacyVolume(nowMs());
+    // the end-of-match fanfare is the music track's job when that track is
+    // already on its way; the short cue only plays when it is not
+    if ((name === 'victory' || name === 'defeat') && __musicOn && __track === name) return;
     if (!positional && (def.cat === 'light' || def.cat === 'heavy' || def.cat === 'impact')) {
       // battlefield sounds without a position still sit in the world, not in the ear
       pan = Math.random() * 0.7 - 0.35;
@@ -646,7 +670,7 @@ export function getVolume(kind) {
 
 export function setVolume(kind, v) {
   try {
-    if (!(kind in VOLUME_DEFAULTS)) return;
+    if (!(kind in VOLUME_DEFAULTS) || !isFinite(Number(v))) return;
     loadVolumes();
     __vol[kind] = clamp01(v);
     lsSet('mca.vol.' + kind, String(__vol[kind]));
@@ -756,7 +780,8 @@ export function audioStats() {
       ready: true, state: __ctx.state, track: __eng.music.name, intensity: __eng.music.value,
       voices: __eng.activeVoices(), peakVoices: s.peakVoices, loops: __eng.loops.length,
       fired: s.fired, dropped: s.dropped, stolen: s.stolen, nodes: s.nodes,
-      tickMs: s.tickMs, ticks: s.ticks, maxTickMs: s.maxTickMs, musicEvents: s.musicEvents,
+      tickMs: s.tickMs, ticks: s.ticks, maxTickMs: s.maxTickMs, slowTicks: s.slowTicks,
+      musicEvents: s.musicEvents,
       assets: __eng.assets.built, assetMs: __eng.assets.genMs, worker: !!__eng.assets.worker,
       baked: __eng.baker.count, live: s.live,
       // longest synchronous main-thread slices (ms): engine construction, one

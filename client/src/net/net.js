@@ -81,6 +81,7 @@ function withLicense(msg, url) {
   if (tok && isConfiguredRelay(url)) msg.license = tok;
   return msg;
 }
+
 const PEER_PING_EVERY_MS = 2000;  // per-peer RTT probe cadence
 
 function nowMs() {

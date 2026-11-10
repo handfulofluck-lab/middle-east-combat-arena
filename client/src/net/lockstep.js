@@ -5,10 +5,16 @@
 //
 // Model: every human command is stamped for tick = localTick + DELAY and sent
 // immediately. simStep(T) runs only once the ready-set for T holds every human
-// slot's commands-or-stall. A missing-but-responsive peer holds the gate (its
-// inputs are still in flight -- the sim slows down instead of desyncing); a
-// peer silent for STALL_TIMEOUT_MS is force-stalled so the match can limp on
-// until the host declares a drop (AI takeover). Per-tick merge order: all
+// slot's commands-or-stall. A missing peer ALWAYS holds the gate: the match
+// waits (for everyone) until that peer answers or the host declares it
+// dropped (AI takeover at a host-chosen tick). v1.0 removed the old "force
+// the tick after 1.5 s of silence" rule from live play: a peer that froze
+// for a couple of seconds (tab switch, a long load, a GC pause) and then
+// issued a command while catching up had that command applied locally but
+// discarded as stale by everyone who had forced past it -- a guaranteed
+// desync. Waiting is the only timing-independent choice. The old behaviour
+// is still available as opts.forceOnSilence for offline tooling. Per-tick
+// merge order: all
 // human commands sorted by (slot, seq), after the locally-run seeded AI
 // commands (aiCommands is deterministic -- private seeded RNG, tick-gated
 // thinks, no wall clock).
@@ -29,6 +35,7 @@ export function createLockstep(opts) {
     send, now, onDesync, onPeerDrop, extraCmds, trace,
   } = opts;
   let delay = opts.delay; // mutable: setDelay() adjusts the input delay live
+  const forceOnSilence = !!opts.forceOnSilence;
   const me = playerSlot;
   const peers = humanSlots.filter((s) => s !== me).sort((a, b) => a - b);
   const all = humanSlots.slice().sort((a, b) => a - b);
@@ -44,7 +51,15 @@ export function createLockstep(opts) {
   let gateWaitStart = -1;     // now() when the current gate first blocked
   let waitingOn = [];         // slots the gate is currently missing
   let desynced = false;
-  let dropped = new Set();    // slots the host declared dropped -> ignore
+  // slots the host declared dropped -> the tick the drop takes effect. A
+  // dropped slot stops gating at once, but its commands are still honoured
+  // for ticks BEFORE that tick: every peer already holds all of them (the
+  // relay delivers a peer's last messages before the host's declaration), so
+  // "apply below the line, ignore from the line on" is the same decision on
+  // every machine no matter which tick each one had reached when the
+  // declaration arrived. Dropping them on receipt (the old rule) was not.
+  const dropped = new Map();
+  const lastTickFrom = {};    // slot -> highest tick it ever sent input for
   let catchupMode = false;    // replaying the host log (late join)
   let lastStallSent = -1;
   const stats = { stallWaits: 0, forcedSteps: 0, desyncs: 0 };
@@ -104,6 +119,7 @@ export function createLockstep(opts) {
       case 'cmd': {
         if (slot === undefined || dropped.has(slot)) break;
         lastHeard[slot] = now();
+        if (lastTickFrom[slot] === undefined || msg.tick > lastTickFrom[slot]) lastTickFrom[slot] = msg.tick;
         if (msg.tick < state.tick && !catchupMode) break; // stale (forced past)
         let per = incoming.get(msg.tick);
         if (!per) { per = {}; incoming.set(msg.tick, per); }
@@ -116,6 +132,7 @@ export function createLockstep(opts) {
       case 'stall':
         if (slot === undefined || dropped.has(slot)) break;
         lastHeard[slot] = now();
+        if (lastTickFrom[slot] === undefined || msg.tick > lastTickFrom[slot]) lastTickFrom[slot] = msg.tick;
         maybeSendStall();
         if (slot === me) break;
         if (msg.tick < state.tick) break; // stale; the gate already passed it
@@ -141,10 +158,13 @@ export function createLockstep(opts) {
         }
         break;
       }
-      case 'drop':
-        dropped.add(msg.slot);
-        if (onPeerDrop) onPeerDrop(msg);
+      case 'drop': {
+        if (dropped.has(msg.slot)) break;
+        const at = msg.at !== undefined ? msg.at : state.tick;
+        dropped.set(msg.slot, at);
+        if (onPeerDrop) onPeerDrop(Object.assign({}, msg, { at }));
         break;
+      }
       case 'log': // host catch-up stream: authoritative command history
         if (Array.isArray(msg.cmds)) {
           for (const e of msg.cmds) logCmd(e.tick !== undefined ? e.tick : msg.tick, e);
@@ -175,7 +195,8 @@ export function createLockstep(opts) {
     const per = incoming.get(t);
     if (per) {
       for (const s of peers) {
-        if (dropped.has(s)) continue; // stray in-flight cmds from a dropped slot
+        // a dropped slot's commands count only below its drop tick
+        if (dropped.has(s) && t >= dropped.get(s)) continue;
         const rec = per[s];
         if (rec) for (const e of rec.cmds) merged.push(e);
       }
@@ -204,11 +225,12 @@ export function createLockstep(opts) {
       if (!r.ok) {
         const nowT = now();
         if (gateWaitStart < 0) { gateWaitStart = nowT; waitingOn = r.missing; }
-        const silent = r.missing.filter((s) =>
-          nowT - (lastHeard[s] !== undefined ? lastHeard[s] : bornAt) >= STALL_TIMEOUT_MS);
+        const silent = forceOnSilence ? r.missing.filter((s) =>
+          nowT - (lastHeard[s] !== undefined ? lastHeard[s] : bornAt) >= STALL_TIMEOUT_MS) : [];
         if (!silent.length) {
+          waitingOn = r.missing;
           if (trace) trace.push({ tick: t, gate: 'hold', missing: r.missing.slice() });
-          return false; // peers alive but behind -- hold
+          return false; // wait: the peer answers, or the host drops it
         }
         stats.stallWaits++;
         stats.forcedSteps++;
@@ -277,6 +299,12 @@ export function createLockstep(opts) {
     isDropped: (s) => dropped.has(s),
     waitingOn: () => waitingOn.slice(),
     isWaiting: () => gateWaitStart >= 0,
+    waitingSince: () => gateWaitStart,
+    // The earliest tick a drop of `slot` may take effect: no peer can be past
+    // the first tick that slot sent nothing for, so a drop at or after it is
+    // ahead of every machine in the room.
+    safeDropTick: (slot) => Math.max(state.tick,
+      lastTickFrom[slot] === undefined ? 0 : lastTickFrom[slot] + 1),
     setDelay: (d) => { delay = d; },
     getDelay: () => delay,
     // diagnostics for tests/forensics: last-heard times + gate bookkeeping

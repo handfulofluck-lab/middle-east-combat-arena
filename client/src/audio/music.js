@@ -16,7 +16,7 @@ import {
   FANFARE, FANFARE_CHORDS, CALM_CHORDS, LAMENT, LAMENT_CHORDS, RHYTHM, midiOf,
 } from './score.js';
 import {
-  PluckInst, BreathLead, PadInst, StacInst, BrassInst, Drone, DrumKit,
+  PluckInst, BreathLead, PadInst, StacInst, BrassInst, Drone, DroneLoop, DrumKit,
 } from './instruments.js';
 
 // public track name -> arrangement id. 'ambient' and 'battle' are the same
@@ -92,7 +92,7 @@ const PARTS = {
   },
 
   // sustained chords that follow the harmony; re-attacks only on a change
-  pad(T, p, c) {
+  chords(T, p, c) {
     if (c.step !== 0 && c.step !== 8) return;
     const slot = c.bar * 2 + (c.step >> 3);
     const ch = T.chordAt(slot);
@@ -279,6 +279,22 @@ const PARTS = {
 // def: { bpm, layers, loopFrom, build(T), form: [section] }
 // section: { id, bars, bpm?, chords, parts, enter?(T, t, I), end? }
 
+// The drone is a fixed graph, so it is baked once into a 16 s seamless loop
+// and played as a single node. Until that buffer exists (first seconds of a
+// session) the live graph plays and is cross-faded out when the loop lands.
+const DRONE_SECONDS = 16;
+function droneKey(o) { return 'drone:' + (o.air === undefined ? 1 : o.air); }
+function droneGraph(o) {
+  return (ctx, fe) => { new Drone(fe, { level: 1, air: o.air }).out.connect(ctx.destination); };
+}
+function mkDrone(T, o) {
+  const E = T.E, key = droneKey(o);
+  const buf = E.baker.graphs.get(key);
+  if (buf) return new DroneLoop(E, { level: o.level, buffer: buf });
+  if (!E.offline && E.baker.can()) E.baker.wantGraph(key, DRONE_SECONDS, droneGraph(o), () => T.swapDrone(key, o));
+  return new Drone(E, o);
+}
+
 function stdKit(T, name, layer, level) {
   T.reg(name, () => new DrumKit(T.E, { level }), layer, 0);
 }
@@ -296,7 +312,7 @@ TRACKS.title = {
   bpm: 92,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('drone', () => mkDrone(T, { level: LVL.drone }), 0, 0.1);
     T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.35);
     T.reg('stac', () => new StacInst(T.E, { voices: 2, level: LVL.stac, wave: 'bright' }), 0, 0.2);
     T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.25);
@@ -313,7 +329,7 @@ TRACKS.title = {
       parts: [
         { type: 'hits', name: 'boom', at: [[0, 0, 0.8]] },
         { type: 'hits', name: 'gong', at: [[0, 0, 0.3]] },
-        { type: 'pad', inst: 'strings', vel: 0.3, atk: 0.6 },
+        { type: 'chords', inst: 'strings', vel: 0.3, atk: 0.6 },
         { type: 'line', inst: 'ney', line: INTRO_NEY, vel: 0.8 },
         { type: 'trem', inst: 'qanun', in: [2, 3], notes: ['A4', 'D5'], vel: [0.15, 0.45] },
         { type: 'drums', map: 'frame', pat: [REST, REST, RHYTHM.frameSoft, RHYTHM.frameMaq], vel: 0.5 },
@@ -325,7 +341,7 @@ TRACKS.title = {
       parts: [
         { type: 'line', inst: 'oud', line: THEME, vel: 0.9 },
         { type: 'line', inst: 'qanun', line: THEME, oct: 1, vel: 0.4, bars: [4, 8] },
-        { type: 'pad', inst: 'strings', vel: 0.4 },
+        { type: 'chords', inst: 'strings', vel: 0.4 },
         { type: 'bass', inst: 'bass', pat: RHYTHM.bassA, vel: 0.7 },
         { type: 'drums', map: 'frame', pat: RHYTHM.frameMaq, vel: 0.55 },
         { type: 'shaker', pat: RHYTHM.riqOff, vel: 0.35 },
@@ -337,7 +353,7 @@ TRACKS.title = {
       parts: [
         { type: 'line', inst: 'brass', line: THEME, vel: 0.8 },
         { type: 'line', inst: 'oud', line: THEME, vel: 0.7 },
-        { type: 'pad', inst: 'strings', vel: 0.5 },
+        { type: 'chords', inst: 'strings', vel: 0.5 },
         { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse332, vel: 0.55 },
         { type: 'bass', inst: 'bass', pat: RHYTHM.bassDrive, vel: 0.7 },
         { type: 'drums', map: 'darbuka', pat: [RHYTHM.maqsum, RHYTHM.maqsum2], vel: 0.7,
@@ -353,7 +369,7 @@ TRACKS.title = {
       parts: [
         { type: 'line', inst: 'ney', line: BRIDGE_NEY, vel: 0.85 },
         { type: 'ost', inst: 'qanun', div: 1, vel: 0.45 },
-        { type: 'pad', inst: 'strings', vel: 0.42 },
+        { type: 'chords', inst: 'strings', vel: 0.42 },
         { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse332, vel: 0.5, bars: [2, 4] },
         { type: 'bass', inst: 'bass', pat: RHYTHM.bassHalf, vel: 0.7 },
         { type: 'drums', map: 'taiko', vel: 0.75,
@@ -370,7 +386,7 @@ TRACKS.title = {
         { type: 'line', inst: 'brass', line: THEME, vel: 0.95, dbl: 12 },
         { type: 'line', inst: 'qanun', line: THEME, oct: 1, vel: 0.5 },
         { type: 'line', inst: 'strings', line: THEME_COUNTER, vel: 0.5 },
-        { type: 'pad', inst: 'strings', vel: 0.45, voicing: 'high' },
+        { type: 'chords', inst: 'strings', vel: 0.45, voicing: 'high' },
         { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse16, vel: 0.5 },
         { type: 'bass', inst: 'bass', pat: RHYTHM.bassDrive, vel: 0.8 },
         { type: 'drums', map: 'darbuka', vel: 0.8, fill: { every: 4, pat: [RHYTHM.fillB, RHYTHM.fillA] },
@@ -387,7 +403,7 @@ TRACKS.title = {
       id: 'out', bars: 2, chords: ['D'],
       parts: [
         { type: 'hold', inst: 'brass', at: [[0, 0, 26, 0.75, 'sus']], voicing: 'pad' },
-        { type: 'pad', inst: 'strings', vel: 0.5, voicing: 'high' },
+        { type: 'chords', inst: 'strings', vel: 0.5, voicing: 'high' },
         { type: 'drums', map: 'taiko', pat: ['X.x.x.x.x.x.x.x.', 'x.x.x.x.x...X...'], vel: 0.7, decresc: true },
         { type: 'hits', name: 'boom', at: [[0, 0, 0.95]] },
         { type: 'hits', name: 'cym', at: [[0, 0, 0.5]] },
@@ -402,10 +418,10 @@ const notThemePass = (T) => T.pass % 4 !== 2;
 
 TRACKS.menu = {
   bpm: 76,
-  level: 1.6,
+  level: 1.75,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('drone', () => mkDrone(T, { level: LVL.drone }), 0, 0.1);
     T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.4);
     T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.3);
     T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: LVL.qanun, pan: 0.3 }), 0, 0.35);
@@ -418,7 +434,7 @@ TRACKS.menu = {
       id: 'cycle', bars: 8, chords: MENU_PROGS[0],
       enter(T) { T.chords = MENU_PROGS[T.pass % MENU_PROGS.length]; },
       parts: [
-        { type: 'pad', inst: 'strings', vel: 0.42, atk: 0.5, rel: 0.6 },
+        { type: 'chords', inst: 'strings', vel: 0.42, atk: 0.5, rel: 0.6 },
         // every fourth cycle the oud states the whole theme
         { type: 'line', inst: 'oud', line: THEME, vel: 0.72, when: (T) => T.pass % 4 === 2 },
         { type: 'phrases', inst: 'oud', pool: MENU_PHRASES, every: 2, prob: 0.58, vel: 0.68,
@@ -437,7 +453,7 @@ TRACKS.menu = {
 
 function briefParts(b) {
   const parts = [
-    { type: 'pad', inst: 'strings', vel: 0.32 },
+    { type: 'chords', inst: 'strings', vel: 0.32 },
     { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse332, vel: 0.6 },
     { type: 'drums', map: 'tick', pat: [RHYTHM.tick8, RHYTHM.tick8, RHYTHM.tick8, RHYTHM.tick16], vel: 0.5, human: 0.002 },
     { type: 'drums', map: 'timp', vel: 0.6,
@@ -464,7 +480,7 @@ TRACKS.briefing = {
   level: 1.4,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('drone', () => mkDrone(T, { level: LVL.drone }), 0, 0.1);
     T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.35);
     T.reg('stac', () => new StacInst(T.E, { voices: 2, level: LVL.stac, wave: 'bright' }), 0, 0.2);
     T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.25);
@@ -502,7 +518,7 @@ function combatParts(kind) {
     // layer 2
     { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse332, vel: 0.52, layer: 2, max: 0.8 },
     { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse16, vel: 0.5, layer: 2, min: 0.8 },
-    { type: 'pad', inst: 'strings', vel: 0.42, layer: 2 },
+    { type: 'chords', inst: 'strings', vel: 0.42, layer: 2 },
     { type: 'bass', inst: 'bass', pat: RHYTHM.bassA, vel: 0.68, layer: 2, max: 0.75 },
     { type: 'bass', inst: 'bass', pat: RHYTHM.bassDrive, vel: 0.68, layer: 2, min: 0.75 },
     { type: 'drums', map: 'taiko', pat: tai, vel: 0.8, ens: true, layer: 2,
@@ -538,7 +554,7 @@ TRACKS.combat = {
   layers: 4,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: LVL.drone * 1.25 }), 0, 0.1);
+    T.reg('drone', () => mkDrone(T, { level: LVL.drone * 1.25 }), 0, 0.1);
     T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.28);
     T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: LVL.ney, pan: 0.15 }), 0, 0.5);
     stdKit(T, 'kit', 0, LVL.kit);
@@ -565,7 +581,7 @@ TRACKS.victory = {
   bpm: 96,
   loopFrom: 1,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('drone', () => mkDrone(T, { level: LVL.drone }), 0, 0.1);
     T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.4);
     T.reg('brass', () => new BrassInst(T.E, { level: LVL.brass }), 0, 0.4);
     T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.3);
@@ -585,8 +601,8 @@ TRACKS.victory = {
         { type: 'hold', inst: 'brass', at: [[7, 0, 40, 0.85, 'sus']], voicing: 'high' },
         { type: 'hold', inst: 'brass', at: [[7, 0, 40, 0.7, 'sus']] },
         { type: 'line', inst: 'qanun', line: FANFARE, oct: 1, vel: 0.45, bars: [0, 7] },
-        { type: 'pad', inst: 'strings', vel: 0.5 },
-        { type: 'pad', inst: 'strings', vel: 0.36, voicing: 'high', bars: [7, 10] },
+        { type: 'chords', inst: 'strings', vel: 0.5 },
+        { type: 'chords', inst: 'strings', vel: 0.36, voicing: 'high', bars: [7, 10] },
         { type: 'bass', inst: 'bass', pat: RHYTHM.bassDrive, vel: 0.8, bars: [0, 7] },
         { type: 'bass', inst: 'bass', pat: RHYTHM.boom1, vel: 0.9, bars: [7, 10] },
         { type: 'drums', map: 'taiko', pat: RHYTHM.taiko2, vel: 0.85, ens: true, bars: [0, 7] },
@@ -604,7 +620,7 @@ TRACKS.victory = {
     {
       id: 'calm', bars: 8, bpm: 78, chords: CALM_CHORDS,
       parts: [
-        { type: 'pad', inst: 'strings', vel: 0.36, atk: 0.5, rel: 0.6 },
+        { type: 'chords', inst: 'strings', vel: 0.36, atk: 0.5, rel: 0.6 },
         { type: 'phrases', inst: 'oud', pool: THEME_PARTS, every: 2, prob: 0.7, vel: 0.6, flag: 'oud' },
         { type: 'phrases', inst: 'ney', pool: NEY_PHRASES, every: 2, prob: 0.5, vel: 0.6, unless: 'oud' },
         { type: 'bass', inst: 'bass', pat: RHYTHM.boom1, vel: 0.45 },
@@ -616,7 +632,7 @@ TRACKS.victory = {
 TRACKS.defeat = {
   bpm: 60,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: LVL.drone, air: 0.6 }), 0, 0.1);
+    T.reg('drone', () => mkDrone(T, { level: LVL.drone, air: 0.6 }), 0, 0.1);
     T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'dark' }), 0, 0.45);
     T.reg('duduk', () => new BreathLead(T.E, { kind: 'duduk', level: LVL.duduk }), 0, 0.5);
     stdKit(T, 'kit', 0, LVL.kit);
@@ -633,7 +649,7 @@ TRACKS.defeat = {
         { type: 'hits', name: 'gong', at: [[0, 0, 0.4]] },
         { type: 'hits', name: 'boom', at: [[0, 0, 0.45]] },
         { type: 'line', inst: 'duduk', line: LAMENT, vel: 0.85, bars: [0, 4] },
-        { type: 'pad', inst: 'strings', vel: 0.38, atk: 0.6, rel: 1.0 },
+        { type: 'chords', inst: 'strings', vel: 0.38, atk: 0.6, rel: 1.0 },
         { type: 'drums', map: 'frame', vel: 0.5, bars: [0, 4],
           pat: ['D.......D.......', 'D...............', 'D...............', REST] },
       ],
@@ -725,6 +741,27 @@ class TrackPlayer {
     }
     r.last = this.c.t;
     return r.inst;
+  }
+
+  // the baked drone loop has arrived: cross-fade it in over the live graph
+  swapDrone(key, o) {
+    const r = this.regs.drone;
+    const buf = this.E.baker.graphs.get(key);
+    if (this.dead || !r || !r.inst || !buf || r.inst instanceof DroneLoop) return;
+    const now = this.ctx.currentTime;
+    const old = r.inst;
+    const neu = new DroneLoop(this.E, { level: old.level, buffer: buf });
+    neu.tune(now, 38 + this.key, 0.01);
+    neu.out.gain.value = 0;
+    neu.out.gain.setTargetAtTime(old.level * old.gateV, now, 0.5);
+    neu.gateV = old.gateV;
+    neu.out.connect(this.gain);
+    if (r.wet) neu.out.connect(this.wet);
+    old.out.gain.cancelScheduledValues(now);
+    old.out.gain.setTargetAtTime(0, now, 0.5);
+    this.E.after(now + 4, () => { try { old.dispose(); } catch (e) { /* ok */ } });
+    r.inst = neu;
+    this.inst.drone = neu;
   }
 
   // velocity scale for parts that share one instrument across layers (the kit)
@@ -917,8 +954,8 @@ const STINGERS = {
   ] },
   // a sigh: bII -> I on the low oud
   unit_lost: { len: 1.4, duck: 0, ev: [
-    [0, 'pluck', 'oud', 'Eb3', 0.6], [0, 'drum', 'frame', 0.35],
-    [0.28, 'pluck', 'oud', 'D3', 0.7], [0.28, 'pluck', 'bass', 'D2', 0.6],
+    [0, 'pluck', 'oud', 'Eb3', 0.4], [0, 'drum', 'frame', 0.22],
+    [0.28, 'pluck', 'oud', 'D3', 0.46], [0.28, 'pluck', 'bass', 'D2', 0.38],
   ] },
   objective: { len: 1.8, duck: 2, ev: [
     [0, 'pluck', 'bass', 'D2', 0.6], [0, 'drum', 'riq', 0.5],
@@ -1101,6 +1138,11 @@ export class MusicDirector {
       }
     }
     return true;
+  }
+
+  // harness / loading screens: bake the drone loops up front
+  async prebake() {
+    for (const o of [{}, { air: 0.6 }]) await this.E.baker.bakeGraph(droneKey(o), DRONE_SECONDS, droneGraph(o));
   }
 
   // facts for the lab / harness: tempo, form and loop length of a track

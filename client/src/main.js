@@ -13,6 +13,7 @@ import { initCinematics, updateCinematics, startMenuCinematic,
   stopMenuCinematic, playIntro, playOutro, playTitle, skipCinematic,
   cancelCinematics, isCinematicActive } from './game/cinematics.js';
 import * as AudioApi from './game/audio.js';
+import { initStore } from './game/store.js';
 import { initHud, updateHud, showHint, AUTO_DEPLOY_TICKS,
   updateTutorial, abortTutorial } from './game/hud.js';
 import { initMinimap, updateMinimap } from './game/minimap.js';
@@ -27,7 +28,10 @@ import { getMusicOn } from './game/audio.js';
 
 const TICK_MS = 100; // 10 ticks/sec
 // v0.10.0: a peer gone this many gated ticks (host-observed) -> AI takeover
-const DROP_AFTER_MS = 6000;
+const DROP_AFTER_MS = 8000;
+// a peer that has not sent anything yet this match is still loading its
+// battlefield: give it much longer before the host gives up on it
+const LOAD_GRACE_MS = 45000;
 const TAKEOVER_DELAY_TICKS = 3; // drop -> AI active tick alignment
 let G = null;
 
@@ -480,7 +484,10 @@ export async function boot() {
       }
     },
     onBye: (slot) => {
-      if (G.state && !G.state.over && Net.isHost) Net.sendDrop(slot);
+      if (G.state && !G.state.over && Net.isHost && G.ls && !G.mpDropped[slot]) {
+        G.mpDropped[slot] = true;
+        Net.sendDrop(slot, G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
+      }
       if (G.overlay === 'lobby') showLobby(G);
     },
     onHostLeft: () => {
@@ -498,6 +505,8 @@ export async function boot() {
   initHud(G);
   initMinimap(G);
   installMpUi();
+  // supporter store / licence keys (inert unless the server enables it)
+  try { initStore(G); } catch (e) { /* the game never depends on the store */ }
   syncGfxUi();
   syncMenuCinematic();   // builds the live backdrop battle behind the boot screen
 
@@ -725,6 +734,14 @@ export function startMatch(cfg) {
         ? performance.now() : Date.now(),
       onDesync: (info) => onMpDesync(info),
       onPeerDrop: (m) => {
+        // The host gave up waiting for THIS player (frozen or unreachable for
+        // too long): an AI now commands those forces on every other peer, so
+        // this client can no longer take part in the shared simulation.
+        if (m.slot === G.playerSlot) {
+          showHint(G, 'You were out of contact for too long — an AI commander has taken over your forces.');
+          setTimeout(() => { if (G.ls) leaveMpToMenu(); }, 0);
+          return;
+        }
         G.mpPendingDrops.push({
           slot: m.slot,
           at: m.at !== undefined ? m.at : G.state.tick + TAKEOVER_DELAY_TICKS,
@@ -736,7 +753,8 @@ export function startMatch(cfg) {
         return cmds;
       },
     });
-  }
+    startBgPump();
+  } else stopBgPump();
   G.camera = createCamera(G.canvas.width / (G.dpr || 1), G.canvas.height / (G.dpr || 1));
   // v0.10.0: the camera centers on THIS player's spawn (slot from the lobby in
   // MP; offline playerSlot is 0 so behavior is unchanged)
@@ -827,6 +845,10 @@ function buildBattlefield() {
     if (G.gl.proxy) G.gl.proxy.ready = false;
     if (G.gl.portraits) G.gl.portraits.requestAll(G.state, G.playerSlot);
     if (G.gl.ents && G.gl.ents.prewarm) G.gl.ents.prewarm(G.state);
+    // Render one frame now, behind the veil: this is where the GPU compiles
+    // every shader, and it must happen before this peer starts talking in a
+    // multiplayer match (a silent peer makes everyone wait).
+    try { glFrame(G, 16); } catch (e) { /* the frame loop reports real errors */ }
     if (document.body && document.body.classList) document.body.classList.add('gfx-3d');
   } catch (err) {
     ok = false;
@@ -1041,24 +1063,75 @@ function mpSimStep() {
   return true;
 }
 
+// Background pump: browsers stop requestAnimationFrame in a hidden tab,
+// which would freeze this player's simulation and, in lockstep, everyone
+// else's with it. A tiny worker keeps ticking while the tab is hidden so a
+// player who alt-tabs neither stalls the room nor gets dropped.
+let bgWorker = null;
+let bgLast = 0, bgAcc = 0;
+function mpBackgroundPump() {
+  if (!G || typeof document === 'undefined' || !document.hidden || !isMp()) return;
+  if (G.paused || G.worldPending > 0 || !G.state || G.state.over) return;
+  const now = performance.now();
+  if (!bgLast || now - bgLast > 1000) bgLast = now - TICK_MS;
+  bgAcc += now - bgLast;
+  bgLast = now;
+  let steps = 0;
+  while (bgAcc >= TICK_MS && !G.state.over && steps < MP_STEP_CAP) {
+    if (!mpSimStep()) break;
+    bgAcc -= TICK_MS;
+    steps++;
+  }
+  if (bgAcc > TICK_MS * MP_STEP_CAP) bgAcc = TICK_MS;
+  hostDropWatch(now);
+  processPendingDrops();
+  if (G.net && G.net.active) Net.netTick();
+}
+function startBgPump() {
+  if (bgWorker || typeof Worker === 'undefined' || typeof Blob === 'undefined') return;
+  try {
+    const src = 'setInterval(function(){postMessage(0)},100);';
+    bgWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    bgWorker.onmessage = () => { try { mpBackgroundPump(); } catch (e) { /* never break the page */ } };
+    bgLast = 0; bgAcc = 0;
+  } catch (e) { bgWorker = null; }
+}
+function stopBgPump() {
+  if (bgWorker) { try { bgWorker.terminate(); } catch (e) { /* no-op */ } bgWorker = null; }
+}
+
 // Host-side: a peer the gate has been waiting on for > DROP_AFTER_MS is
-// declared dropped (AI takeover). The 1.5s stall timeout keeps the match
-// limping in the meantime.
+// declared dropped (AI takeover). Until then the match waits for it.
 function hostDropWatch(now) {
+  // everyone else: say who the room is waiting for (once per wait)
+  if (G.ls && !G.state.over && G.ls.isWaiting()) {
+    const key = G.ls.waitingOn().join(',');
+    if (!G.mpWaitNote || G.mpWaitNote.key !== key) G.mpWaitNote = { key, since: now, told: false };
+    else if (!G.mpWaitNote.told && now - G.mpWaitNote.since > 2000) {
+      G.mpWaitNote.told = true;
+      showHint(G, 'Waiting for ' + G.ls.waitingOn().map(mpNameOf).join(', ') + '…');
+    }
+  } else G.mpWaitNote = null;
   if (!Net.isHost || !G.ls || G.state.over) return;
   if (!G.ls.isWaiting()) { G.mpStallSince = 0; G.mpStallSlots = ''; return; }
   const key = G.ls.waitingOn().join(',');
-  if (key !== G.mpStallSlots) {
+  if (key !== G.mpStallSlots || !G.mpStallSince) {
     G.mpStallSlots = key;
     G.mpStallSince = now;
     return;
   }
-  if (!G.mpStallSince || now - G.mpStallSince < DROP_AFTER_MS) return;
-  G.mpStallSince = 0;
+  // Drop on SILENCE, not on waiting: a slow peer that keeps answering is
+  // merely slow (the room runs at its pace); one that has said nothing for
+  // DROP_AFTER_MS is gone. A peer never heard from is still loading.
+  const heard = G.ls.debugState().lastHeard;
+  const clock = (typeof performance !== 'undefined' && performance.now) ? performance.now() : now;
   for (const slot of G.ls.waitingOn()) {
     if (G.mpDropped[slot] || slot === Net.slot) continue;
+    const silentFor = heard[slot] === undefined ? -1 : clock - heard[slot];
+    const loading = heard[slot] === undefined && now - G.mpStallSince < LOAD_GRACE_MS;
+    if (loading || (silentFor >= 0 && silentFor < DROP_AFTER_MS)) continue;
     G.mpDropped[slot] = true;
-    Net.sendDrop(slot, G.state.tick + TAKEOVER_DELAY_TICKS);
+    Net.sendDrop(slot, G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
     showHint(G, mpNameOf(slot) + ' dropped — AI is taking over.');
   }
 }
@@ -1131,6 +1204,7 @@ function beginMpMatch() {
 }
 
 function leaveMpToMenu() {
+  stopBgPump();
   Net.leave();
   G.ls = null;
   G.mpCfg = null;

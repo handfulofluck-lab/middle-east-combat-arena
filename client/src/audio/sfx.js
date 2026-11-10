@@ -1,14 +1,21 @@
-// SFX recipes: every sound is layered synthesis on a short-lived voice the
-// engine hands in (see AudioEngine.fire). A voice `v` offers:
-//   v.t     start time on the context clock      v.in   dry input (GainNode)
-//   v.wet   reverb-only input ("distant tail")    v.pan  StereoPanner or null
-//   v.end   latest layer end (recipes extend it) v.E    engine (rng, noise)
-// Layers always open from gain 0 and close to gain 0, so no voice can click.
-// Small parameters are randomised per shot so repetition never machine-guns.
+// SFX recipes: every sound is layered synthesis (sub thump + noise crack +
+// metallic ring + distant tail ...) written against a voice `v`:
+//   v.t     start time on the context clock      v.in   dry input
+//   v.wet   reverb-only input ("distant tail")    v.E    engine (rng, noise)
+//   v.end   latest layer end (recipes extend it)
+// The engine runs a recipe in two ways (see AudioEngine.voice / Baker): live,
+// straight into the mix, the first time a sound is needed; and offline, a
+// few seeded takes per sound rendered once into buffers that every later
+// shot plays back (with a little rate jitter) — same sound, a fifth of the
+// nodes. Layers always open from gain 0 and close to gain 0, so no voice can
+// click, and small parameters are randomised per take so repetition never
+// machine-guns.
 //
-// Table entries: cat (throttle class), prio (voice stealing), lvl (calibrated
-// trim), send (reverb send at dist 0), gap (min seconds between retriggers),
-// duck: [dB, hold s, release s] of music ducking.
+// Table entries: cat (rate-limit class), prio (voice stealing), lvl (trim,
+// calibrated in the lab so the output peaks sit on a loudness ladder), send
+// (reverb send at dist 0), gap (min seconds between retriggers), duck: [dB,
+// hold s, release s] of music ducking, alias (share another entry's bake),
+// pan (optional hook animating the playing voice's panner).
 
 // score key: D (Hijaz). UI and notification tones stay on D / F# / A.
 const D4 = 293.66, EB4 = 311.13, A4 = 440, D5 = 587.33, EB5 = 622.25, FS5 = 739.99,
@@ -721,67 +728,67 @@ function def(name, cat, prio, lvl, send, gap, fn, duck, alias) {
 }
 
 // UI
-def('ui_hover', 'ui', 9, 0.64, 0, 0.03, uiHover);
+def('ui_hover', 'ui', 9, 0.731, 0, 0.03, uiHover);
 def('ui_click', 'ui', 9, 0.412, 0, 0.03, uiClick);
-def('ui_confirm', 'ui', 9, 0.652, 0, 0.05, uiConfirm);
+def('ui_confirm', 'ui', 9, 0.724, 0, 0.05, uiConfirm);
 def('ui_back', 'ui', 9, 0.911, 0, 0.05, uiBack);
-def('ui_deny', 'ui', 9, 0.827, 0, 0.12, uiDeny);
-def('ui_tab', 'ui', 9, 0.725, 0, 0.04, uiTab);
+def('ui_deny', 'ui', 9, 0.794, 0, 0.12, uiDeny);
+def('ui_tab', 'ui', 9, 0.837, 0, 0.04, uiTab);
 def('ui_open', 'ui', 9, 1.07, 0, 0.08, uiOpen);
-def('ui_close', 'ui', 9, 1.16, 0, 0.08, uiClose);
+def('ui_close', 'ui', 9, 1.08, 0, 0.08, uiClose);
 // weapons
 def('rifle', 'light', 2, 0.563, 0.22, 0.03, rifle);
 def('mg', 'light', 2, 0.552, 0.22, 0.12, mg);
 def('autocannon', 'light', 3, 0.469, 0.24, 0.15, autocannon);
 def('aa_gun', 'light', 3, 0.666, 0.24, 0.15, aaGun);
-def('cannon', 'heavy', 4, 0.575, 0.3, 0.05, cannon);
-def('heavy_cannon', 'heavy', 5, 0.583, 0.34, 0.08, heavyCannon, [2, 0.25, 0.5]);
-def('atgm', 'heavy', 4, 0.758, 0.28, 0.06, atgm);
-def('rocket', 'heavy', 4, 0.437, 0.28, 0.05, rocket);
+def('cannon', 'heavy', 4, 0.633, 0.3, 0.05, cannon);
+def('heavy_cannon', 'heavy', 5, 0.607, 0.34, 0.08, heavyCannon, [2, 0.25, 0.5]);
+def('atgm', 'heavy', 4, 0.798, 0.28, 0.06, atgm);
+def('rocket', 'heavy', 4, 0.534, 0.28, 0.05, rocket);
 def('mlrs', 'heavy', 5, 0.864, 0.3, 0.25, mlrs, [2, 0.6, 0.6]);
-def('sam', 'heavy', 5, 0.623, 0.3, 0.1, sam);
-def('bomb', 'heavy', 5, 0.935, 0.3, 0.1, bomb);
+def('sam', 'heavy', 5, 0.587, 0.3, 0.1, sam);
+def('bomb', 'heavy', 5, 1.01, 0.3, 0.1, bomb);
 def('cruise', 'heavy', 5, 0.519, 0.32, 0.2, cruise, [2, 0.5, 0.6]);
 def('naval_gun', 'heavy', 5, 0.571, 0.36, 0.08, navalGun, [2, 0.25, 0.5]);
 def('torpedo', 'heavy', 4, 0.636, 0.3, 0.1, torpedo);
 // impacts
 def('explosion_small', 'impact', 3, 0.624, 0.26, 0.04, (v) => explosion(v, EXPLOSIONS[0]));
-def('explosion_medium', 'impact', 4, 0.578, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5]);
+def('explosion_medium', 'impact', 4, 0.769, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5]);
 def('explosion_large', 'impact', 6, 0.84, 0.34, 0.08, (v) => explosion(v, EXPLOSIONS[2]), [3.5, 0.5, 0.8]);
 def('explosion_huge', 'impact', 7, 0.596, 0.4, 0.15, (v) => explosion(v, EXPLOSIONS[3]), [6, 1.3, 1.4]);
-def('impact_metal', 'impact', 1, 0.468, 0.2, 0.03, impactMetal);
-def('impact_dirt', 'impact', 1, 0.306, 0.2, 0.03, impactDirt);
-def('water_splash', 'impact', 2, 0.827, 0.26, 0.04, waterSplash);
+def('impact_metal', 'impact', 1, 0.435, 0.2, 0.03, impactMetal);
+def('impact_dirt', 'impact', 1, 0.488, 0.2, 0.03, impactDirt);
+def('water_splash', 'impact', 2, 0.767, 0.26, 0.04, waterSplash);
 def('building_collapse', 'impact', 7, 0.86, 0.36, 0.3, buildingCollapse, [4, 1.2, 1.2]);
 // world / command feedback (dry-ish, centred when played through playSfx)
-def('place_structure', 'world', 6, 0.663, 0.14, 0.08, placeStructure);
+def('place_structure', 'world', 6, 0.59, 0.14, 0.08, placeStructure);
 def('construction_done', 'world', 6, 0.821, 0.12, 0.2, constructionDone);
 def('unit_ready', 'world', 6, 2.14, 0.08, 0.15, unitReady);
-def('select_unit', 'ui', 8, 0.886, 0, 0.04, selectUnit);
+def('select_unit', 'ui', 8, 0.82, 0, 0.04, selectUnit);
 def('select_vehicle', 'ui', 8, 0.601, 0, 0.04, selectVehicle);
-def('select_air', 'ui', 8, 1, 0, 0.04, selectAir);
-def('order_move', 'ui', 8, 0.926, 0, 0.04, orderMove);
-def('order_attack', 'ui', 8, 0.899, 0, 0.04, orderAttack);
+def('select_air', 'ui', 8, 0.947, 0, 0.04, selectAir);
+def('order_move', 'ui', 8, 0.976, 0, 0.04, orderMove);
+def('order_attack', 'ui', 8, 0.779, 0, 0.04, orderAttack);
 def('credits', 'ui', 7, 0.93, 0, 0.05, credits);
 def('low_power', 'world', 6, 1, 0.1, 0.5, lowPower);
-def('sell', 'world', 6, 1.79, 0.1, 0.1, sell);
-def('repair', 'world', 5, 1.5, 0.12, 0.2, repair);
+def('sell', 'world', 6, 2.03, 0.1, 0.1, sell);
+def('repair', 'world', 5, 1.61, 0.12, 0.2, repair);
 def('flyby', 'world', 5, 0.637, 0.3, 0.3, flyby);
 def('cinematic_whoosh', 'cine', 8, 0.885, 0.3, 0.1, cineWhoosh);
 def('cinematic_hit', 'cine', 8, 0.584, 0.45, 0.15, cineHit, [5, 0.8, 1.2]);
 def('cinematic_riser', 'cine', 8, 1.24, 0.3, 0.3, cineRiser);
 // legacy names (v0.3.7 API): same meaning, new sound
-def('move', 'ui', 8, 0.926, 0, 0.04, orderMove, null, 'order_move');
-def('attack', 'ui', 8, 0.899, 0, 0.04, orderAttack, null, 'order_attack');
-def('select', 'ui', 8, 0.886, 0, 0.04, selectUnit, null, 'select_unit');
-def('build', 'ui', 8, 1, 0, 0.05, buildQueued);
-def('error', 'ui', 9, 0.827, 0, 0.12, uiDeny, null, 'ui_deny');
+def('move', 'ui', 8, 0.976, 0, 0.04, orderMove, null, 'order_move');
+def('attack', 'ui', 8, 0.779, 0, 0.04, orderAttack, null, 'order_attack');
+def('select', 'ui', 8, 0.82, 0, 0.04, selectUnit, null, 'select_unit');
+def('build', 'ui', 8, 0.948, 0, 0.05, buildQueued);
+def('error', 'ui', 9, 0.794, 0, 0.12, uiDeny, null, 'ui_deny');
 def('click', 'ui', 9, 0.412, 0, 0.03, uiClick, null, 'ui_click');
 def('siren', 'world', 7, 1.72, 0.16, 0.5, siren, [2, 0.9, 0.6]);
-def('victory', 'cine', 8, 0.87, 0.3, 0.5, victorySfx);
+def('victory', 'cine', 8, 0.907, 0.3, 0.5, victorySfx);
 def('defeat', 'cine', 8, 1.08, 0.3, 0.5, defeatSfx);
 def('shot', 'light', 2, 0.563, 0.22, 0.03, rifle, null, 'rifle');
-def('boom', 'impact', 4, 0.578, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5], 'explosion_medium');
+def('boom', 'impact', 4, 0.769, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5], 'explosion_medium');
 // internal: far-off rumble for the ambience bed
 def('amb_rumble', 'world', 1, 1, 0.5, 5, ambRumble);
 

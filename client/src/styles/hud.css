@@ -12,6 +12,8 @@ body.in-menu #hud, body.in-menu #cursor-label, body.briefing-on #hud, body.end-o
 /* in-engine cinematics (intro fly-in, verdict): the HUD steps aside */
 body.cine-on #hud, body.cinematic #hud { opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0s linear 0.3s; }
 body.cine-on #tooltip, body.cinematic #tooltip, body.cine-on #cursor-label { display: none !important; }
+/* tooltip cards belong to HUD controls: never let one outlive the HUD */
+body.in-menu #tooltip, body.briefing-on #tooltip, body.end-on #tooltip { display: none !important; }
 
 /* dim the chrome while placing a structure so the ground reads; hovering a
    panel brings it back */
@@ -597,6 +599,8 @@ button.pw:focus-visible { outline: none; border-color: var(--gold-hi); }
   animation: ui-drop-in var(--t-med) var(--ease-out); transition: opacity 0.7s;
 }
 .chat-feed-line.mine { border-left-color: var(--cyan); }
+/* the open chat box already shows the log */
+#chat-overlay:not(.hidden) + #chat-feed { display: none; }
 .chat-feed-line.fade { opacity: 0; }
 
 /* ── compact HUD ───────────────────────────────────────────────────────── */
@@ -640,7 +644,10 @@ button.pw:focus-visible { outline: none; border-color: var(--gold-hi); }
   .ap-name { font-size: 11px; letter-spacing: 0.04em; }
   .ap-btn { min-width: 26px; padding: 1px 2px 0; }
   .ap-row > .ico { display: none; }
-  .alert-banner { width: min(280px, 34vw); }
+  .alert-banner { width: min(250px, 26vw); }
+  #hud-topcenter { width: min(560px, 42vw); }
+  .hint-banner { font-size: 12px; padding: 6px 12px 6px 10px; }
+  .bb-code { display: none; }
   .pw { min-height: 36px; padding: 3px 8px 3px 4px; gap: 7px; }
   .pw-ring { width: 26px; height: 26px; }
   .pw-ring .ico { font-size: 14px; }

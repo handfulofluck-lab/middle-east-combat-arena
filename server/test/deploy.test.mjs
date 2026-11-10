@@ -42,6 +42,7 @@ describe('static-config tool (config.js for statically hosted clients)', () => {
     assert.match(stdout, /wrote /);
     const source = fs.readFileSync(out, 'utf8');
     assert.ok(!source.includes('</script>'));
+    assert.ok(!/[<>&]/.test(source.split('\n').filter((line) => !line.startsWith('//')).join('\n')), 'no raw <, > or & in the generated script');
     const cfg = evalConfig(source);
     const live = parseServerConfig((await http(srv.origin + '/config.js')).text);
     assert.deepEqual(cfg, {

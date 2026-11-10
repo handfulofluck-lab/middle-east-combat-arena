@@ -348,6 +348,17 @@ describe('/healthz and deployment switches', () => {
     assert.equal(h['x-frame-options'], undefined);
     assert.equal(h['strict-transport-security'], 'max-age=31536000');
 
+    // CSP_EXTRA merges extra sources into the generated policy (inline-script hashes are kept)
+    const extra = await startServer({ CSP_EXTRA: 'connect-src wss://eu.example.com https://stats.example.com; script-src https://plausible.io; object-src https://plugins.example.com; frame-src https://www.youtube-nocookie.com' });
+    t.after(() => extra.close());
+    const policy = (await rawRequest(extra.origin + '/')).headers['content-security-policy'].split('; ');
+    const dir = (name) => policy.find((d) => d.startsWith(name + ' '));
+    assert.equal(dir('connect-src'), `connect-src 'self' ws://127.0.0.1:${extra.port} wss://127.0.0.1:${extra.port} data: blob: wss://eu.example.com https://stats.example.com`);
+    assert.match(dir('script-src'), /^script-src 'self' 'wasm-unsafe-eval' 'sha256-[A-Za-z0-9+/=]+' https:\/\/plausible\.io$/);
+    assert.equal(dir('object-src'), 'object-src https://plugins.example.com', "an explicit source replaces 'none'");
+    assert.equal(dir('frame-src'), 'frame-src https://www.youtube-nocookie.com', 'new directives can be added');
+    assert.equal(dir('default-src'), "default-src 'self'");
+
     const custom = await startServer({ CSP: "default-src 'self' https://cdn.example.com", CSP_REPORT_ONLY: '1' });
     t.after(() => custom.close());
     h = (await rawRequest(custom.origin + '/')).headers;

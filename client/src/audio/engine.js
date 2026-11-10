@@ -54,6 +54,11 @@ const WET_LEVELS = [0.05, 0.11, 0.22, 0.42, 0.8, 1.5];
 // ... and the nearest of seven fixed stereo positions instead of a panner
 const PAN_LEVELS = [-0.9, -0.6, -0.3, 0, 0.3, 0.6, 0.9];
 
+// overall trim of the score: puts the full tracks at about -17 LUFS and the
+// in-match piece between -22 (quiet) and -15.5 LUFS (full combat) at the
+// default volumes
+const MUSIC_TRIM = 1.12;
+
 const taper = (v) => v * v;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -222,6 +227,7 @@ class Baker {
     this.E = E;
     this.sfx = new Map();    // name -> [{ dry, wet, len }]
     this.loops = new Map();  // name -> AudioBuffer
+    this.graphs = new Map(); // key -> AudioBuffer (seamless loop of an arbitrary graph)
     this.inflight = new Map();
     this.queue = [];
     this.later = [];
@@ -245,9 +251,55 @@ class Baker {
     return a.has('noise:white') && a.has('noise:pink') && a.has('noise:brown') && a.has('crackle');
   }
 
+  // stand-in engine for building a graph on an offline context
   fake(ctx, seed) {
     const E = this.E;
-    return { ctx, rng: makeRng(seed), noise: (c) => E.noise(c), crackle: () => E.crackle(), count() {} };
+    return {
+      ctx, rng: makeRng(seed), noise: (c) => E.noise(c), crackle: () => E.crackle(), count() {},
+      assets: { has: () => true, get: (k) => E.assets.get(k) },
+    };
+  }
+
+  // renders `build(ctx, fakeEngine)` (anything connected to ctx.destination)
+  // into a seamless mono loop of `seconds`
+  async bakeGraph(key, seconds, build) {
+    if (this.graphs.has(key)) return;
+    const E = this.E, sr = E.sr, OAC = offlineClass();
+    if (!OAC) return;
+    const memo = assetMemo();
+    const mk = 'bake:graph:' + key + '@' + sr;
+    let out = memo ? memo.get(mk) : null;
+    if (!out) {
+      const X = 0.5;
+      let t0 = perfNow();
+      const ctx = new OAC(1, Math.ceil((seconds + X) * sr), sr);
+      build(ctx, this.fake(ctx, hashKey(key)));
+      const pending = ctx.startRendering();
+      this.slice(t0);
+      const d = (await pending).getChannelData(0);
+      t0 = perfNow();
+      const n = Math.floor(seconds * sr), xf = Math.floor(X * sr);
+      out = d.slice(0, n);
+      for (let i = 0; i < xf; i++) {
+        const w = i / xf;
+        out[i] = d[i] * Math.sqrt(w) + d[n + i] * Math.sqrt(1 - w);
+      }
+      this.slice(t0);
+      if (memo) memo.set(mk, out);
+    }
+    const b = E.ctx.createBuffer(1, out.length, sr);
+    b.getChannelData(0).set(out);
+    this.graphs.set(key, b);
+    this.count++;
+  }
+
+  wantGraph(key, seconds, build, cb) {
+    const k = 'graph:' + key;
+    let cbs = this.inflight.get(k);
+    if (cbs) { if (cb) cbs.push(cb); return; }
+    this.inflight.set(k, cb ? [cb] : []);
+    this.queue.push({ kind: 'graph', name: key, key: k, seconds, build });
+    this.pump();
   }
 
   // builds one take of a recipe at time t0 on `ctx` (dry -> left channel,
@@ -309,6 +361,15 @@ class Baker {
         const dry = trimTail(L.subarray(a, b), sr);
         if (dry) raw.push({ dry, wet: trimTail(R.subarray(a, b), sr) });
       }
+      // takes differ in character, not in level: bring each to the set's
+      // mean peak (within +-4 dB) so the calibrated trim holds for all of them
+      const peaks = raw.map((r) => { let m = 1e-6; for (let i = 0; i < r.dry.length; i++) { const v = Math.abs(r.dry[i]); if (v > m) m = v; } return m; });
+      const ref = Math.exp(peaks.reduce((acc, v) => acc + Math.log(v), 0) / Math.max(1, peaks.length));
+      raw.forEach((r, i) => {
+        const k = Math.max(0.63, Math.min(1.6, ref / peaks[i]));
+        for (let j = 0; j < r.dry.length; j++) r.dry[j] *= k;
+        if (r.wet) for (let j = 0; j < r.wet.length; j++) r.wet[j] *= k;
+      });
       this.slice(t2);
       if (memo) memo.set(mk, raw);
     }
@@ -402,7 +463,9 @@ class Baker {
     // the set-up of a bake (building the recipe graph on a fresh offline
     // context) costs a few ms of main thread: do it in idle time
     whenIdle(() => {
-      (job.kind === 'loop' ? this.bakeLoop(job.name) : this.bakeSfx(job.name)).then(done, done);
+      const run = job.kind === 'loop' ? this.bakeLoop(job.name)
+        : job.kind === 'graph' ? this.bakeGraph(job.name, job.seconds, job.build) : this.bakeSfx(job.name);
+      run.then(done, done);
     });
   }
 }
@@ -432,8 +495,9 @@ export class AudioEngine {
     this.duckState = { gain: 1, until: -1 };
     this.stats = {
       fired: 0, dropped: 0, stolen: 0, peakVoices: 0, nodes: 0, tickMs: 0, ticks: 0,
-      maxTickMs: 0, musicEvents: 0, live: 0, maxFireMs: 0, initMs: 0,
+      maxTickMs: 0, slowTicks: 0, musicEvents: 0, live: 0, maxFireMs: 0, initMs: 0,
     };
+    this.everySecond = null; // optional host callback from the heartbeat
     const born = perfNow();
     this.lvl = { rms: 0, low: 0, mid: 0, high: 0, peak: 0 };
     this.lvlAt = -1;
@@ -458,7 +522,15 @@ export class AudioEngine {
     this.music = new MusicDirector(this, o);
     if (!this.offline) {
       this.assets.prewarm(['noise:pink', 'noise:brown', 'crackle']);
-      this.assets.get('ir:desert', (b) => { try { this.desertConv.buffer = b; } catch (e) { /* ok */ } });
+      // assigning a ConvolverNode's buffer builds its FFT kernel on the main
+      // thread (~8-14 ms once): always done in idle time, never in a caller
+      this.assets.get('ir:desert', (b) => whenIdle(() => { try { this.desertConv.buffer = b; } catch (e) { /* ok */ } }));
+      // first use of an oscillator type builds its wavetables (~1 ms each)
+      whenIdle(() => {
+        try {
+          for (const type of ['sine', 'triangle', 'square', 'sawtooth']) ctx.createOscillator().type = type;
+        } catch (e) { /* ok */ }
+      });
       // the sounds every session needs within seconds
       for (const n of ['ui_click', 'ui_hover', 'select_unit', 'order_move', 'rifle', 'explosion_small']) {
         this.baker.want('sfx', n);
@@ -527,11 +599,12 @@ export class AudioEngine {
     }
     bus.master.connect(ctx.destination);
     if (typeof ctx.createAnalyser === 'function') {
+      // the analysis tap is only wired in while somebody is reading it
       const an = ctx.createAnalyser();
       an.fftSize = 2048; an.smoothingTimeConstant = 0.55;
       an.minDecibels = -72; an.maxDecibels = -12;
-      bus.master.connect(an);
       this.analyser = an;
+      this.tapped = false;
       this.td = new Float32Array(an.fftSize);
       this.fd = new Uint8Array(an.frequencyBinCount);
     }
@@ -541,26 +614,35 @@ export class AudioEngine {
     bus.sfx = bus.sfxVol; bus.ui = bus.sfxVol; bus.loop = bus.sfxVol;
     bus.desertSend = G(1);
     bus.desertSend.channelCount = 1; bus.desertSend.channelCountMode = 'explicit';
-    // mono impulse response (half the convolution cost), widened afterwards by
-    // a complementary comb pair: L = wet + k*delayed, R = wet - k*delayed
+    // Both reverbs convolve with a MONO impulse response (a stereo one costs
+    // twice as much and the convolver is the most expensive node there is);
+    // the return is then widened by complementary comb taps:
+    //   L = wet + a*wet(t-d1) - b*wet(t-d2),  R = wet - a*wet(t-d1) + b*wet(t-d2)
+    // which decorrelates the channels and still sums to the plain mono tail.
+    const widen = (src, dest, d1, d2) => {
+      const merge = ctx.createChannelMerger(2);
+      src.connect(merge, 0, 0); src.connect(merge, 0, 1);
+      const taps = [[d1, 0.5], [d2, -0.35]];
+      for (const [d, k] of taps) {
+        const dly = ctx.createDelay(0.06);
+        dly.delayTime.value = d;
+        const pos = G(k), neg = G(-k);
+        src.connect(dly); dly.connect(pos); dly.connect(neg);
+        pos.connect(merge, 0, 0); neg.connect(merge, 0, 1);
+      }
+      merge.connect(dest);
+    };
     this.desertConv = ctx.createConvolver();
     const dRet = G(0.5);
-    const dDly = ctx.createDelay(0.05);
-    dDly.delayTime.value = 0.0127;
-    const dPos = G(0.6), dNeg = G(-0.6);
-    const dMerge = ctx.createChannelMerger(2);
     bus.desertSend.connect(this.desertConv); this.desertConv.connect(dRet);
-    dRet.connect(dMerge, 0, 0); dRet.connect(dMerge, 0, 1);
-    dRet.connect(dDly); dDly.connect(dPos); dDly.connect(dNeg);
-    dPos.connect(dMerge, 0, 0); dNeg.connect(dMerge, 0, 1);
-    dMerge.connect(bus.sfxVol);
+    widen(dRet, bus.sfxVol, 0.0127, 0.0193);
     this.sendBus = SEND_LEVELS.map((l) => { const g = G(l); g.connect(bus.desertSend); return g; });
     this.wetBus = WET_LEVELS.map((l) => { const g = G(l); g.connect(bus.desertSend); return g; });
     this.panBus = PAN_LEVELS.map((x) => { const p = this.panner(x); p.connect(bus.sfxVol); return p; });
     bus.loopSend = G(0.1);
     bus.loopSend.connect(bus.desertSend);
     // music side
-    bus.musicVol = G(taper(this.vols.music));
+    bus.musicVol = G(taper(this.vols.music) * MUSIC_TRIM);
     bus.musicVol.connect(bus.mix);
     bus.music = G(1); // also the ducking gain
     bus.music.connect(bus.musicVol);
@@ -569,18 +651,20 @@ export class AudioEngine {
     bus.hallSend.channelCount = 1; bus.hallSend.channelCountMode = 'explicit';
     this.hallConv = ctx.createConvolver();
     const hRet = G(0.55);
-    bus.hallSend.connect(this.hallConv); this.hallConv.connect(hRet); hRet.connect(bus.music);
+    bus.hallSend.connect(this.hallConv); this.hallConv.connect(hRet);
+    widen(hRet, bus.music, 0.0171, 0.0263);
     this.hallReturn = hRet;
     this.bus = bus;
-    this.count(50);
+    this.count(62);
   }
 
   // the hall is only needed once music or a stinger plays
   needHall() {
     if (this.hallAsked) return;
     this.hallAsked = true;
-    const b = this.assets.get('ir:hall', (buf) => { try { this.hallConv.buffer = buf; } catch (e) { /* ok */ } });
-    if (b) this.hallConv.buffer = b;
+    const set = (buf) => { try { this.hallConv.buffer = buf; } catch (e) { /* ok */ } };
+    const b = this.assets.get('ir:hall', (buf) => whenIdle(() => set(buf)));
+    if (b) { if (this.offline) set(b); else whenIdle(() => set(b)); }
   }
 
   // Harness / loading screens: bake a list of sounds up front.
@@ -606,7 +690,7 @@ export class AudioEngine {
     const g = taper(val);
     if (kind === 'master') this.ramp(this.bus.master.gain, this.muted ? 0 : g, t);
     else if (kind === 'sfx') this.ramp(this.bus.sfxVol.gain, g, t);
-    else if (kind === 'music') this.ramp(this.bus.musicVol.gain, g, t);
+    else if (kind === 'music') this.ramp(this.bus.musicVol.gain, g * MUSIC_TRIM, t);
   }
 
   ramp(param, v, t) {
@@ -888,6 +972,11 @@ export class AudioEngine {
     const nowMs = perfNow();
     if (nowMs - this.lvlAt < 10) return L;
     this.lvlAt = nowMs;
+    if (!this.tapped) {
+      this.tapped = true;
+      try { this.bus.master.connect(an); } catch (e) { /* ok */ }
+      return L; // first frame after (re)connecting has nothing to show yet
+    }
     const td = this.td, fd = this.fd;
     an.getFloatTimeDomainData(td);
     let sum = 0, pk = 0;
@@ -935,11 +1024,22 @@ export class AudioEngine {
         this.rumbleAt = now + 20 + this.rng() * 25;
         this.fire('amb_rumble', this.rng() * 1.6 - 0.8, 0.85, 1);
       }
+      if (this.stats.ticks % 20 === 0) {
+        if (this.everySecond) this.everySecond();
+        // nobody has read the levels for 10 s: unhook the analyser again
+        if (this.tapped && perfNow() - this.lvlAt > 10000) {
+          this.tapped = false;
+          try { this.bus.master.disconnect(this.analyser); } catch (e) { /* ok */ }
+          const z = this.lvl;
+          z.rms = z.low = z.mid = z.high = z.peak = 0;
+        }
+      }
     } catch (e) { /* the heartbeat must survive anything */ }
     const ms = perfNow() - t0;
     this.stats.tickMs += ms;
     this.stats.ticks++;
     if (ms > this.stats.maxTickMs) this.stats.maxTickMs = ms;
+    if (ms > 8) this.stats.slowTicks++;
   }
 
   run() {

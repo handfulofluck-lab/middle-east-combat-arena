@@ -178,7 +178,8 @@ async function renderMusic(name, o) {
   const T0 = 0.12; // the director starts a track 120 ms after play()
   const res = await offline(opt.seconds,
     { volumes: opt.volumes || DEFAULT_VOLUMES, seed: opt.seed, rng: makeRng(opt.seed + 1) },
-    (E) => {
+    async (E) => {
+      await E.music.prebake();
       info = E.music.describe(name);
       if (opt.seam && info && info.loops) {
         // start `lead` seconds before the loop point
@@ -196,14 +197,7 @@ async function renderMusic(name, o) {
       }
       E.music.snap(opt.intensity);
       if (opt.noHall) E.hallAsked = true;
-      if (opt.hallMono) {
-        E.hallAsked = true;
-        const ir = E.assets.get('ir:hall');
-        const mono = E.ctx.createBuffer(1, ir.length, ir.sampleRate);
-        mono.getChannelData(0).set(ir.getChannelData(0));
-        E.hallConv.buffer = mono;
-      }
-      if (opt.hallCut) { E.needHall(); E.hallReturn.disconnect(); }
+
       E.music.play(name, { startBar, solo: opt.solo, only: opt.only });
     });
   if (opt.raw) return timing(res);
@@ -227,7 +221,7 @@ async function renderStems(name, o) {
   const rows = [];
   const one = async (label, solo) => {
     const res = await offline(opt.seconds, { volumes: DEFAULT_VOLUMES, seed: 42, rng: makeRng(43) },
-      (E) => { E.music.snap(opt.intensity); E.music.play(name, { startBar: opt.startBar, solo }); });
+      async (E) => { await E.music.prebake(); E.music.snap(opt.intensity); E.music.play(name, { startBar: opt.startBar, solo }); });
     const m = mixdown(res.chs);
     const sm = basicStats(m);
     if (sm.peak < 1e-4) return;
@@ -243,7 +237,7 @@ async function renderStems(name, o) {
 // intensity automation: 0 -> 1 at 10 s -> 0 at 25 s; reports the layer level over time
 async function renderIntensitySweep() {
   const res = await offline(50, { volumes: DEFAULT_VOLUMES, seed: 3, rng: makeRng(4) },
-    (E) => { E.music.snap(0); E.music.play('ambient'); },
+    async (E) => { await E.music.prebake(); E.music.snap(0); E.music.play('ambient'); },
     (E, t) => { E.music.intensity(t >= 10 && t < 25 ? 1 : 0); });
   const m = mixdown(res.chs);
   const win = SR; // 1 s RMS steps
@@ -322,6 +316,7 @@ async function renderStress(o) {
     { volumes: opt.volumes || DEFAULT_VOLUMES, seed: opt.seed, rng: makeRng(opt.seed + 7), maxVoices: opt.maxVoices },
     async (E) => {
       await E.prebake({ sfx: STRESS_MIX.map((m) => m[0]), loops: ['engine', 'rotor', 'fire', 'wind'] });
+      await E.music.prebake();
       E.music.snap(1);
       E.music.play('battle');
       loops = ['engine', 'engine', 'rotor', 'fire', 'wind'].map((n) => E.loopStart(n));
@@ -390,9 +385,15 @@ async function calibrateSfx(targets) {
     if (!def) continue;
     let peak = 0;
     for (let it = 0; it < 7; it++) {
-      const r = await offline(2.8, { volumes: DEFAULT_VOLUMES, rng: makeRng(11) },
-        async (E) => { await E.prebake({ sfx: [name] }); E.fire(name, 0, 0, 1, T_FIRE); });
-      peak = Math.max(basicStats(r.chs[0]).peakDb, basicStats(r.chs[1]).peakDb);
+      // mean over a few shots (different takes / playback rates)
+      let sum = 0;
+      const seeds = [11, 23, 37, 51];
+      for (const seed of seeds) {
+        const r = await offline(2.8, { volumes: DEFAULT_VOLUMES, rng: makeRng(seed) },
+          async (E) => { await E.prebake({ sfx: [name] }); E.fire(name, 0, 0, 1, T_FIRE); });
+        sum += Math.max(basicStats(r.chs[0]).peakDb, basicStats(r.chs[1]).peakDb);
+      }
+      peak = sum / seeds.length;
       const err = targets[name] - peak;
       if (Math.abs(err) < 0.25) break;
       // above the compressor threshold a dB in is about half a dB out

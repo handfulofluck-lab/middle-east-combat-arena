@@ -154,7 +154,7 @@ export class PluckInst extends Inst {
   constructor(E, o) {
     super(E, o);
     this.kind = o.kind;
-    this.bus = new VelBuses(E, this.pre, [0.22, 0.32, 0.44, 0.58, 0.74, 0.9, 1.08]);
+    this.bus = new VelBuses(E, this.pre, [0.24, 0.36, 0.5, 0.67, 0.86, 1.08]);
   }
 
   // short: the damped variant (ostinati, staccato)
@@ -390,6 +390,27 @@ export class Drone extends Inst {
   }
 }
 
+// The same drone as one node: a seamless loop baked from the graph above by
+// the engine's baker (music.js asks for it; the live graph covers the gap).
+export class DroneLoop extends Inst {
+  // o: { level, buffer }
+  constructor(E, o) {
+    super(E, o);
+    const s = E.ctx.createBufferSource();
+    s.buffer = o.buffer;
+    s.loop = true;
+    s.connect(this.pre);
+    s.start(0, E.rng() * o.buffer.duration * 0.9);
+    this.src = s;
+    this.srcs.push(s);
+    E.count(1);
+  }
+
+  tune(t, midi, tau) {
+    this.src.playbackRate.setTargetAtTime(Math.pow(2, (midi - 38) / 12), t, tau || 0.4);
+  }
+}
+
 // ---- percussion ------------------------------------------------------------------------
 
 const DRUM_GAIN = {
@@ -398,7 +419,7 @@ const DRUM_GAIN = {
   gong: 0.55, shaker: 1.1, shaker_l: 1.1, swell: 1.0,
 };
 const BIG = { taiko: 1, taiko_ens: 1, boom: 1, timp: 1, gong: 1, cym: 1, swell: 1 };
-const KIT_LEVELS = [0.1, 0.16, 0.24, 0.34, 0.46, 0.6, 0.76, 0.94, 1.15];
+const KIT_LEVELS = [0.1, 0.17, 0.27, 0.4, 0.57, 0.8, 1.1];
 
 export class DrumKit extends Inst {
   // o: { level }. `.out` carries the whole kit; `.wide` carries only the big

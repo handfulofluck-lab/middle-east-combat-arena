@@ -789,6 +789,8 @@ function cosmeticFrame(game) {
   const H = game.hud;
   const body = document.body;
   if (!H || !body) return;
+  // a tooltip must not outlive its control (panel rebuilt, HUD hidden, …)
+  if (__tipOwner && (!__tipOwner.isConnected || __tipOwner.offsetParent === null)) hideTooltip();
   // the HUD steps aside for in-engine cinematics (intro fly-in, verdict)
   const cine = !!(game.cinema && game.cinema.active);
   if (cine !== H._cine) { H._cine = cine; body.classList.toggle('cine-on', cine); }

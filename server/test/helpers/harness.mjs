@@ -1,10 +1,12 @@
 // Shared test harness: boots the real server in-process on a free port in the
 // 8800-8899 range (dev servers own 5173-5190), with a throwaway web root and
 // data directory, and offers a small promise-based WebSocket client.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import httpMod from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import { WebSocket } from 'ws';
 import { createApp } from '../../app.js';
 import { loadConfig } from '../../config.js';
@@ -243,8 +245,6 @@ export const TEST_SECRETS = Object.freeze({
 });
 
 // ---- raw clients (no library conveniences) ----------------------------------
-import httpMod from 'node:http';
-import net from 'node:net';
 
 // Raw HTTP request: no automatic decompression, exact status + headers + bytes.
 export function rawRequest(url, { method = 'GET', headers = {}, body = null, path: rawPath = null } = {}) {

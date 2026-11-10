@@ -123,7 +123,7 @@ body.no-blur #menu .fe-scrim { -webkit-backdrop-filter: none; backdrop-filter: n
 }
 .ticker-text { font: 400 13px/1.35 var(--font-body); color: var(--text-dim); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9); }
 .ticker-text.in { animation: ui-tick-in 0.5s var(--ease-out); }
-@keyframes ui-tick-in { from { opacity: 0.25; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes ui-tick-in { from { transform: translateY(8px); } to { transform: none; } }
 .build-tag {
   flex: none; font: 500 11px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--text-dim); padding: 6px 10px 5px; margin-bottom: 2px;
@@ -392,6 +392,8 @@ body.no-blur .main-hints { -webkit-backdrop-filter: none; backdrop-filter: none;
 .dtile .ico { grid-row: 1 / 3; font-size: 18px; color: var(--gold); }
 .dtile-val { font: 700 17px/1 var(--font-display); letter-spacing: 0.04em; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dtile-label { font: 600 11px/1 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-mute); }
+/* a word, not a number: let it wrap instead of truncating */
+.dtile-text .dtile-val { font-size: 14px; line-height: 1.05; white-space: normal; text-transform: uppercase; letter-spacing: 0.06em; }
 .detail-stats, .detail-sec { display: flex; flex-direction: column; gap: 7px; }
 .detail-sec { padding-top: 12px; border-top: 1px solid var(--hairline); }
 .detail-sec p { font-size: 13px; line-height: 1.55; color: var(--text-dim); }
@@ -551,6 +553,9 @@ body.no-blur .main-hints { -webkit-backdrop-filter: none; backdrop-filter: none;
 .lobby-status.ok .ico { color: var(--cyan); }
 
 /* ── compact layouts ───────────────────────────────────────────────────── */
+@media (max-width: 1560px) {
+  .arsenal-filters .tab { padding: 1px 10px 0; gap: 6px; letter-spacing: 0.1em; }
+}
 @media (max-height: 820px) {
   .fac-tile { flex-direction: row; justify-content: flex-start; gap: 8px; padding: 6px 8px; }
   .fac-tile .crest-md { width: 30px; height: 30px; }
@@ -568,10 +573,27 @@ body.no-blur .main-hints { -webkit-backdrop-filter: none; backdrop-filter: none;
 }
 @media (max-width: 1180px) {
   .arsenal-grid { grid-template-columns: 66px minmax(0, 1fr) clamp(280px, 32vw, 340px); }
+  .arsenal-filters .tab { padding: 1px 9px 0; gap: 6px; letter-spacing: 0.08em; }
+  .arsenal-filters .tab-count { display: none; }
+  .dtile { padding: 7px 7px; gap: 2px 6px; }
+  .dtile .ico { font-size: 15px; }
+  .dtile-val { font-size: 14px; }
   .rail-text { display: none; }
   .rail-item { justify-content: center; padding: 6px 0; }
   .fact { grid-template-columns: 1fr; gap: 4px; }
-  .map-hero { gap: 10px; padding: 10px; }
+  .fac-grid { gap: 5px; padding: 10px 10px 8px; }
+  .fac-tile { flex-direction: column; justify-content: center; gap: 3px; padding: 6px 2px 5px; }
+  .fac-tile .crest-md { width: 26px; height: 26px; }
+  .fac-name { font-size: 13px; letter-spacing: 0.06em; }
+  .map-hero { grid-template-columns: 136px 1fr; gap: 10px; padding: 10px; }
+  .map-info { gap: 6px; }
+  .map-info > .micro { display: none; }
+  .map-info .chip { height: 20px; padding: 1px 6px 0; letter-spacing: 0.1em; }
+  .map-info .chip-row { gap: 4px; }
+  .map-brief { -webkit-line-clamp: 2; font-size: 12px; }
+  .map-list { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 6px; }
+  .dossier-blurb { font-size: 12px; }
+  .roe { display: none; }
   .stat-row { grid-template-columns: 96px 1fr 40px; }
   .sub-brand .mca-logotype { display: none; }
   .set-row { gap: 14px; }

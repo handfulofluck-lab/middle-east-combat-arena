@@ -38,6 +38,7 @@ let __onStart = null;        // main.js start callback, remembered for sub-scree
 let __cleanup = [];          // teardown callbacks of the mounted screen
 let __shellReady = false;
 let __lastPauseOpts = null;
+let __lastNav = null;        // main-menu entry to re-highlight on return
 
 function menuRoot() { return document.getElementById('menu'); }
 
@@ -336,7 +337,7 @@ export function showMenu(game, onStart) {
     txt.appendChild(h('span', 'nav-desc', en.desc));
     b.appendChild(txt);
     b.appendChild(h('span', 'nav-arrow'));
-    b.addEventListener('click', en.run);
+    b.addEventListener('click', () => { __lastNav = en.id; en.run(); });
     b.addEventListener('mouseenter', () => setActive(items.indexOf(b), false));
     b.addEventListener('focus', () => setActive(items.indexOf(b), false));
     if (en.id === 'support') b.classList.add('nav-support');
@@ -412,7 +413,9 @@ export function showMenu(game, onStart) {
   onCleanup(() => document.removeEventListener('keydown', onKey));
 
   mount(game, 'main', screen);
-  setActive(0, true);
+  // come back to the entry the player last opened
+  const back = entries.findIndex((en) => en.id === __lastNav);
+  setActive(back >= 0 && !items[back].classList.contains('hidden') ? back : 0, true);
 }
 
 // ---- skirmish setup -----------------------------------------------------------------
@@ -999,8 +1002,8 @@ function showArsenal(game) {
     detail.appendChild(top);
 
     const tiles = h('div', 'detail-tiles');
-    const tile = (ico, label, value) => {
-      const t = h('div', 'dtile');
+    const tile = (ico, label, value, cls) => {
+      const t = h('div', 'dtile' + (cls ? ' ' + cls : ''));
       t.appendChild(icon(ico));
       t.appendChild(h('span', 'dtile-val num', value));
       t.appendChild(h('span', 'dtile-label', label));
@@ -1010,7 +1013,7 @@ function showArsenal(game) {
     tile('clock', 'Build', d.build_s ? d.build_s + 's' : '—');
     if (en.kind === 'unit') {
       const p = structById[requiredProducer(d)];
-      tile('structures', 'Built at', p ? p.name.split(' / ')[0] : '—');
+      tile('structures', 'Built at', p ? p.name.split(' / ')[0] : '—', 'dtile-text');
     } else {
       tile('bolt', 'Power', d.power_out > 0 ? '+' + d.power_out : d.power_use > 0 ? '−' + d.power_use : '0');
     }
@@ -1347,11 +1350,16 @@ function showSettings(game, opts) {
 // lobby. Everything reads the net object off `game.net` (never an import) so
 // headless harnesses can inject a fake; the socket work lives in net/net.js.
 
-// Relay URL preference: a manual override the player typed > MCA_CONFIG.relayUrl
-// > same-origin /ws on a deployed http(s) origin > Net's built-in default.
+// Relay address shown by default (the player can override it under Advanced):
+//   1. window.MCA_CONFIG.relayUrl when the deployment sets one;
+//   2. else Net's own resolved default (net.js: same-origin ws(s)://<host>/ws
+//      when the page is served by the game server, the local relay on a dev
+//      origin) — one definition, so the licence check in net.js agrees with us;
+//   3. else, with no Net object, the same rule computed here.
 function defaultRelayUrl(game) {
   const cfg = globalThis.MCA_CONFIG || {};
-  if (cfg.relayUrl) return String(cfg.relayUrl);
+  if (typeof cfg.relayUrl === 'string' && cfg.relayUrl.trim()) return cfg.relayUrl.trim();
+  if (game.net && typeof game.net.url === 'string' && game.net.url) return game.net.url;
   let dev = false;
   try { dev = !!(import.meta.env && import.meta.env.DEV); } catch (e) { dev = false; }
   try {
@@ -1360,7 +1368,7 @@ function defaultRelayUrl(game) {
       return (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws';
     }
   } catch (e) { /* no location */ }
-  return (game.net && game.net.url) || 'ws://127.0.0.1:8790';
+  return 'ws://127.0.0.1:8790';
 }
 
 function friendlyNetError(raw, url) {
@@ -1514,7 +1522,7 @@ export function showMpSetup(game, onStart) {
   reset.addEventListener('click', () => { url.value = defUrl; lsSet(K_MP_RELAY, ''); });
   advBody.appendChild(reset);
   advBody.appendChild(h('p', 'mp-note',
-    'Matches run peer-to-peer in lockstep through a lightweight relay. Self-hosting on a LAN? Run '
+    'Matches run in lockstep through a lightweight relay. Self-hosting on a LAN? Run '
     + 'tools/mca_relay.py --port 8790 on the host PC and enter ws://<host-ip>:8790 here.'));
   adv.appendChild(advBody);
   if (lsGet(K_MP_RELAY, '')) adv.open = true;
@@ -2188,7 +2196,7 @@ export function showEndBanner(game, opts) {
       who.appendChild(crest(data, p.faction, 'crest-sm'));
       const wt = h('span', 'score-who-text');
       wt.appendChild(h('b', null, p.faction + (p.ai ? ' (AI)' : '')));
-      wt.appendChild(h('i', null, playerLabel(game, p) + ' · Team ' + (p.team + 1) + (p.eliminated ? ' — out' : '')));
+      wt.appendChild(h('i', null, playerLabel(game, p) + ' · Team ' + (p.team + 1)));
       who.appendChild(wt);
       if (st.over && st.winner === p.team && !p.eliminated) who.appendChild(el('span', { class: 'chip chip-gold' }, [icon('star'), 'Winner']));
       else if (p.eliminated) who.appendChild(h('span', 'chip chip-red', 'Eliminated'));
