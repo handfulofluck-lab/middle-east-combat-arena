@@ -161,7 +161,9 @@ export function octaveBands(mono, sr) {
   return e.map((v) => (frames && total > 0 ? 10 * Math.log10(Math.max(v / total, 1e-12)) : -120));
 }
 
-// onset times (s) from a 1 ms high-band energy-flux envelope
+// onset times (s): sharp attacks only (>= 8 dB rise of the high-passed
+// energy within ~4 ms, landing within 30 dB of the loudest attacks), so
+// pads, breath noise and reverb do not register
 export function onsets(mono, sr) {
   const hop = Math.round(sr / 1000);
   const n = Math.floor(mono.length / hop) - 1;
@@ -174,27 +176,26 @@ export function onsets(mono, sr) {
       prev = mono[i];
       e += d * d;
     }
-    env[f] = Math.log10(1e-9 + e / hop);
+    env[f] = Math.log10(1e-10 + e / hop);
   }
-  // smooth 3 ms, then positive flux over 4 ms
   const flux = new Float32Array(n);
+  const lvl = new Float32Array(n);
+  let top = -10;
   for (let f = 5; f < n; f++) {
-    const a = (env[f] + env[f - 1] + env[f - 2]) / 3, b = (env[f - 3] + env[f - 4] + env[f - 5]) / 3;
+    const a = (env[f] + env[f - 1]) / 2, b = (env[f - 3] + env[f - 4] + env[f - 5]) / 3;
     flux[f] = Math.max(0, a - b);
+    lvl[f] = a;
+    if (a > top) top = a;
   }
   const out = [];
-  const W = 120;
-  for (let f = W; f < n - W; f++) {
+  for (let f = 30; f < n - 30; f++) {
     const v = flux[f];
-    if (v < 0.35) continue;
-    let isMax = true, mean = 0;
-    for (let k = -W; k <= W; k++) {
-      if (k >= -25 && k <= 25 && flux[f + k] > v) { isMax = false; break; }
-      mean += flux[f + k];
-    }
+    if (v < 0.8 || lvl[f] < top - 3) continue;
+    let isMax = true;
+    for (let k = -25; k <= 25; k++) if (flux[f + k] > v) { isMax = false; break; }
     if (!isMax) continue;
-    mean /= (2 * W + 1);
-    if (v > mean * 3 + 0.2) { out.push((f - 2) * hop / sr); f += 25; }
+    out.push((f - 1) * hop / sr);
+    f += 25;
   }
   return out;
 }

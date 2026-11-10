@@ -134,7 +134,7 @@ export const LOOPS = {
 // length of the baked buffer per loop (long enough to hide its slowest LFO)
 export const LOOP_LEN = { rotor: 4, jet: 7, engine: 4, fire: 7, wind: 14, waves: 15.4 };
 // calibrated so gain 1 at dist 0 sits clearly under weapon fire
-const LOOP_LVL = { rotor: 0.5, jet: 0.42, engine: 0.5, fire: 0.42, wind: 0.42, waves: 0.5 };
+const LOOP_LVL = { rotor: 0.36, jet: 0.36, engine: 0.28, fire: 0.36, wind: 0.5, waves: 0.42 };
 
 export function buildLoop(E, name) {
   const ctx = E.ctx;

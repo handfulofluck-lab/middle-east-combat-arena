@@ -402,7 +402,7 @@ const notThemePass = (T) => T.pass % 4 !== 2;
 
 TRACKS.menu = {
   bpm: 76,
-  level: 1.4,
+  level: 1.6,
   loopFrom: 0,
   build(T) {
     T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
@@ -461,7 +461,7 @@ function briefParts(b) {
 
 TRACKS.briefing = {
   bpm: 100,
-  level: 1.25,
+  level: 1.4,
   loopFrom: 0,
   build(T) {
     T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
@@ -492,19 +492,19 @@ function combatParts(kind) {
       layer: 0, max: 0.45, flag: 'oud' },
     { type: 'hits', name: 'boom', at: [[0, 0, 0.35]], layer: 0, max: 0.3 },
     // layer 1
-    { type: 'ost', inst: 'qanun', div: 2, vel: 0.5, layer: 1, max: 0.62 },
-    { type: 'ost', inst: 'qanun', div: 1, vel: 0.45, layer: 1, min: 0.62 },
-    { type: 'drums', map: 'darbuka', pat: dar, vel: 0.7, layer: 1,
+    { type: 'ost', inst: 'qanun', div: 2, vel: 0.62, layer: 1, max: 0.62 },
+    { type: 'ost', inst: 'qanun', div: 1, vel: 0.52, layer: 1, min: 0.62 },
+    { type: 'drums', map: 'darbuka', pat: dar, vel: 0.8, layer: 1,
       fill: { every: 4, pat: [RHYTHM.fillA, RHYTHM.fillB] } },
     { type: 'shaker', pat: RHYTHM.riqOff, vel: 0.4, layer: 1, max: 0.5 },
     { type: 'shaker', pat: RHYTHM.riq8, vel: 0.4, layer: 1, min: 0.5, max: 0.8 },
     { type: 'shaker', pat: RHYTHM.riq16, vel: 0.42, layer: 1, min: 0.8 },
     // layer 2
-    { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse332, vel: 0.6, layer: 2, max: 0.8 },
-    { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse16, vel: 0.55, layer: 2, min: 0.8 },
+    { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse332, vel: 0.52, layer: 2, max: 0.8 },
+    { type: 'pulse', inst: 'stac', pat: RHYTHM.pulse16, vel: 0.5, layer: 2, min: 0.8 },
     { type: 'pad', inst: 'strings', vel: 0.42, layer: 2 },
-    { type: 'bass', inst: 'bass', pat: RHYTHM.bassA, vel: 0.75, layer: 2, max: 0.75 },
-    { type: 'bass', inst: 'bass', pat: RHYTHM.bassDrive, vel: 0.75, layer: 2, min: 0.75 },
+    { type: 'bass', inst: 'bass', pat: RHYTHM.bassA, vel: 0.68, layer: 2, max: 0.75 },
+    { type: 'bass', inst: 'bass', pat: RHYTHM.bassDrive, vel: 0.68, layer: 2, min: 0.75 },
     { type: 'drums', map: 'taiko', pat: tai, vel: 0.8, ens: true, layer: 2,
       fill: { every: 8, pat: RHYTHM.taikoFill }, human: 0.003 },
     // layer 3
@@ -538,7 +538,7 @@ TRACKS.combat = {
   layers: 4,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: LVL.drone * 1.5 }), 0, 0.1);
+    T.reg('drone', () => new Drone(T.E, { level: LVL.drone * 1.25 }), 0, 0.1);
     T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.28);
     T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: LVL.ney, pan: 0.15 }), 0, 0.5);
     stdKit(T, 'kit', 0, LVL.kit);
@@ -976,6 +976,7 @@ export class MusicDirector {
     this.value = 0;
     this.floor = 0;
     this.lastT = -1;
+    this.heldAt = -1;  // context time of the last moment the target was >= the value
     this.rig = null;
   }
 
@@ -1020,15 +1021,21 @@ export class MusicDirector {
   snap(x) {
     this.target = clamp01(Number(x) || 0);
     this.value = Math.max(this.target, this.floor);
+    this.heldAt = -10;
   }
 
   advance(now) {
     const dt = this.lastT < 0 ? 0 : Math.max(0, now - this.lastT);
     this.lastT = now;
     const tgt = Math.max(this.target, this.floor);
-    // attack ~1 s, release ~6 s (time constants = a third of that)
-    const tau = tgt > this.value ? 0.33 : 2.0;
-    this.value += (tgt - this.value) * (1 - Math.exp(-dt / tau));
+    // attack ~1 s (tau 0.33 s); release ~6 s: the band holds for 1.2 s after
+    // the heat drops, then winds down with tau 1.6 s
+    if (tgt >= this.value) {
+      this.heldAt = now;
+      this.value += (tgt - this.value) * (1 - Math.exp(-dt / 0.33));
+    } else if (now - this.heldAt > 1.2) {
+      this.value += (tgt - this.value) * (1 - Math.exp(-dt / 1.6));
+    }
     const T = this.cur;
     if (T && !T.done) {
       T.gates(this.value, now);

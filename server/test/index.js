@@ -9,4 +9,5 @@ import './static.test.mjs';
 import './relay.test.mjs';
 import './payments.test.mjs';
 import './client.test.mjs';
+import './deploy.test.mjs';
 import './lockstep.e2e.test.mjs';

@@ -141,7 +141,8 @@ function musicStats(res, info, o, t0, startBar) {
     const sameTempo = oneTempo;
     const limit = sameTempo ? res.seconds : Math.min(res.seconds, info.sections[1].start + t0);
     const on = onsets(m.subarray(0, Math.floor(limit * SR)), SR);
-    const fit = gridFit(on, 60 / first.bpm / 4, t0);
+    // thirty-second-note grid (tremolos and rolls sit between sixteenths)
+    const fit = gridFit(on, 60 / first.bpm / 8, t0);
     out.onsets = fit.n; out.gridOffsetMs = r1(fit.medianMs); out.gridMadMs = r1(fit.madMs);
     out.gridWithin12 = r2(fit.within);
     if (o.seamAt !== undefined) {
@@ -336,8 +337,9 @@ async function renderStress(o) {
       if (Math.floor(t * 20) % 160 === 0) E.duck(5, 2.5, 0.9); // a voice line every 8 s
       const v = E.activeVoices();
       if (v > maxVoices) maxVoices = v;
-      if (E.comp.reduction < minComp) minComp = E.comp.reduction;
-      if (E.lim.reduction < minLim) minLim = E.lim.reduction;
+      // (the first second is skipped: the compressors start from zero gain)
+      if (t > 1 && E.comp.reduction < minComp) minComp = E.comp.reduction;
+      if (t > 1 && E.lim.reduction < minLim) minLim = E.lim.reduction;
     });
   const E = res.engine;
   if (opt.raw) return Object.assign(timing(res), { fired: E.stats.fired, maxVoices });

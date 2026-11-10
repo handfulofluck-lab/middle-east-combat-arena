@@ -259,9 +259,9 @@ function checkPaths(map, id, data, hard, R) {
 
 // Economy from the freshly deployed ConYard, judged with the AI's own rules:
 //  - at least 2 oil fields with a legal Oil Depot site in the AI's window;
-//  - the AI's depot routine (fields in order, "served" within 5 cells of an own
-//    depot) must be able to place 2 depots - two fields 5 cells apart count as
-//    one for the AI.
+//  - a replay of the AI's standard opening (lib/simrules.mjs) must end with 2
+//    depots - ai.js counts a field within 5 cells of an own depot as served, so
+//    two fields 5 cells apart yield only one.
 function checkDepots(map, deployed, hard, R) {
   const { st, yards } = deployed;
   const soft = hard ? R.err : R.warn;
@@ -277,7 +277,7 @@ function checkDepots(map, deployed, hard, R) {
     else if (ai < 2) oneDepot.push(slot);
   });
   if (poor.length) soft(`depots: spawn(s) ${poor.join(', ')} have fewer than 2 oil fields with a legal Oil Depot site from the ConYard (count in brackets)`);
-  if (oneDepot.length) soft(`depots: the AI at spawn(s) ${oneDepot.join(', ')} would stop at one depot (its second field is within 5 cells of the first depot)`);
+  if (oneDepot.length) soft(`depots: the AI's opening ends with fewer than 2 depots at spawn(s) ${oneDepot.join(', ')} (ai.js counts a field within 5 cells of an own depot as served)`);
   R.metrics.depotFields = min === Infinity ? 0 : min;
   R.metrics.aiDepots = minAi === Infinity ? 0 : minAi;
 }

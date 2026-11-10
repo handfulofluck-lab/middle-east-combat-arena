@@ -71,7 +71,10 @@ function ensureShell(game) {
   if (root && typeof MutationObserver === 'function') {
     new MutationObserver(() => {
       syncIdle(game);
-      if (root.classList.contains('hidden')) runCleanup(); // screen closed from outside
+      if (root.classList.contains('hidden')) { // screen closed (possibly by main.js)
+        runCleanup();
+        clear(root);
+      }
     }).observe(root, { attributes: true, attributeFilter: ['class'] });
   }
 
@@ -1526,6 +1529,9 @@ export function closeLobbyUi(game) {
   runCleanup();
   const root = menuRoot();
   if (root && root.classList) root.classList.add('hidden');
+  // drop the lobby DOM: main.js routes chat to #mp-chatlog while it exists,
+  // and in a match the lines belong in the HUD's #chatlog
+  if (root) clear(root);
   if (document.body && document.body.classList) {
     document.body.classList.remove('in-menu');
     document.body.classList.remove('fe-idle');
@@ -1559,7 +1565,6 @@ export function showLobby(game) {
   const prevCaret = prevInput && hadFocus ? prevInput.selectionStart : null;
   const prevMaps = document.querySelector('#menu .lobby-maps');
   const prevMapScroll = prevMaps ? prevMaps.scrollTop : 0;
-  const prevLog = document.getElementById('mp-chatlog');
   beginScreen();
   game.overlay = 'lobby';
   if (document.body && document.body.classList) document.body.classList.add('in-menu');
@@ -1771,10 +1776,13 @@ export function showLobby(game) {
   // -- footer: start ------------------------------------------------------------
   const foot = h('footer', 'lobby-foot');
   if (net.isHost) {
-    const can = allReady && slots.length >= 2;
+    // everyone on one team would end the match on its first tick
+    const opposed = new Set(slots.map((s) => s.team || 0)).size >= 2;
+    const can = allReady && slots.length >= 2 && opposed;
     foot.appendChild(el('span', { class: 'lobby-status' + (can ? ' ok' : '') }, [icon(can ? 'check' : 'clock'),
       slots.length < 2 ? 'Waiting for at least one more commander'
-        : !allReady ? 'Waiting for every commander to ready up' : 'All commanders ready']));
+        : !opposed ? 'Every commander is on the same team — pick opposing teams'
+          : !allReady ? 'Waiting for every commander to ready up' : 'All commanders ready']));
     const start = el('button', { class: 'btn btn-primary btn-lg', type: 'button', dataset: { sfx: 'confirm' } }, [h('span', null, 'Start match'), icon('chevR')]);
     start.disabled = !can;
     start.addEventListener('click', () => { if (game.mpStart) game.mpStart(); });
@@ -1796,6 +1804,18 @@ export function showLobby(game) {
       chatInput.focus({ preventScroll: true });
       if (prevCaret !== null) chatInput.setSelectionRange(prevCaret, prevCaret);
     } catch (e) { /* no-op */ }
+  }
+
+  // first time in this room: seat each commander on their own team (the wire
+  // default puts everyone on team 0, which is an instant shared victory)
+  const seatKey = (net.code || '') + ':' + net.slot;
+  if (game._mpSeatKey !== seatKey && net.slot >= 0 && game.mpSetSlot) {
+    game._mpSeatKey = seatKey;
+    const want = net.slot % 4;
+    const mine = slots.find((s) => s.slot === net.slot);
+    if (mine && (mine.team || 0) !== want) {
+      setTimeout(() => { if (game.overlay === 'lobby' && game.net && game.net.active) game.mpSetSlot({ team: want }); }, 0);
+    }
   }
 
   // live ping refresh without re-rendering the lobby

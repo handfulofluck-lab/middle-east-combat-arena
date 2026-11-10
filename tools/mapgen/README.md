@@ -4,37 +4,45 @@ Deterministic generator, validator and preview renderer for the maps in
 `client/maps/`. Pure Node ESM (Node 22), no dependencies.
 
 ```
-node tools/mapgen/generate.mjs            # rewrite the 10 pack maps, manifest.json and legacy theme metadata
+node tools/mapgen/generate.mjs            # rewrite the 10 pack maps, manifest.json, legacy metadata and legacy repairs
 node tools/mapgen/generate.mjs --check    # regenerate in memory, exit 1 if anything on disk differs
-node tools/mapgen/validate.mjs            # audit every manifest map against the real sim, exit 1 on FAIL
+node tools/mapgen/validate.mjs --ci       # CI gate: every manifest map against the real sim, 600-tick smoke (5 to 10 s)
+node tools/mapgen/validate.mjs            # full audit: 3000-tick smoke matches (about 40 s, up to a minute under load)
 node tools/mapgen/preview.mjs             # write tools/mapgen/previews/<id>.png for every manifest map
+node tools/mapgen/repair_legacy.mjs       # re-derive the legacy oil repairs and compare with the frozen data
 ```
 
+`validate.mjs` exits 0 only when no map FAILs and no pack-level rule is broken.
+
 Useful flags: `generate.mjs --only id,id --out DIR` (scratch output, no manifest or
-legacy changes), `validate.mjs --only id,id | --all | --no-smoke | --strict | --json | --maps DIR`
-(`--all` adds the map files that are on disk but not in the manifest),
-`preview.mjs --only id,id --maps DIR --out DIR`.
+legacy changes), `validate.mjs --only id,id | --all | --ci | --no-smoke | --notes | --strict | --json | --maps DIR`
+(`--all` adds the map files that are on disk but not in the manifest, `--notes`
+prints informational notes), `preview.mjs --only id,id --maps DIR --out DIR`.
 
 From a test runner:
 
 ```js
 import { validateAll } from './tools/mapgen/validate.mjs';
-const { ok, problems, results } = validateAll();          // or { only: [...], smoke: false, strict: true }
+const { ok, problems, results } = validateAll({ ci: true });   // also: only: [...], smoke: false, strict: true
 ```
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `generate.mjs` | builds every design, writes map JSONs + `manifest.json`, appends theme metadata to legacy maps |
+| `generate.mjs` | builds every design, writes map JSONs + `manifest.json`, applies theme metadata and repairs to legacy maps |
 | `designs/*.mjs` | one file per map: metadata + a `build(b, S)` function that paints the terrain |
 | `designs/index.mjs` | pack order (= menu order of the new maps) |
 | `legacy_meta.mjs` | `theme` / `tagline` (and `briefing` where one was missing) for the 23 older maps |
+| `legacy_repairs.mjs` | frozen economy repairs (oil moves / additions, tags) for the 15 legacy manifest maps |
+| `repair_legacy.mjs` | the solver that derives those repairs from the sim's placement rules |
 | `lib/builder.mjs` | `MapBuilder`: symmetric painting, spawn/oil orbits, cleanup pipeline, sanity asserts |
 | `lib/sdf.mjs` | signed-distance brushes (circle, ellipse, capsule, spline curve, ring…), combinators, deterministic `polar()` |
 | `lib/noise.mjs`, `lib/prng.mjs` | seeded Perlin fbm, mulberry32, lattice hash |
 | `lib/grid.mjs` | grid symmetries, majority smoothing, thin-feature removal, components, distance fields, sim-rule Dijkstra |
 | `lib/png.mjs` | minimal indexed-colour PNG encoder (zlib only) |
+| `lib/legacy.mjs` | applying a repair record; byte-preserving edits of legacy JSON text |
+| `lib/simrules.mjs` | the AI's Oil Depot rules replayed through `Sim.canPlace` (shared by validator and solver) |
 | `validate.mjs` | the validator (`validateAll`, `validateMap`) |
 | `preview.mjs` | the preview renderer (`renderPreview`, `renderAll`) |
 | `previews/` | committed PNGs, at most 512 px |
@@ -50,9 +58,17 @@ const { ok, problems, results } = validateAll();          // or { only: [...], s
   meta: { players, size: 'S'|'M'|'L', symmetry, tags: string[], seed, generator: 'mapgen-v3' } }
 ```
 
-`meta` exists only on generated maps. Legacy maps keep their original bytes: the
-generator appends `tagline` and `theme` (and a `briefing` when the map had none)
-as the last keys and never touches name, size, terrain, oil or spawns.
+Pack maps carry the full `meta`. The 15 legacy maps in the manifest carry
+`meta: { players, size, tags, generator: 'legacy-repaired' }`; the 8 older files
+that are not in the manifest have no `meta`.
+
+Legacy files are edited at text level so every untouched byte survives: the
+generator appends `tagline`, `theme` (a `briefing` when the map had none) and
+`meta` as the last keys, and replaces the `oil` array of a repaired map (see
+"Legacy repairs"). Name, size and terrain are never touched, with one recorded
+exception (`cyprus_levant`). Tags used on legacy maps: `4p` / `6p`,
+`real-geography` or `scenario`, and `naval-separated` when at least one spawn
+has no land route to the others.
 
 `manifest.json`: the ten pack ids come first, then the previously listed ids in
 their old order. Existing keys are kept; `mapgen_v3_maps` lists the pack ids.
@@ -209,12 +225,14 @@ These come from reading `client/src/sim` and are what the validator enforces.
 
 - The AI builds at most two Oil Depots and only inside the build radius of its
   first base. Naturals and contested fields matter to human players only.
-- On a map with any water, the AI build order waits at the Naval Yard (`SH-07`)
-  until one can be placed within 10 cells of the Construction Yard; if that is
-  never possible, everything after it in the order (the fortress doctrine's
-  defences and superweapon, the spare power plant) is never built. Every wet
-  pack map therefore gives each base a harbour, and the other maps have no
-  water at all. The validator reports this on legacy maps as a `naval` warning.
+- The AI only builds a Naval Yard when one can be placed within 10 cells of its
+  Construction Yard (since the v1.0 AI this no longer blocks the rest of its
+  build order). Wet pack maps give every base a harbour; on legacy maps the
+  validator lists spawns without a yard site as a note.
+- The AI treats an oil field as already served when one of its depots stands
+  within 5 cells of it. Two start fields 5 cells apart therefore yield one AI
+  depot, not two. Pack maps keep start fields 9 or more cells apart; the legacy
+  repair spreads the affected pairs.
 - There are no naval transports. Bases cut off by water can only be attacked by
   air and sea, so every pack map keeps a land route between all spawns.
 - Slot `i` starts on `spawns[i]`, and a skirmish ally is always slot 1. With the
@@ -223,33 +241,109 @@ These come from reading `client/src/sim` and are what the validator enforces.
 
 ## Validator
 
-Checks on every manifest map: schema and bounds; spawns and oil on land;
-briefing, tagline and theme vocabulary; Construction Yard deployment at every
-spawn through a real `deployMCV` command; land routes from each spawn to its two
-nearest oil fields and to every other spawn; at least two oil fields with a
-legal Oil Depot site from the fresh Construction Yard; a Naval Yard site per
-spawn on maps with water; an all-AI smoke match of 600 ticks.
+Maps come in three kinds, told apart by `meta.generator`: `v3` (pack maps),
+`repaired` (legacy manifest maps, `legacy-repaired`) and `legacy` (no `meta`;
+only seen with `--all`).
 
-Extra checks on pack maps (`meta.generator === 'mapgen-v3'`): the `meta` block;
-exact symmetry of terrain, spawns and oil; fairness (path distance per spawn to
-the two nearest fields and to the centre); at least 80% open land in the 15x15
-block around each spawn; no speckles, fins, pinches or tiny blobs; the widest
-route between spawns never narrower than clearance 2.5; one connected sea
-between all harbours on maps tagged `naval`; a 3000-tick smoke match in which
-every AI builds an Oil Depot and a production building. A map tagged
-`naval-separated` skips the spawn-to-spawn land-route and choke checks (no pack
-map uses it).
+Checks on every map: schema and bounds; spawns and oil on land; briefing,
+tagline and theme vocabulary; Construction Yard deployment at every spawn
+through a real `deployMCV` command; land routes from each spawn to its two
+nearest oil fields and to every other spawn (the latter is skipped on maps
+tagged `naval-separated`); at least two oil fields with a legal Oil Depot site
+from the fresh Construction Yard, inside the AI's search window; a replay of the
+AI's standard opening that must end with two depots; an all-AI smoke match in
+which every AI builds an Oil Depot and a production building.
 
-Severity: integrity problems FAIL on any map. Design-rule misses FAIL on pack
-maps and are reported as `warn` on legacy maps, whose terrain is frozen;
-`--strict` turns those warnings into failures. Pack-level rules: at most two
-dusk/night themes, unique map names.
+Extra checks on `v3` maps: exact symmetry of terrain, spawns and oil; fairness
+(path distance per spawn to the two nearest fields and to the centre); at least
+80% open land in the 15x15 block around each spawn; no speckles, fins, pinches
+or tiny blobs; the widest route between spawns never narrower than clearance
+2.5; a Naval Yard site per spawn on maps tagged `naval` or `riverine`, and one
+connected sea between all harbours on `naval` maps.
 
-Table columns: `deploy` yards deployed / spawns, `paths` spawn pairs linked by
-land, `depot` minimum number of depot-capable fields per spawn, `naval` yard
-sites, `fair` path distance (cells) to nearest field / second field / centre,
-`room` open share of the base block, `choke` clearance of the widest route,
-`smoke` ticks run, `AI dep` fewest depots any AI reached, `ms` time per map.
+Severity: on `v3` and `repaired` maps every rule above is a FAIL. On plain
+`legacy` maps integrity problems FAIL and the economy and route rules only
+`warn` (`--strict` turns warnings into failures). Notes are informational and
+never change a result; today the only note lists spawns with no Naval Yard site
+on a wet map. Pack-level rules: at most two dusk/night themes, unique map names.
+
+Smoke length: 3000 ticks on `v3` and `repaired` maps and 600 on plain `legacy`
+maps; `--ci` uses 600 everywhere, which is enough for the depot and production
+requirement and brings the whole run to between 5 and 10 seconds.
+
+Table columns: `deploy` yards deployed / spawns; `paths` spawn pairs linked by
+land (`sep` marks a `naval-separated` map); `depot` fewest depot-capable fields
+per spawn / fewest depots in the AI opening replay; `naval` yard sites; `fair`
+path distance (cells) to nearest field / second field / centre; `room` open
+share of the base block; `choke` clearance of the widest route; `smoke` ticks
+run; `built` fewest depots any AI actually built in the smoke match (depends on
+doctrine and match length, informational); `ms` time per map.
+
+## Legacy repairs
+
+The 15 older maps in the manifest were audited with the same rules and failed
+them in three ways: spawns with no oil field in depot reach of the Construction
+Yard, bases whose one field sat a cell or two outside the AI's search window,
+and bases whose two fields were 5 cells apart, which the AI counts as one. The
+repair makes every spawn satisfy two rules: two oil fields with a legal depot
+site from the fresh Construction Yard, and two depots at the end of the AI's
+standard opening.
+
+`repair_legacy.mjs` derives the changes with the sim's own placement code
+(`lib/simrules.mjs`), preferring the smallest move of an existing field and
+adding fields only where a base had none to move. Its output is frozen in
+`legacy_repairs.mjs`; `generate.mjs` applies it, so the map files do not shift
+when the sim changes. Run `node tools/mapgen/repair_legacy.mjs` to re-derive the
+proposal: it exits 1 if it no longer matches the frozen data.
+
+Moved fields keep their index in the `oil` array; added fields are appended.
+New fields sit 8 to 11 cells from their spawn on open ground, on the side away
+from the middle of the map where there is room.
+
+| Map | Oil fields | Moved (from→to) | Added | Other |
+| --- | --- | --- | --- | --- |
+| `sinai` | 8 → 8 | (45,76)→(45,74), (44,12)→(44,13), (91,153)→(95,153), (147,30)→(147,31) | — | — |
+| `jerusalem` | 8 → 8 | (43,10)→(47,10), (37,145)→(41,145), (137,124)→(137,125) | — | — |
+| `arabia` | 12 → 14 | (43,117)→(47,117), (32,185)→(32,186) | (143,204), (134,205) | — |
+| `gulf` | 12 → 16 | — | (107,7), (98,6), (21,201), (30,202) | — |
+| `redsea` | 12 → 14 | (152,119)→(152,120), (152,179)→(152,180) | (20,130), (20,121) | — |
+| `maghreb` | 12 → 16 | (96,6)→(95,6) | (19,5), (5,19), (127,220), (136,220) | — |
+| `anatolia` | 12 → 16 | (39,58)→(43,58) | (117,77), (126,76), (127,160), (118,160) | — |
+| `indus` | 12 → 16 | — | (31,123), (31,132), (193,5), (194,14) | — |
+| `gulfstates` | 12 → 16 | — | (47,5), (46,14), (209,218), (210,209) | — |
+| `bab_el_mandeb` | 6 → 9 | — | (60,113), (131,78), (13,48) | — |
+| `nile_delta` | 6 → 10 | (46,144)→(43,144), (146,48)→(147,48), (140,142)→(141,142) | (20,165), (171,29), (96,119), (165,165) | tagged `naval-separated` |
+| `cyprus_levant` | 6 → 12 | — | (5,174), (17,186), (128,4), (127,13), (186,186), (177,186) | spawn 0 (1,189)→(8,183); 429 sea cells in the south-west corner become land; tagged `naval-separated` |
+| `zagros_pass` | 5 → 9 | (48,146)→(45,146), (144,46)→(145,45), (54,54)→(53,53) | (23,169), (170,22), (30,30), (161,161) | — |
+| `kyzylkum_steppe` | 5 → 9 | (48,144)→(47,144), (144,48)→(144,47), (112,100)→(109,100) | (25,167), (168,24), (163,163), (163,154) | — |
+| `arabian_sea_convoy` | 5 → 9 | (46,48)→(45,48) | (17,173), (176,18), (86,86), (23,30) | tagged `naval-separated` |
+
+Why each kind of change was needed:
+
+- **Additions on the six-player real-geography maps** (`arabia`, `gulf`,
+  `redsea`, `maghreb`, `anatolia`, `indus`, `gulfstates`): two spawns per map
+  (one on `arabia` and `redsea`) had no field nearer than 50 cells. Each got
+  two. The other spawns keep the two or three they had.
+- **1 to 4 cell moves on `sinai`, `jerusalem`, `arabia`, `redsea`, `maghreb`,
+  `anatolia`**: bases with exactly two fields 5 cells apart. One field of each
+  pair moves just far enough for the AI to place its second depot. `oil[0]` is
+  unchanged on all six.
+- **Scenario maps** (`bab_el_mandeb`, `nile_delta`, `zagros_pass`,
+  `kyzylkum_steppe`, `arabian_sea_convoy`): one field per base, on four of them
+  14 to 16 cells out, just beyond the AI's window. Those move 1 to 3 cells in
+  and every base gets a second field.
+- **`cyprus_levant`**: spawn 0 stood on a 22-cell sliver of land in the
+  south-west corner, cut off from everything by the round sea. This is the only
+  terrain edit in the repair: a quarter-disc of radius 24 around that corner
+  becomes land (429 cells), giving a small island base, and the spawn moves 7
+  cells in from the corner. Spawns 1 and 3 had no field within 45 cells and got
+  two each.
+
+`nile_delta` (spawn 0 on the west bank), `cyprus_levant` (spawn 0 on its island)
+and `arabian_sea_convoy` (every spawn on its own island) have spawns with no
+land route to the others. Their land layout is otherwise untouched and they are
+tagged `naval-separated`, which the validator accepts in place of spawn-to-spawn
+land routes.
 
 ## Adding a map
 

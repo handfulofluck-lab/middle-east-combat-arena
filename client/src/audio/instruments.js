@@ -217,14 +217,15 @@ export class BreathLead extends Inst {
 
 // ---- strings ------------------------------------------------------------------------
 
-// Sustained string pad: two detuned oscillators per note, alive only while
-// the note (and its release) sounds.
+// Sustained string pad: two detuned oscillators per note, one in each
+// channel (a wide ensemble shimmer instead of a mono tremolo beat), alive
+// only while the note and its release sound.
 export class PadInst extends Inst {
   // o: { level, wave ('strings' | 'dark' | 'bright'), detune (cents) }
   constructor(E, o) {
     super(E, o);
     this.wave = o.wave || 'strings';
-    this.det = o.detune || 8;
+    this.det = o.detune || 5;
   }
 
   // atk / rel are time constants (seconds)
@@ -239,10 +240,11 @@ export class PadInst extends Inst {
     const end = t + dur + r * 7;
     const k = Math.pow(2, this.det / 1200);
     const a = mkOsc(E, this.wave, f / k), b = mkOsc(E, this.wave, f * k);
-    a.connect(g); b.connect(g); g.connect(this.pre);
+    const m = ctx.createChannelMerger(2);
+    a.connect(m, 0, 0); b.connect(m, 0, 1); m.connect(g); g.connect(this.pre);
     a.start(t); b.start(t); a.stop(end); b.stop(end);
     b.onended = () => { try { g.disconnect(); } catch (e) { /* ok */ } };
-    E.count(1);
+    E.count(2);
   }
 
   chord(t, midis, vel, dur, atk, rel) {
@@ -304,7 +306,7 @@ export class BrassInst extends Inst {
     f.type = 'lowpass'; f.Q.value = 0.9;
     f.frequency.value = 300;
     try { f.frequency.automationRate = 'k-rate'; } catch (e) { /* ok */ }
-    const a = mkOsc(E, 'sawtooth', hz * 0.9971), b = mkOsc(E, 'sawtooth', hz * 1.0032);
+    const a = mkOsc(E, 'sawtooth', hz * 0.9983), b = mkOsc(E, 'sawtooth', hz * 1.0019);
     const fast = mode === 'stab';
     if (mode === 'swell') {
       g.gain.setTargetAtTime(vel, t, dur / 3.2);
@@ -341,8 +343,8 @@ export class Drone extends Inst {
     this.sub = mkOsc(E, 'sine', f / 2);
     const sg = mkGain(E, 0.2);
     this.sub.connect(sg); sg.connect(this.pre);
-    this.a = mkOsc(E, 'strings', f * 0.9985);
-    this.b = mkOsc(E, 'strings', f * 1.0022);
+    this.a = mkOsc(E, 'strings', f * 0.9991);
+    this.b = mkOsc(E, 'strings', f * 1.0013);
     const tg = mkGain(E, 0.6);
     this.a.connect(tg); this.b.connect(tg); tg.connect(this.pre);
     // air: a slowly wandering resonant band of noise (desert wind in the hall)
@@ -365,8 +367,8 @@ export class Drone extends Inst {
   tune(t, midi, tau) {
     const f = midiHz(midi), k = tau || 0.4;
     this.sub.frequency.setTargetAtTime(f / 2, t, k);
-    this.a.frequency.setTargetAtTime(f * 0.9985, t, k);
-    this.b.frequency.setTargetAtTime(f * 1.0022, t, k);
+    this.a.frequency.setTargetAtTime(f * 0.9991, t, k);
+    this.b.frequency.setTargetAtTime(f * 1.0013, t, k);
   }
 }
 

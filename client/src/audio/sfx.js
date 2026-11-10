@@ -273,9 +273,9 @@ function aaGun(v) {
 function cannon(v) {
   const p = rr(v, 0.93, 1.07);
   N(v, { c: 'white', ft: 'highpass', f: 4000, a: 0.0003, d: 0.012, g: 0.5 });
-  N(v, { c: 'white', ft: 'bandpass', f: 3800 * p, f1: 420, tf: 0.14, q: 0.7, a: 0.0008, d: 0.18, g: 0.9 });
-  N(v, { c: 'pink', ft: 'lowpass', f: 1500 * p, f1: 160, tf: 0.3, a: 0.002, d: 0.42, g: 1.7 });
-  O(v, { f: 92 * p, f1: 33, tf: 0.22, a: 0.002, d: 0.38, g: 1.0 });
+  N(v, { c: 'white', ft: 'bandpass', f: 3800 * p, f1: 420, tf: 0.14, q: 0.7, a: 0.0008, d: 0.18, g: 1.15 });
+  N(v, { c: 'pink', ft: 'lowpass', f: 1500 * p, f1: 160, tf: 0.3, a: 0.002, d: 0.42, g: 1.5 });
+  O(v, { f: 92 * p, f1: 33, tf: 0.22, a: 0.002, d: 0.38, g: 0.8 });
   FM(v, { f: 540 * p, ratio: 1.38, idx: 1.8, d: 0.28, g: 0.1 });
   N(v, { c: 'pink', ft: 'bandpass', f: 700, f1: 260, q: 0.5, t: 0.07, a: 0.06, d: 1.2, g: 0.42, wet: true });
 }
@@ -283,10 +283,10 @@ function cannon(v) {
 function heavyCannon(v) {
   const p = rr(v, 0.93, 1.07);
   N(v, { c: 'white', ft: 'highpass', f: 3500, a: 0.0003, d: 0.014, g: 0.5 });
-  N(v, { c: 'white', ft: 'bandpass', f: 3000 * p, f1: 300, tf: 0.2, q: 0.6, a: 0.0008, d: 0.25, g: 0.9 });
-  N(v, { c: 'pink', ft: 'lowpass', f: 1100 * p, f1: 110, tf: 0.5, a: 0.002, d: 0.7, g: 1.9 });
-  N(v, { c: 'brown', ft: 'lowpass', f: 300, a: 0.03, d: 0.4, g: 1.2 });
-  O(v, { f: 76 * p, f1: 27, tf: 0.35, a: 0.002, d: 0.65, g: 1.1 });
+  N(v, { c: 'white', ft: 'bandpass', f: 3000 * p, f1: 300, tf: 0.2, q: 0.6, a: 0.0008, d: 0.25, g: 1.15 });
+  N(v, { c: 'pink', ft: 'lowpass', f: 1100 * p, f1: 110, tf: 0.5, a: 0.002, d: 0.7, g: 1.7 });
+  N(v, { c: 'brown', ft: 'lowpass', f: 300, a: 0.03, d: 0.4, g: 0.9 });
+  O(v, { f: 76 * p, f1: 27, tf: 0.35, a: 0.002, d: 0.65, g: 0.9 });
   O(v, { w: 'triangle', f: 50 * p, f1: 25, tf: 0.4, a: 0.004, d: 0.5, g: 0.3 });
   FM(v, { f: 380 * p, ratio: 1.33, idx: 1.6, d: 0.4, g: 0.08 });
   N(v, { c: 'pink', ft: 'bandpass', f: 500, f1: 200, q: 0.5, t: 0.09, a: 0.1, d: 2.0, g: 0.55, wet: true });
@@ -394,14 +394,14 @@ function torpedo(v) {
 // ---- impacts -----------------------------------------------------------------------
 
 const EXPLOSIONS = [
-  { sub: [115, 42, 0.16, 0.26, 0.8], crack: [3200, 380, 0.1, 0.5], body: [2400, 170, 0.28, 1.5],
-    debris: [0.35, 0.3], tail: [0.6, 0.34] },
-  { sub: [95, 34, 0.25, 0.45, 1.0], crack: [2800, 300, 0.16, 0.6], body: [1900, 120, 0.5, 1.8],
-    debris: [0.7, 0.36], tail: [1.1, 0.45] },
-  { sub: [80, 28, 0.4, 0.8, 1.1], crack: [2400, 240, 0.22, 0.7], body: [1500, 90, 0.85, 2.0],
-    debris: [1.2, 0.4], tail: [1.8, 0.55], rumble: [110, 1.2, 1.2] },
-  { sub: [66, 22, 0.7, 1.5, 1.2], crack: [2000, 180, 0.3, 0.8], body: [1200, 60, 1.4, 2.2],
-    debris: [2.0, 0.44], tail: [2.8, 0.65], rumble: [90, 2.4, 1.6], shock: true },
+  { sub: [115, 42, 0.16, 0.26, 0.6], crack: [3200, 380, 0.1, 0.7], body: [2400, 170, 0.28, 1.25],
+    debris: [0.35, 0.42], tail: [0.6, 0.34] },
+  { sub: [95, 34, 0.25, 0.45, 0.75], crack: [2800, 300, 0.16, 0.8], body: [1900, 120, 0.5, 1.5],
+    debris: [0.7, 0.5], tail: [1.1, 0.45] },
+  { sub: [80, 28, 0.4, 0.8, 0.85], crack: [2400, 240, 0.22, 0.95], body: [1500, 90, 0.85, 1.65],
+    debris: [1.2, 0.55], tail: [1.8, 0.55], rumble: [110, 1.2, 0.9] },
+  { sub: [66, 22, 0.7, 1.5, 0.95], crack: [2000, 180, 0.3, 1.05], body: [1200, 60, 1.4, 1.8],
+    debris: [2.0, 0.6], tail: [2.8, 0.65], rumble: [90, 2.4, 1.2], shock: true },
 ];
 
 function explosion(v, S) {
@@ -727,14 +727,14 @@ def('ui_confirm', 'ui', 9, 0.652, 0, 0.05, uiConfirm);
 def('ui_back', 'ui', 9, 0.911, 0, 0.05, uiBack);
 def('ui_deny', 'ui', 9, 0.827, 0, 0.12, uiDeny);
 def('ui_tab', 'ui', 9, 0.725, 0, 0.04, uiTab);
-def('ui_open', 'ui', 9, 1.11, 0, 0.08, uiOpen);
+def('ui_open', 'ui', 9, 1.07, 0, 0.08, uiOpen);
 def('ui_close', 'ui', 9, 1.16, 0, 0.08, uiClose);
 // weapons
 def('rifle', 'light', 2, 0.563, 0.22, 0.03, rifle);
 def('mg', 'light', 2, 0.552, 0.22, 0.12, mg);
 def('autocannon', 'light', 3, 0.469, 0.24, 0.15, autocannon);
 def('aa_gun', 'light', 3, 0.666, 0.24, 0.15, aaGun);
-def('cannon', 'heavy', 4, 0.533, 0.3, 0.05, cannon);
+def('cannon', 'heavy', 4, 0.575, 0.3, 0.05, cannon);
 def('heavy_cannon', 'heavy', 5, 0.583, 0.34, 0.08, heavyCannon, [2, 0.25, 0.5]);
 def('atgm', 'heavy', 4, 0.758, 0.28, 0.06, atgm);
 def('rocket', 'heavy', 4, 0.437, 0.28, 0.05, rocket);
@@ -745,9 +745,9 @@ def('cruise', 'heavy', 5, 0.519, 0.32, 0.2, cruise, [2, 0.5, 0.6]);
 def('naval_gun', 'heavy', 5, 0.571, 0.36, 0.08, navalGun, [2, 0.25, 0.5]);
 def('torpedo', 'heavy', 4, 0.636, 0.3, 0.1, torpedo);
 // impacts
-def('explosion_small', 'impact', 3, 0.485, 0.26, 0.04, (v) => explosion(v, EXPLOSIONS[0]));
-def('explosion_medium', 'impact', 4, 0.491, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5]);
-def('explosion_large', 'impact', 6, 0.744, 0.34, 0.08, (v) => explosion(v, EXPLOSIONS[2]), [3.5, 0.5, 0.8]);
+def('explosion_small', 'impact', 3, 0.624, 0.26, 0.04, (v) => explosion(v, EXPLOSIONS[0]));
+def('explosion_medium', 'impact', 4, 0.578, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5]);
+def('explosion_large', 'impact', 6, 0.84, 0.34, 0.08, (v) => explosion(v, EXPLOSIONS[2]), [3.5, 0.5, 0.8]);
 def('explosion_huge', 'impact', 7, 0.596, 0.4, 0.15, (v) => explosion(v, EXPLOSIONS[3]), [6, 1.3, 1.4]);
 def('impact_metal', 'impact', 1, 0.468, 0.2, 0.03, impactMetal);
 def('impact_dirt', 'impact', 1, 0.306, 0.2, 0.03, impactDirt);
@@ -781,7 +781,7 @@ def('siren', 'world', 7, 1.72, 0.16, 0.5, siren, [2, 0.9, 0.6]);
 def('victory', 'cine', 8, 0.87, 0.3, 0.5, victorySfx);
 def('defeat', 'cine', 8, 1.08, 0.3, 0.5, defeatSfx);
 def('shot', 'light', 2, 0.563, 0.22, 0.03, rifle, null, 'rifle');
-def('boom', 'impact', 4, 0.491, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5], 'explosion_medium');
+def('boom', 'impact', 4, 0.578, 0.3, 0.05, (v) => explosion(v, EXPLOSIONS[1]), [1.5, 0.2, 0.5], 'explosion_medium');
 // internal: far-off rumble for the ambience bed
 def('amb_rumble', 'world', 1, 1, 0.5, 5, ambRumble);
 
