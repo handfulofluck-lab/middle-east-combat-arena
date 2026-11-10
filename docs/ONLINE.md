@@ -480,7 +480,7 @@ list is here so that traffic in a capture or a log makes sense.
 | match | `cmd {tick, slot, seq, cmd}` | a player command, stamped for a future tick (current tick + input delay) |
 | match | `eoi {tick}` | end-of-input marker: "you now hold every command I will ever send for ticks ≤ `tick`". A tick runs only when every player's marker covers it. Cumulative, so a lost one is repaired by the next; a peer that is waiting re-sends its latest every 500 ms |
 | match | `csum {tick, sum}` | state checksum every 25 ticks; a mismatch freezes the match (desync) |
-| match | `drop {slot, at, echo:true}` (host) | a player who disconnected, or was silent for 8 s (45 s if it never started), is replaced by an AI from tick `at`; that player's commands count below `at` only |
+| match | `drop {slot, at, echo:true}` (host only — a `drop` from any other sender is ignored by every client) | a player who disconnected, or was silent for 8 s (45 s if it never started), is replaced by an AI from tick `at`; that player's commands count below `at` only. It takes effect when the relay hands it back, and until then the host does not run tick `at` |
 | any | `pause {on}` (host), `chat {msg}`, `nping`/`npong {ts}` | pause/resume, chat, peer-to-peer round-trip probes |
 | match | `needlog {fromTick}`, `log {cmds}` | command-log request and reply (catch-up; not used by the shipped client flow) |
 
@@ -528,16 +528,17 @@ their outcome does not depend on the speed of the machine:
   returning peers that are *not* dropped; pause/resume longer than the
   timeout, with and without latency;
 * the timeout race (the silent peer speaks again while the host's verdict is
-  on its way), on both sides of the relay's ordering;
+  on its way): input the relay ordered before the verdict counts everywhere,
+  input ordered after it nowhere; the host stops at its own drop line until
+  the verdict is back; and against a relay without `echo` the host falls
+  back after 2.5 s (this one test waits that long in real time);
 * several orders for one tick (a frame apart; a backlogged receiver), a
-  client sending commands for ticks it already closed, lost markers (one, and
-  all of them until the room is stuck);
+  modified client sending commands for ticks it already closed or forging
+  `drop` declarations, lost markers (one, and all of them until the room is
+  stuck);
 * latency on every link: input delay 2 at 150 ms and delay 4 at 350 ms run at
   the full 10 Hz without a single gate wait after start-up; delay 2 at 250 ms
   (beyond the budget) is shown to slow the room down, in sync.
-
-Scenarios the client does not handle yet are kept as `todo` subtests: they
-are reported (`# todo N` in the summary) without failing the run.
 
 ---
 
