@@ -46,11 +46,12 @@ const PRIORITY = {
 };
 
 const LINE_GAIN = 1;        // announcer clips (all clips share one loudness target)
-const ACK_GAIN = 0.8;       // radio acknowledgements sit a little under the announcer
+const ACK_GAIN = 0.55;      // radio acknowledgements sit about 5 dB under the announcer
 const DUCK_DB = 5;          // music ducking under an announcer line
 const ACK_GAP = 2000;       // ms between two order acknowledgements
 const SELECT_GAP = 5000;    // ms between two selection acknowledgements
 const ACK_LATE = 300;       // an acknowledgement that cannot start within this is dropped
+const CUT_FADE = 0.08;      // seconds an interrupted announcer line takes to fade out
 const LINE_STALE = 2500;    // an announcer line that could not start within this is dropped
 const QUEUE_STALE = 3500;   // ... and so is a queued one that waited longer than this
 const LOAD_RETRY = 30000;   // a failed manifest / clip is retried after this long
@@ -370,11 +371,13 @@ export class VoiceBox {
       if (prio === undefined || this.dead || this.E.muted) return false;
       if (!this.ctx || this.ctx.state !== 'running') return false;
       const req = { faction, key, detail: detail || null, prio, at: nowMs() };
+      let delay = 0;
       if (this.clipActive()) {
         const cur = this.line && this.playing(this.line) ? this.line.prio
           : (this.pendingLine ? this.pendingLine.prio : 3);
         if (prio >= 3 && cur < 3) {
-          this.stopLine(0.08);
+          if (this.line && this.playing(this.line)) delay = CUT_FADE + 0.02; // start once the cut line has faded
+          this.stopLine(CUT_FADE);
         } else {
           if (!this.queued || prio >= this.queued.prio || req.at - this.queued.at >= QUEUE_STALE) {
             this.queued = req;
@@ -383,7 +386,7 @@ export class VoiceBox {
           return true;
         }
       }
-      this.begin(req, 0);
+      this.begin(req, delay);
       return true;
     } catch (e) {
       return false;
@@ -413,10 +416,14 @@ export class VoiceBox {
   }
 
   playLine(req, clip, buf, delay) {
-    if (this.ackH && this.playing(this.ackH)) this.cut(this.ackH, 0.05);
+    delay = delay || 0;
+    if (this.ackH && this.playing(this.ackH)) {
+      this.cut(this.ackH, 0.05);
+      delay = Math.max(delay, 0.07); // the line starts once the acknowledgement has faded
+    }
     this.ackSeq++; // an acknowledgement still loading must not land on the line
     // the speech fallback may still be talking (one clip failed, this one did not)
-    delay = Math.max(delay || 0, Math.min(3, (this.speechUntil - nowMs()) / 1000));
+    delay = Math.max(delay, Math.min(3, (this.speechUntil - nowMs()) / 1000));
     const h = this.start(buf, LINE_GAIN, delay);
     h.prio = req.prio;
     h.key = req.key;
@@ -486,8 +493,9 @@ export class VoiceBox {
           if (!buf || token !== this.ackSeq) return;
           if (nowMs() - now > ACK_LATE) { this.stats.late++; return; }
           if (!this.running() || this.lineBusy()) return;
-          if (this.ackH && this.playing(this.ackH)) this.cut(this.ackH, 0.03);
-          const h = this.start(buf, ACK_GAIN, 0);
+          let delay = 0;
+          if (this.ackH && this.playing(this.ackH)) { this.cut(this.ackH, 0.03); delay = 0.04; }
+          const h = this.start(buf, ACK_GAIN, delay);
           h.select = select;
           h.onDone = () => { if (this.ackH === h) this.ackH = null; };
           this.ackH = h;

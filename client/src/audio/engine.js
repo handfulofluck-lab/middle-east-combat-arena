@@ -62,8 +62,11 @@ const PAN_LEVELS = [-0.9, -0.6, -0.3, 0, 0.3, 0.6, 0.9];
 // in-match piece between -22 (quiet) and -15.5 LUFS (full combat) at the
 // default volumes
 const MUSIC_TRIM = 1.12;
-// trim of the voice bus: the clips are rendered to -16 LUFS (tools/voicegen)
-const VOICE_TRIM = 1;
+// trim of the voice bus. The clips are rendered to -16 LUFS (tools/voicegen);
+// with this trim an announcer line leaves the master chain at about -15
+// LUFS and a unit acknowledgement at about -19 (measured, default volumes):
+// over the ducked score, level with a cannon shot, under the big explosions.
+const VOICE_TRIM = 0.8;
 
 const taper = (v) => v * v;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -709,7 +712,22 @@ export class AudioEngine {
     if (kind === 'master') this.ramp(this.bus.master.gain, this.muted ? 0 : g, t);
     else if (kind === 'sfx') this.ramp(this.bus.sfxVol.gain, g, t);
     else if (kind === 'music') this.ramp(this.bus.musicVol.gain, g * MUSIC_TRIM, t);
-    else if (kind === 'voice') this.ramp(this.bus.voice.gain, g * VOICE_TRIM, t);
+    else if (kind === 'voice') this.glide(this.bus.voice.gain, g * VOICE_TRIM, t);
+  }
+
+  // For a bus that sits idle most of the time (voice): Chrome does not advance
+  // a parameter's timeline while its node has nothing to process, so an
+  // exponential setTargetAtTime would only start moving when the next clip
+  // does - and that clip would open at the old level. A short linear ramp
+  // has an end time, so by the next clip the new value simply holds.
+  glide(param, v, t) {
+    try {
+      param.cancelScheduledValues(t);
+      param.setValueAtTime(param.value, t);
+      param.linearRampToValueAtTime(v, t + 0.04);
+    } catch (e) {
+      param.value = v;
+    }
   }
 
   ramp(param, v, t) {

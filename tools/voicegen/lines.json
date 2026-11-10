@@ -106,7 +106,7 @@
       "lines": {
         "select": ["Squad here.", "Rifles ready.", "Go ahead, command.", "Send it."],
         "move": ["Stepping off.", "On the move.", "Shifting position.", "Copy, relocating."],
-        "attack": ["Contact, engaging.", "Weapons hot.", "Taking them on.", "Opening fire."]
+        "attack": ["Contact, engaging.", "Rifles up.", "Taking them on.", "Opening fire."]
       }
     },
     "vehicle": {
