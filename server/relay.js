@@ -19,6 +19,9 @@
 // Additive, optional extensions (old clients never send or need them):
 //   create {public:true, title, map}  -> the room is listed by GET /api/rooms
 //   create/join {license}             -> checked when MCA_PAYWALL != off
+//   any room broadcast {echo:true}    -> also returned to its sender, at the
+//                                        same point of the room's message
+//                                        order as everyone else's copy
 //
 // Hardening on top of the Python relay: message size cap, per-connection
 // message + byte token buckets, global / per-IP connection caps, room cap,
@@ -285,9 +288,10 @@ export class Relay {
       return;
     }
 
-    // Everything else: relay to the room (minus the sender). `from` is
-    // stamped by the relay; a client-supplied `from` is overwritten
-    // (anti-spoof). `to` must name a current member or the message is dropped.
+    // Everything else: relay to the room (minus the sender, unless it asks
+    // for an echo). `from` is stamped by the relay; a client-supplied `from`
+    // is overwritten (anti-spoof). `to` must name a current member or the
+    // message is dropped.
     let only;
     if (hasOwn(msg, 'to')) {
       only = msg.to;
@@ -300,7 +304,11 @@ export class Relay {
     // room order. It is the only way a peer can learn where its own message
     // landed relative to everyone else's; the lockstep drop declaration
     // depends on that (every peer, the host included, must cut a dropped
-    // player's input at the same point of the stream).
+    // player's input at the same point of the stream). The copy is the same
+    // relayed envelope (relay-stamped `from`), costs the sender nothing it
+    // could not already make the relay send to the rest of the room, and is
+    // subject to the same slow-consumer cut-off. Addressed (`to`) messages
+    // are never echoed.
     const echo = msg.echo === true && only === undefined;
     let out;
     try { out = JSON.stringify(msg); } catch (e) { return; }

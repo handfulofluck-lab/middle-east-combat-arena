@@ -271,9 +271,11 @@ port 8790 with payments switched off.
 | `JOIN_FAILS_PER_MIN` | `20` | Wrong room codes — and, with a paywall, forged license keys — allowed per address per minute before the connection is dropped. |
 | `MAX_CONNS_PER_LICENSE` | `3` | Paywall only: concurrent sessions per license key (`0` = unlimited). |
 
-For scale: a lockstep client sends about 11 messages per second (one per
-10 Hz tick plus commands, checksums and pings). The defaults leave roughly 9×
-headroom sustained and a 400-message burst for catch-up after a hiccup.
+For scale: a lockstep client sends about 11 messages per second (one
+end-of-input marker per 10 Hz tick plus commands, checksums and pings; while
+it waits for another player, two keepalives per second instead). The defaults
+leave roughly 9× headroom sustained and a 400-message burst for catch-up
+after a hiccup.
 
 ### Payments and licenses (all off by default — see MONETIZATION.md)
 
@@ -415,7 +417,8 @@ What you still have to do:
 
 ## Relay protocol
 
-JSON text messages `{t:'…', …}`; identical to `tools/mca_relay.py`.
+JSON text messages `{t:'…', …}`; the same wire protocol as
+`tools/mca_relay.py`, plus the optional additions listed below.
 
 | Client sends | Relay answers |
 |---|---|
@@ -423,7 +426,7 @@ JSON text messages `{t:'…', …}`; identical to `tools/mca_relay.py`.
 | `{t:'join', code, name}` | `{t:'room', code, slot, host:false}`; everyone in the room gets `{t:'lobby', …}`. Errors: `{t:'error', reason:'no-such-room'\|'room-full', code}` |
 | `{t:'leave'}` | the socket is closed; the others get `{t:'bye', slot, reason:'disconnected'}` and a new `lobby` |
 | `{t:'ping', ts}` | `{t:'pong', ts}` (also before joining) |
-| anything else, inside a room | relayed to the other members with `from:<sender slot>`; with `to:<slot>` only to that member |
+| anything else, inside a room | relayed to the other members with `from:<sender slot>`; with `to:<slot>` only to that member; with `echo:true` (and no `to`) also back to the sender |
 
 Room codes: 4 characters from `A–Z0–9`, case-insensitive. Up to 6 slots; the
 lowest free slot is assigned. The creator is the host (slot 0); when the host
@@ -436,6 +439,17 @@ Additions (optional; old clients never see or need them):
   its match has started. The listed map follows the host's `cfg` messages.
 * `create`/`join` may carry `license:<key>`; required when `MCA_PAYWALL` is
   `multiplayer` or `full`.
+* Any room broadcast may carry `echo:true` (exactly `true`): the relay then
+  also returns it to its sender — the same envelope, with the relay-stamped
+  `from`, at the same point of the room's message order as everyone else's
+  copy. It is how a peer learns where its own message landed relative to the
+  others'. Messages addressed with `to` are never echoed, and an echoed
+  message counts against the sender's rate limits exactly once, like any
+  other. The game uses it for one thing: the host's `drop` declaration (see
+  below) takes effect when it comes back, so that the host stops listening
+  to the dropped player at the same point of the stream as every other peer.
+  Against a relay without echo (the Python one) the client falls back to
+  applying its declaration locally after 2.5 s.
 * `error` envelopes carry a human-readable `message` next to `reason`. New
   reasons: `license-required`, `license-invalid`, `license-revoked`,
   `license-in-use`, `server-full`, `too-many-connections`, `too-many-attempts`,
@@ -456,6 +470,23 @@ Deliberate differences from the Python relay (none affect a well-behaved client)
 
 `GET /api/stats` → `{online, rooms, publicRooms, inMatch, connections}`.
 
+**What the game sends through it.** The relay looks at none of this (it only
+reads the host's `cfg`/`start` to keep the public room list current); the
+list is here so that traffic in a capture or a log makes sense.
+
+| Phase | Message | Meaning |
+|---|---|---|
+| lobby | `slot` (guest → host), `lobby2`, `cfg`, `start` (host) | faction/team/ready, the merged lobby, match settings (map, seed, input delay, players), go |
+| match | `cmd {tick, slot, seq, cmd}` | a player command, stamped for a future tick (current tick + input delay) |
+| match | `eoi {tick}` | end-of-input marker: "you now hold every command I will ever send for ticks ≤ `tick`". A tick runs only when every player's marker covers it. Cumulative, so a lost one is repaired by the next; a peer that is waiting re-sends its latest every 500 ms |
+| match | `csum {tick, sum}` | state checksum every 25 ticks; a mismatch freezes the match (desync) |
+| match | `drop {slot, at, echo:true}` (host) | a player who disconnected, or was silent for 8 s (45 s if it never started), is replaced by an AI from tick `at`; that player's commands count below `at` only |
+| any | `pause {on}` (host), `chat {msg}`, `nping`/`npong {ts}` | pause/resume, chat, peer-to-peer round-trip probes |
+| match | `needlog {fromTick}`, `log {cmds}` | command-log request and reply (catch-up; not used by the shipped client flow) |
+
+(`stall`, the pre-1.0 name of the per-tick message, is still understood by
+the client as an `eoi`.)
+
 ---
 
 ## Tests
@@ -475,10 +506,38 @@ What is covered: relay protocol conformance and every limit; static hosting
 verification; the complete purchase flow against a local Stripe mock
 (checkout → webhook → claim → verify → relay join → refund); the paywall; the
 admin endpoint; CORS; the client's `net.js`/`store.js`; process start-up and
-shutdown; and four **headless lockstep matches through the real relay** using
-the real client networking and simulation code (2 humans + AI for 600 ticks,
-a desync negative control, a mid-match drop with AI takeover, 6 players at
-real-time pace under default limits). Tests listen on `127.0.0.1:8800–8899`.
+shutdown; and **headless lockstep matches through the real relay** using the
+real client networking (`net.js`), scheduler (`lockstep.js`) and simulation,
+plus `main.js`'s own drop logic (`hostDropWatch`, `processPendingDrops`,
+lifted from its source and run as it is). Tests listen on
+`127.0.0.1:8800–8899`.
+
+The lockstep tests (`server/test/lockstep.e2e.test.mjs`) run on a virtual
+clock, with a relay ping/pong barrier deciding what has arrived where, so
+their outcome does not depend on the speed of the machine:
+
+* whole matches: 2 humans + AI for 600 ticks with every checksum compared; a
+  desync negative control; a mid-match disconnect with AI takeover; 6 players
+  at real-time pace under the default rate limits;
+* a missing peer holds the room (nothing is forced; the old "force after
+  1.5 s" rule is shown to desync in the same scenario) and waiting peers keep
+  each other informed with keepalives;
+* drops: disconnect with orders in flight while the remaining peers sit on
+  different ticks; a drop line cutting through those orders; the silence
+  timeout, the loading grace, a peer that never starts; bystanders and
+  returning peers that are *not* dropped; pause/resume longer than the
+  timeout, with and without latency;
+* the timeout race (the silent peer speaks again while the host's verdict is
+  on its way), on both sides of the relay's ordering;
+* several orders for one tick (a frame apart; a backlogged receiver), a
+  client sending commands for ticks it already closed, lost markers (one, and
+  all of them until the room is stuck);
+* latency on every link: input delay 2 at 150 ms and delay 4 at 350 ms run at
+  the full 10 Hz without a single gate wait after start-up; delay 2 at 250 ms
+  (beyond the budget) is shown to slow the room down, in sync.
+
+Scenarios the client does not handle yet are kept as `todo` subtests: they
+are reported (`# todo N` in the summary) without failing the run.
 
 ---
 

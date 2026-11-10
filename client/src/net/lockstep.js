@@ -58,6 +58,7 @@ export function createLockstep(opts) {
   } = opts;
   let delay = Math.max(1, opts.delay | 0 || 2);
   const forceOnSilence = !!opts.forceOnSilence;
+  const hostSlot = opts.hostSlot === undefined ? 0 : opts.hostSlot; // the relay seats the host at 0
   const me = playerSlot;
   const peers = humanSlots.filter((s) => s !== me).sort((a, b) => a - b);
 
@@ -76,6 +77,11 @@ export function createLockstep(opts) {
   let waitingOn = [];           // slots the gate is currently missing
   let desynced = false;
   const dropped = new Map();    // slot -> tick its drop takes effect
+  // Drops I (the host) have declared but not yet seen come back from the
+  // relay: slot -> line. Until one returns I do not know where it landed in
+  // the room's message order, so I must not run its line or anything past
+  // it -- the others will ignore that player's input from the line on.
+  const pendingDrops = new Map();
   let catchupMode = false;      // replaying the host log (late join)
   const stats = { stallWaits: 0, forcedSteps: 0, desyncs: 0 };
 
@@ -182,7 +188,11 @@ export function createLockstep(opts) {
         break;
       }
       case 'drop': {
+        // only the host may declare a drop: a guest forging one could evict
+        // any player (or, aimed at the host, close the room)
+        if (slot !== undefined && slot !== hostSlot) break;
         if (typeof msg.slot !== 'number' || dropped.has(msg.slot)) break;
+        pendingDrops.delete(msg.slot);
         const at = msg.at !== undefined ? msg.at : state.tick;
         dropped.set(msg.slot, at);
         if (onPeerDrop) onPeerDrop(Object.assign({}, msg, { at }));
@@ -237,6 +247,13 @@ export function createLockstep(opts) {
     // while I sit on tick t, nothing I issue can be stamped below t + delay
     declare(t + delay - 1);
     if (!catchupMode) {
+      // my own drop declaration is still on its way back: stop at its line
+      let held = false;
+      for (const at of pendingDrops.values()) if (t >= at) held = true;
+      if (held) {
+        if (trace) trace.push({ tick: t, gate: 'hold-drop-line' });
+        return false;
+      }
       const r = ready(t);
       if (!r.ok) {
         const nowT = now();
@@ -330,6 +347,10 @@ export function createLockstep(opts) {
     waitingOn: () => waitingOn.slice(),
     isWaiting: () => gateWaitStart >= 0,
     waitingSince: () => gateWaitStart,
+    // The host calls this just before broadcasting {t:'drop', slot, at}: it
+    // will then not run tick `at` or later until that declaration has come
+    // back through the relay (or been applied locally as a fallback).
+    expectDrop: (slot, at) => { if (!dropped.has(slot)) pendingDrops.set(slot, at); },
     // The earliest tick a drop of `slot` may take effect. No peer can run a
     // tick the host's own marker does not cover (host tick - 1 + delay), nor
     // one the dropped slot's marker does not cover, so a drop at or beyond

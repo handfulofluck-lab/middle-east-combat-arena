@@ -5,13 +5,13 @@
 // client/src/net/lockstep.js and the real simulation (client/src/sim) --
 // talking to the real server over real sockets. The lobby handshake, cfg/start
 // and the match itself follow the same sequence main.js runs in the browser.
-// main.js itself cannot be imported headlessly, so:
-//   * its drop logic -- hostDropWatch() and processPendingDrops() -- is lifted
-//     out of the source text and RUN AS IT IS for every peer (whatever those
-//     functions do today is what these tests exercise);
-//   * its frame loop and its small inline hooks (onBye, onPeerDrop, onPause)
-//     are re-stated below, and a guard test at the end of this file fails
-//     when main.js stops matching them.
+// main.js itself cannot be imported headlessly, so its multiplayer logic is
+// lifted out of the source text and RUN AS IT IS for every peer -- whatever
+// those functions do today is what these tests exercise:
+//   * hostDropWatch() and processPendingDrops();
+//   * the hooks onBye, onPause (Net.init) and onPeerDrop (createLockstep).
+// Only its frame loop is re-stated here (stepPeer/afterFrame/drive); a guard
+// test at the end of this file fails when main.js stops matching it.
 //
 // The matches must stay bit-identical on every peer: per-tick state checksums
 // are compared directly AND through the csum messages the peers exchange via
@@ -73,10 +73,20 @@ function mainFunction(name) {
   const m = new RegExp('^function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?^\\}', 'm').exec(MAIN_SRC);
   return m ? m[0] : null;
 }
+// The source of an inline hook of main.js -- `name: (args) => { ... },` whose
+// closing brace sits at the property's own indent -- as an arrow function, or null.
+function mainHook(name) {
+  const m = new RegExp('^( *)' + name + ': (\\([^)]*\\) => \\{\\n[\\s\\S]*?\\n\\1\\}),?$', 'm').exec(MAIN_SRC);
+  return m ? m[2] : null;
+}
 const REAL_SOURCE = {
   hostDropWatch: mainFunction('hostDropWatch'),
   processPendingDrops: mainFunction('processPendingDrops'),
+  onBye: mainHook('onBye'),
+  onPause: mainHook('onPause'),
+  onPeerDrop: mainHook('onPeerDrop'),
 };
+const IS_HOOK = { onBye: true, onPause: true, onPeerDrop: true };
 
 // Give a peer its own copies of those functions, closed over a `G` that maps
 // main.js's game object onto the peer, the peer's Net, and the virtual clock.
@@ -87,17 +97,24 @@ function bindMainJs(peer) {
     get ai() { return peer.ai; },
     get playerSlot() { return peer.slot; },
     get paused() { return peer.paused; },
-    worldPending: 0, cinema: null,
+    set paused(on) { peer.paused = on; },
+    worldPending: 0, cinema: null, overlay: null,
     mpDropped: {}, mpStallSince: 0, mpStallSlots: '', mpWaitNote: null, mpPendingDrops: [],
   };
   const scope = {
     G, Net: peer.Net, Sim, DROP_AFTER_MS, LOAD_GRACE_MS, TAKEOVER_DELAY_TICKS,
-    showHint: () => {}, mpNameOf: (slot) => 'P' + (slot + 1),
+    showHint: () => {}, showLobby: () => {}, mpNameOf: (slot) => 'P' + (slot + 1),
+    // leaving the match: this player is out of the shared simulation for good
+    leaveMpToMenu: () => { peer.gone = true; peer.Net.leave(); },
     performance: { now: () => clock.t },
   };
   const compile = (name) => {
-    if (!REAL_SOURCE[name]) return null;
-    const fn = new Function(...Object.keys(scope), REAL_SOURCE[name] + '\nreturn ' + name + ';')(...Object.values(scope));
+    if (!REAL_SOURCE[name]) {
+      throw new Error('main.js no longer has ' + (IS_HOOK[name] ? 'a hook `' + name + ': (...) => {...}`' : 'a top-level `function ' + name + '(...) {...}`')
+        + ': these tests run it as it is -- point REAL_SOURCE in server/test/lockstep.e2e.test.mjs at wherever that logic lives now');
+    }
+    const body = IS_HOOK[name] ? 'return ' + REAL_SOURCE[name] + ';' : REAL_SOURCE[name] + '\nreturn ' + name + ';';
+    const fn = new Function(...Object.keys(scope), body)(...Object.values(scope));
     return (...args) => {
       try { return fn(...args); } catch (e) {
         if (e instanceof ReferenceError) {
@@ -109,12 +126,16 @@ function bindMainJs(peer) {
     };
   };
   peer.G = G;
-  peer.real = { hostDropWatch: compile('hostDropWatch'), processPendingDrops: compile('processPendingDrops') };
+  peer.real = {};
+  for (const name of Object.keys(REAL_SOURCE)) peer.real[name] = compile(name);
 
   // observe (and, for rule-level tests, steer) what the host declares
   const sendDrop = peer.Net.sendDrop.bind(peer.Net);
   peer.Net.sendDrop = (slot, at) => {
-    if (peer.opts.dropAt) at = peer.opts.dropAt(peer, slot);
+    if (peer.opts.dropAt) {
+      at = peer.opts.dropAt(peer, slot);
+      if (peer.ls.expectDrop) peer.ls.expectDrop(slot, at); // (main.js announced its own line to the scheduler)
+    }
     peer.declared.push({ slot, at, why: peer.declaring, tick: peer.state.tick, clock: clock.t });
     sendDrop(slot, at);
   };
@@ -184,13 +205,7 @@ async function makePeer(tag, rngSeed, opts = {}) {
   Net.init(peer.game, {
     onLobby: () => { peer.lobbies++; },
     onStart: () => beginMatch(peer),
-    // main.js onPause (guests; the relay does not echo the host's own toggle)
-    onPause: fromNetwork((on) => {
-      const G = peer.G;
-      if (!G.state || G.state.over) return;
-      peer.paused = on;
-      if (!on && G.ls && G.ls.resume) { G.ls.resume(); G.mpStallSince = 0; G.mpStallSlots = ''; }
-    }),
+    onPause: fromNetwork((on, from) => peer.real.onPause(on, from)), // (guests: the host's own toggle is not echoed)
     onChat: fromNetwork((from, text) => peer.chat.push({ from, text })),
     onGameMsg: (m) => {
       // The host's own drop declaration comes back from the relay (`echo: true`)
@@ -201,16 +216,11 @@ async function makePeer(tag, rngSeed, opts = {}) {
       else if (peer.lose && peer.lose(m)) peer.lostMessages.push(m);
       else fromNetwork(deliver)(m);
     },
-    // main.js onBye: the host turns a disconnect into a drop declaration whose
-    // line no peer can have reached -- ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS
+    // main.js onBye: the host turns a disconnect into a drop declaration
     onBye: fromNetwork((slot, reason) => {
       peer.byes.push({ slot, reason });
-      const G = peer.G;
-      if (G.state && !G.state.over && Net.isHost && G.ls && !G.mpDropped[slot]) {
-        G.mpDropped[slot] = true;
-        peer.declaring = 'bye';
-        Net.sendDrop(slot, G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
-      }
+      peer.declaring = 'bye';
+      peer.real.onBye(slot);
     }),
     onHostLeft: fromNetwork((m) => { peer.hostLeft = m; }),
     onError: (reason) => peer.errors.push(reason),
@@ -241,63 +251,15 @@ function beginMatch(peer) {
     now: () => clock.t,
     trace: peer.trace, // which commands each executed tick handed to the sim
     onDesync: (info) => { peer.desync = info; },
-    // main.js onPeerDrop
+    // main.js onPeerDrop: a player the host gave up on leaves the match (an AI
+    // commands its forces on every other machine); anyone else queues the takeover
     onPeerDrop: (m) => {
       peer.drops.push({ slot: m.slot, at: m.at, tick: state.tick });
-      if (m.slot === peer.slot) {
-        // the host gave up on THIS player: an AI commands its forces on every
-        // other machine now, so it stops taking part and leaves
-        peer.selfDropped = true;
-        peer.gone = true;
-        setTimeout(() => { if (peer.ls) peer.Net.leave(); }, 0);
-        return;
-      }
-      peer.G.mpPendingDrops.push({ slot: m.slot, at: m.at !== undefined ? m.at : state.tick + TAKEOVER_DELAY_TICKS });
+      if (m.slot === peer.slot) { peer.selfDropped = true; peer.gone = true; } // (it stops taking part at once)
+      peer.real.onPeerDrop(m);
     },
   });
   peer.sums.set(0, Sim.checksum(state));
-}
-
-// Stand-ins, used ONLY if main.js no longer has functions of these names (the
-// guard test then fails and says so): the rules as they were when this file
-// was last touched.
-function fallbackHostDropWatch(peer, now) {
-  const { Net, ls, G } = peer;
-  if (!Net.isHost || !ls || peer.state.over) return;
-  if (!ls.isWaiting()) { G.mpStallSince = 0; G.mpStallSlots = ''; return; }
-  const key = ls.waitingOn().join(',');
-  if (key !== G.mpStallSlots || !G.mpStallSince) {
-    G.mpStallSlots = key;
-    G.mpStallSince = now;
-    return;
-  }
-  const heard = ls.debugState().lastHeard;
-  for (const slot of ls.waitingOn()) {
-    if (G.mpDropped[slot] || slot === Net.slot) continue;
-    const silentFor = heard[slot] === undefined ? -1 : now - heard[slot];
-    const loading = heard[slot] === undefined && now - G.mpStallSince < LOAD_GRACE_MS;
-    if (loading || (silentFor >= 0 && silentFor < DROP_AFTER_MS)) continue;
-    G.mpDropped[slot] = true;
-    Net.sendDrop(slot, ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
-  }
-}
-
-function fallbackProcessPendingDrops(peer) {
-  const G = peer.G;
-  if (!G.mpPendingDrops.length) return;
-  const remaining = [];
-  for (const d of G.mpPendingDrops) {
-    if (peer.state.tick < d.at) { remaining.push(d); continue; }
-    const p = peer.state.players[d.slot];
-    if (p && !p.aiTakeover) {
-      p.aiTakeover = true;
-      p.ai = { personality: 'Front', difficulty: 'veteran' };
-      const brain = Sim.makeBrain({ slot: d.slot, faction: p.faction, team: p.team, ai: p.ai }, peer.state.seed, d.slot);
-      brain.nextThink = d.at + brain.interval;
-      peer.ai.brains.push(brain);
-    }
-  }
-  G.mpPendingDrops = remaining;
 }
 
 // ---- scripted input -----------------------------------------------------------
@@ -393,10 +355,10 @@ function stepPeer(peer) {
 function afterFrame(peer) {
   if (peer.gone || peer.frozen) return;
   peer.declaring = 'timeout';
-  if (peer.real.hostDropWatch) peer.real.hostDropWatch(clock.t); else fallbackHostDropWatch(peer, clock.t);
+  peer.real.hostDropWatch(clock.t);
   const pending = peer.G.mpPendingDrops.slice();
   const brains = peer.ai.brains.length;
-  if (peer.real.processPendingDrops) peer.real.processPendingDrops(); else fallbackProcessPendingDrops(peer);
+  peer.real.processPendingDrops();
   for (const brain of peer.ai.brains.slice(brains)) { // an AI just took a slot over
     const d = pending.find((x) => x.slot === brain.slot);
     peer.takeovers.push({ slot: brain.slot, at: d ? d.at : -1, firstThink: brain.nextThink });
@@ -638,14 +600,14 @@ async function lobby(srv, specs, { map, aiPlayers = [], delay = 2, peerOpts = {}
 }
 
 // Three humans whose input is choreographed by the test (scripts start quiet).
-async function threeHumans(t, peerOpts = {}) {
+async function threeHumans(t, peerOpts = {}, delay = 2) {
   const srv = await startServer(UNTHROTTLED);
   t.after(() => srv.close());
   const peers = await lobby(srv, [
     { name: 'Host', faction: 'Egypt' },
     { name: 'Bob', faction: 'Turkey' },
     { name: 'Carol', faction: 'Iran' },
-  ], { map: pickMap(3, 'gulf'), peerOpts });
+  ], { map: pickMap(3, 'gulf'), peerOpts, delay });
   t.after(() => { for (const p of peers) p.Net.leave(); });
   for (const p of peers) p.script.quiet = true;
   await drive(peers, () => peers.every((p) => p.state.tick >= 40));
@@ -925,8 +887,8 @@ describe('headless lockstep matches through the Node relay', () => {
 
 // Carol's machine stops dead (no frames, nothing received is processed) while
 // she stays connected; the others run until her last marker holds them.
-async function carolFreezes(t, peerOpts) {
-  const { peers } = await threeHumans(t, peerOpts);
+async function carolFreezes(t, peerOpts, inputDelay) {
+  const { peers } = await threeHumans(t, peerOpts, inputDelay);
   const [host, bob, carol] = peers;
   const delay = host.ls.getDelay();
   freeze(carol);
@@ -1079,11 +1041,6 @@ function assertOrdersRanEverywhere(peers) {
   }
   return n;
 }
-
-// A known hazard, kept as a failing `todo` subtest until client/src is changed
-// (the parent test passes and reports what happens today).
-const HAZARD_FORGED_DROP = 'KNOWN HAZARD (lockstep.js ingest, case \'drop\'): the sender is not checked, so any guest can drop any '
-  + 'player (the victim leaves; aimed at the host, the room closes). Accept a drop only when msg.from is the host\'s slot (0).';
 
 describe('lockstep scheduler rules, end to end through the relay', () => {
   // ---- a missing peer holds the room ------------------------------------------
@@ -1284,6 +1241,81 @@ describe('lockstep scheduler rules, end to end through the relay', () => {
     assert.deepEqual(bob.takeovers, host.takeovers);
     const compared = assertInSync([host, bob], c + 80);
     t.diagnostic(`her order for tick ${stamped} (drop line ${line}) passed the relay after the verdict: void on both; ${compared} checksums compared`);
+  });
+
+  test('D3. timeout race on the "Online" input delay (4): the host stops at its own drop line until its verdict has come back', async (t) => {
+    const { peers, host, bob, carol, delay, c, held } = await carolFreezes(t, {}, 4);
+    await elapse([host, bob], peers, DROP_AFTER_MS - 300);
+    assert.deepEqual(host.declared, []);
+    host.inboundHeld = true; // (on their way to the host)
+    // Carol's link comes back. She catches up as far as the others' markers
+    // let her and gives an order on the last tick she can still reach.
+    thaw(carol);
+    frame(carol, held + delay - 1 - c);
+    assert.equal(carol.state.tick, held + delay - 1);
+    const order = mcvMove(carol, 1);
+    const stamped = issue(carol, order);
+    frame(carol);
+    await settle([bob, carol]);
+    frame(bob);
+    await settle([bob, carol]);
+    clock.t += 400; // the host's DROP_AFTER_MS are up
+    frame(host);
+    assert.deepEqual(host.declared.map((d) => [d.slot, d.why]), [[2, 'timeout']]);
+    const line = host.declared[0].at;
+    assert.equal(stamped, line, 'her order is for the very tick the host put the line on');
+    assert.ok(markerSeen(bob, 2) >= line, 'and her markers cover it: with her still in the game, that tick could run');
+
+    // Her burst and Bob's answer reach the host ahead of its own echoed verdict.
+    // Until that is back the host still plays with her -- up to the line, no further:
+    // everyone else will ignore her input from the line on.
+    releaseInbound(host);
+    host.inboundHeld = true; // (the echo is still on its way)
+    framesAlone(host, 10);
+    assert.equal(host.ls.isDropped(2), false);
+    assert.equal(host.state.tick, line, 'the host ran every tick below the line and stopped on it');
+    assert.ok(host.trace.some((e) => e.gate === 'hold-drop-line' && e.tick === line), 'held by its own pending declaration, not by a missing marker');
+    await settle(peers);
+    framesAlone(host, 10);
+    assert.equal(host.state.tick, line, 'still there: the verdict has not come back');
+    releaseInbound(host); // the echo arrives
+    assert.equal(host.ls.isDropped(2), true);
+    await drive([host, bob], () => !!(host.desync || bob.desync) || (host.state.tick >= c + 100 && bob.state.tick >= c + 100));
+    await settle(peers);
+
+    for (const p of [host, bob]) assert.deepEqual(appliedTicks(p, order), [], p.tag + ': her order for the line tick is void');
+    assert.deepEqual(bob.takeovers, host.takeovers);
+    assert.deepEqual(host.takeovers.map((x) => [x.slot, x.at]), [[2, line]]);
+    const compared = assertInSync([host, bob], c + 100);
+    t.diagnostic(`delay ${delay}: host held on ${held}, drop line ${line}; with Carol back the host ran to ${line} and waited there for its echo; `
+      + `her order for ${stamped} is void on both; ${compared} checksums compared`);
+  });
+
+  test('D4. a relay that does not echo (the legacy one): the host applies its own declaration after net.js\'s grace, and play goes on in sync', async (t) => {
+    const { peers } = await threeHumans(t);
+    const [host, bob, carol] = peers;
+    // what a relay without the extension does: it passes the declaration on and returns nothing
+    const send = host.Net._send.bind(host.Net);
+    host.Net._send = (m) => send(m && m.t === 'drop' ? { t: 'drop', slot: m.slot, at: m.at } : m);
+    const from = host.state.tick;
+    carol.gone = true;
+    carol.Net.ws.close();
+    await until(() => host.byes.length > 0 && bob.drops.length > 0, 'the bye and the host\'s declaration to arrive');
+    assert.equal(host.declared.length, 1);
+    const line = host.declared[0].at;
+    await stepUntilHeld([host, bob], [host, bob]);
+    assert.equal(host.ls.isDropped(2), false, 'nothing came back: the host has not applied its own declaration yet');
+    assert.equal(bob.ls.isDropped(2), true);
+    assert.ok(host.state.tick < line && bob.state.tick < line, 'so nobody gets to the line: ' + host.state.tick + '/' + bob.state.tick + ' < ' + line);
+    // (real time: net.js waits 2.5 s for an echo before it falls back)
+    await drive([host, bob], () => host.state.tick >= from + 60 && bob.state.tick >= from + 60, { paceMs: 50, timeoutMs: 20000 });
+    await settle([host, bob]);
+    assert.equal(host.unechoedDrops, 1, 'the declaration took effect through the local fallback');
+    assert.deepEqual(host.drops.map((d) => [d.slot, d.at]), [[2, line]]);
+    assert.deepEqual(bob.drops.map((d) => [d.slot, d.at]), [[2, line]]);
+    assert.deepEqual(bob.takeovers, host.takeovers);
+    for (const p of [host, bob]) { assert.equal(p.desync, null); assert.equal(forcedTicks(p), 0); }
+    assertSameHistory(host, bob, from + 60);
   });
 
   test('F. a slow starter (silent for longer than DROP_AFTER_MS because it is still loading) is not dropped; once it has spoken, the same silence is', async (t) => {
@@ -1618,19 +1650,34 @@ describe('lockstep scheduler rules, end to end through the relay', () => {
     t.diagnostic(`rogue commands for ticks ${T + 1} (host on ${T + delay}, Bob on ${T}) and ${M} (= her marker): ignored by all; ${compared} checksums compared`);
   });
 
-  test('X2. a drop declaration sent by a guest', async (t) => {
-    const { peers } = await threeHumans(t);
+  test('X2. a drop declaration from anyone but the host is ignored by every peer: nobody is evicted, the room stays up', async (t) => {
+    const { srv, peers } = await threeHumans(t);
     const [host, bob, carol] = peers;
-    // Carol "declares" Bob dropped. Only the host decides that (main.js); the
-    // relay stamps the true sender on every message, so it can be told apart.
-    carol.Net.sendGame({ t: 'drop', slot: 1, at: host.state.tick + 20 });
+    const from = host.state.tick;
+    // Carol's client is modified: it "declares" Bob dropped, then the host --
+    // once plainly, once claiming to be the host, once asking for the echo.
+    // The relay stamps the true sender on all of them.
+    carol.Net.sendGame({ t: 'drop', slot: 1, at: from + 5 });
+    carol.Net.sendGame({ t: 'drop', slot: 0, at: from + 5 });
+    carol.Net.sendGame({ t: 'drop', slot: 1, at: from + 5, from: 0 });
+    carol.Net.sendGame({ t: 'drop', slot: 0, at: from + 5, from: 0, echo: true });
     await settle(peers);
-    const facts = { hostBelievedIt: host.ls.isDropped(1), bobLeft: bob.selfDropped, declaredByHost: host.declared.length };
-    t.diagnostic(`a guest's {t:'drop', slot:1}: the host ${facts.hostBelievedIt ? 'marked Bob dropped' : 'ignored it'}; Bob ${facts.bobLeft ? 'left the match' : 'stayed'}`);
-    await t.test('wanted: only the host\'s declaration counts', { todo: HAZARD_FORGED_DROP }, () => {
-      assert.equal(facts.hostBelievedIt, false, 'the host took a guest\'s word for it');
-      assert.equal(facts.bobLeft, false, 'Bob was thrown out of the match by another guest');
-    });
+    for (const p of peers) {
+      const forged = p.heard.filter((m) => m.t === 'drop');
+      assert.ok(forged.length >= (p === carol ? 1 : 4) && forged.every((m) => m.from === 2), p.tag + ' received them, stamped as Carol\'s');
+      assert.equal(p.ls.isDropped(0), false, p.tag + ' does not take a guest\'s word that the host is gone');
+      assert.equal(p.ls.isDropped(1), false, p.tag + ' does not take a guest\'s word that Bob is gone');
+      assert.deepEqual(p.drops, []);
+      assert.equal(p.selfDropped, false);
+    }
+    await drive(peers, () => peers.every((p) => p.state.tick >= from + 60));
+    await settle(peers);
+    assert.equal(host.hostLeft, null);
+    assert.equal(bob.hostLeft, null, 'the room is still up');
+    assert.deepEqual((await http(srv.origin + '/api/stats')).json, { online: 3, rooms: 1, publicRooms: 0, inMatch: 1, connections: 3 });
+    assert.deepEqual(host.declared, []);
+    for (const p of peers) assert.equal(p.state.players.some((pl) => pl.aiTakeover), false, 'no AI took anyone over');
+    assertInSync(peers, from + 60);
   });
 
   // ---- lost markers ---------------------------------------------------------------
@@ -1719,37 +1766,27 @@ describe('lockstep scheduler rules, end to end through the relay', () => {
   });
 });
 
-// The frame loop and the inline hooks of main.js are re-stated in this file
-// (its two drop functions are run as they are). If main.js stops matching
-// what is re-stated, say so here rather than let the tests above pass or fail
-// for the wrong reason.
+// main.js's frame loop is re-stated in this file (its drop functions and hooks
+// are run as they are). If main.js stops matching what is re-stated, or the
+// harness can no longer find what it runs, say so here rather than let the
+// tests above pass or fail for the wrong reason.
 describe('the harness mirrors the real client', () => {
   const NET_SRC = fs.readFileSync(path.join(CLIENT, 'src', 'net', 'net.js'), 'utf8');
   const mirrors = (src, file, re, what) => assert.ok(re.test(src),
     file + ' no longer matches what server/test/lockstep.e2e.test.mjs re-states (' + what + '): update the harness there');
 
-  test('main.js: constants, the two drop functions, the frame loop and the hooks', () => {
+  test('main.js: constants, the functions and hooks the harness runs, and the frame loop it re-states', () => {
     for (const [name, value] of Object.entries({ TICK_MS, DROP_AFTER_MS, LOAD_GRACE_MS, TAKEOVER_DELAY_TICKS })) {
       assert.ok(Number.isFinite(value) && value > 0, 'main.js no longer declares `const ' + name + ' = <number>;`');
     }
     assert.ok(DROP_AFTER_MS > STALL_TIMEOUT_MS && LOAD_GRACE_MS > DROP_AFTER_MS);
-    assert.ok(REAL_SOURCE.hostDropWatch, 'main.js no longer has `function hostDropWatch(now) {...}` (the tests fell back to a stand-in)');
-    assert.ok(REAL_SOURCE.processPendingDrops, 'main.js no longer has `function processPendingDrops() {...}` (the tests fell back to a stand-in)');
     mirrors(MAIN_SRC, 'main.js', /if \(!mpSimStep\(\)\) break;/, 'frame loop: a closed gate holds the accumulator');
     mirrors(MAIN_SRC, 'main.js', /hostDropWatch\(now\);[^\n]*\n\s*processPendingDrops\(\);/, 'frame loop: hostDropWatch(now), then processPendingDrops()');
     mirrors(MAIN_SRC, 'main.js', /G\.state && !G\.paused && /, 'frame loop: no ticks while paused');
-    mirrors(MAIN_SRC, 'main.js',
-      /onBye: \(slot\) => \{\s*if \(G\.state && !G\.state\.over && Net\.isHost && G\.ls && !G\.mpDropped\[slot\]\) \{\s*G\.mpDropped\[slot\] = true;\s*Net\.sendDrop\(slot, G\.ls\.safeDropTick\(slot\) \+ TAKEOVER_DELAY_TICKS\);\s*\}/,
-      'onBye: the host declares the drop at safeDropTick + TAKEOVER_DELAY_TICKS, once per slot');
-    mirrors(MAIN_SRC, 'main.js',
-      /onPeerDrop: \(m\) => \{[\s\S]{0,400}?if \(m\.slot === G\.playerSlot\) \{[\s\S]{0,300}?setTimeout\(\(\) => \{ if \(G\.ls\) leaveMpToMenu\(\); \}, 0\);\s*return;\s*\}\s*G\.mpPendingDrops\.push\(\{\s*slot: m\.slot,\s*at: m\.at !== undefined \? m\.at : G\.state\.tick \+ TAKEOVER_DELAY_TICKS,\s*\}\);/,
-      'onPeerDrop: a dropped player leaves; anyone else queues the takeover');
-    mirrors(MAIN_SRC, 'main.js',
-      /onPause: \(on, from\) => \{\s*if \(!G\.state \|\| G\.state\.over\) return;\s*G\.paused = on;[\s\S]{0,200}?if \(!on && G\.ls && G\.ls\.resume\) \{ G\.ls\.resume\(\); G\.mpStallSince = 0; G\.mpStallSlots = ''; \}/,
-      'onPause: guests restart their silence clocks on resume');
+    for (const name of Object.keys(REAL_SOURCE)) {
+      assert.ok(REAL_SOURCE[name], 'main.js: `' + name + '` was not found where the harness lifts it from (see REAL_SOURCE)');
+    }
     mirrors(MAIN_SRC, 'main.js', /if \(G\.pendingCmds\.length\) \{[\s\S]{0,400}?G\.ls\.issue\(c\);[\s\S]{0,200}?const advanced = G\.ls\.advance\(\);/, 'mpSimStep: pending input is issued, then one tick is attempted');
-    assert.equal((MAIN_SRC.match(/Net\.sendDrop\(slot, G\.ls\.safeDropTick\(slot\) \+ TAKEOVER_DELAY_TICKS\)/g) || []).length, 2,
-      'main.js declares drops in exactly two places (onBye, hostDropWatch), both at safeDropTick + TAKEOVER_DELAY_TICKS');
     assert.ok(!/forceOnSilence/.test(MAIN_SRC), 'live play must not run the scheduler with forceOnSilence');
   });
 
@@ -1760,8 +1797,6 @@ describe('the harness mirrors the real client', () => {
     const local = body[0].match(/this\._hook\('onGameMsg', \{[^}]*\}\)/g) || [];
     assert.ok(local.length >= 1 && local.every((call) => /t: 'drop'/.test(call) && /from: this\.slot/.test(call) && !/echo/.test(call)),
       'net.js sendDrop: the harness tells the local fallback from the relay echo by the missing `echo` flag: ' + local.join(' | '));
-    mirrors(NET_SRC, 'net.js', /case 'pause':\s*this\._hook\('onPause', !!msg\.on, msg\.from\);/, 'pause messages reach onPause');
-    mirrors(NET_SRC, 'net.js', /sendPause\(on\) \{\s*this\._send\(\{ t: 'pause', on: !!on \}\);/, 'sendPause');
   });
 
   test('lockstep.js: the scheduler interface the tests drive and inspect', async (t) => {

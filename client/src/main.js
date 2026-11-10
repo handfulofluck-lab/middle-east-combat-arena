@@ -216,10 +216,13 @@ async function loadData() {
   const payloads = await Promise.all(manifest.maps.map((id) => get('maps/' + id + '.json')));
   const maps = {};
   manifest.maps.forEach((id, i) => { maps[id] = payloads[i]; });
-  // artwork is optional (tools/build_art.py -> client/assets/art.json)
-  const art = await get('assets/art.json').catch(() => ({}));
-  // RA-style sprite pack is optional too (client/assets/unitart.json)
-  const unitart = await get('assets/unitart.json').catch(() => ({}));
+  // The painted art packs of the old 2D client (client/assets/*.json) are
+  // not shipped; the 3D renderer draws everything, portraits included. They
+  // are only requested when a deployment says it has them.
+  const cfg = (typeof window !== 'undefined' && window.MCA_CONFIG) || {};
+  const quiet = (u) => fetch(u).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const art = cfg.artPack ? await quiet('assets/art.json') : {};
+  const unitart = cfg.artPack ? await quiet('assets/unitart.json') : {};
   return { data, maps, art, unitart };
   // BUILD-INLINE-DATA-END
 }
@@ -491,7 +494,13 @@ export async function boot() {
     onBye: (slot) => {
       if (G.state && !G.state.over && Net.isHost && G.ls && !G.mpDropped[slot]) {
         G.mpDropped[slot] = true;
-        Net.sendDrop(slot, G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
+        {
+          // the line is a tick no machine can already be past; the scheduler
+          // then holds the host at that line until the declaration is back
+          const at = G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS;
+          if (G.ls.expectDrop) G.ls.expectDrop(slot, at);
+          Net.sendDrop(slot, at);
+        }
       }
       if (G.overlay === 'lobby') showLobby(G);
     },
@@ -549,7 +558,7 @@ export async function boot() {
   // v0.10.1: prewarm the sprite caches during menu idle so bitmaps decode
   // before the first match instead of janking the deploy click (the caches
   // in sprites.js decode lazily on first draw otherwise). Best-effort, chunked.
-  if (typeof requestIdleCallback === 'function') {
+  if (typeof requestIdleCallback === 'function' && Object.keys(G.unitArt).length) {
     const warmList = [];
     for (const id in G.data.units) warmList.push(['d', id]);
     for (const id in G.data.structures) warmList.push(['s', id]);
@@ -1155,7 +1164,13 @@ function hostDropWatch(now) {
     const loading = heard[slot] === undefined && now - G.mpStallSince < LOAD_GRACE_MS;
     if (loading || (silentFor >= 0 && silentFor < DROP_AFTER_MS)) continue;
     G.mpDropped[slot] = true;
-    Net.sendDrop(slot, G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
+    {
+      // the line is a tick no machine can already be past; the scheduler
+      // then holds the host at that line until the declaration is back
+      const at = G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS;
+      if (G.ls.expectDrop) G.ls.expectDrop(slot, at);
+      Net.sendDrop(slot, at);
+    }
     showHint(G, mpNameOf(slot) + ' dropped — AI is taking over.');
   }
 }

@@ -44,7 +44,7 @@ describe('relay protocol (python-compatible)', () => {
     assert.deepEqual(await host.next('lobby'), expected);
   });
 
-  test('relayed messages are stamped with `from`; spoofed `from` is overwritten; no echo', async () => {
+  test('relayed messages are stamped with `from`; spoofed `from` is overwritten; the sender gets nothing back (unless it asks: see `echo`)', async () => {
     const { host, code } = await hostRoom(srv.wsUrl);
     track(host);
     const { peer: b } = await joinRoom(srv.wsUrl, code);
@@ -291,19 +291,19 @@ describe('relay hardening', () => {
     await flush(host, b);
 
     // 100 messages in one burst is inside the burst allowance
-    for (let i = 0; i < 100; i++) b.send({ t: 'stall', tick: i });
+    for (let i = 0; i < 100; i++) b.send({ t: 'eoi', tick: i });
     let last = null;
-    for (let i = 0; i < 100; i++) last = await host.next('stall');
+    for (let i = 0; i < 100; i++) last = await host.next('eoi');
     assert.equal(last.tick, 99);
     assert.ok(b.open);
 
     // ...but an unbounded flood is cut off
-    for (let i = 0; i < 400; i++) b.send({ t: 'stall', tick: 1000 + i });
+    for (let i = 0; i < 400; i++) b.send({ t: 'eoi', tick: 1000 + i });
     const err = await b.next('error');
     assert.equal(err.reason, 'rate-limited');
     assert.equal((await b.waitClose()).code, 1008);
     assert.deepEqual(await host.next('bye'), { t: 'bye', slot: 1, reason: 'disconnected' });
-    const relayed = host.drain().filter((m) => m.t === 'stall').length;
+    const relayed = host.drain().filter((m) => m.t === 'eoi').length;
     assert.ok(relayed < 150, 'flood must be truncated, relayed=' + relayed);
     assert.ok(srv.logs.some((l) => l.evt === 'conn.kick' && l.reason === 'rate-limited'));
     host.terminate();
@@ -461,7 +461,7 @@ describe('relay hardening', () => {
     const { peer: b } = await joinRoom(srv.wsUrl, code, 'b');
     await flush(host, b);
     // traffic keeps the room alive past the idle window
-    for (let i = 0; i < 6; i++) { b.send({ t: 'stall', tick: i }); await sleep(80); }
+    for (let i = 0; i < 6; i++) { b.send({ t: 'eoi', tick: i }); await sleep(80); }
     assert.equal(srv.app.relay.stats().rooms, 1);
     // silence: reaped
     assert.equal((await host.next('error')).reason, 'room-idle');
@@ -513,6 +513,143 @@ describe('relay hardening', () => {
     for (const c of [host, b, lurker]) assert.equal((await c.waitClose()).code, 1001);
     await closing;
     await assert.rejects(Client.open(srv.wsUrl));
+  });
+});
+
+describe('`echo: true` (additive): a room broadcast is also returned to its sender, in room order', () => {
+  let srv;
+  const clients = [];
+  const track = (c) => { clients.push(c); return c; };
+  // a room of three: host (slot 0), b (1), c (2)
+  const room3 = async () => {
+    const { host, code } = await hostRoom(srv.wsUrl);
+    const { peer: b } = await joinRoom(srv.wsUrl, code, 'b');
+    const { peer: c } = await joinRoom(srv.wsUrl, code, 'c');
+    for (const x of [host, b, c]) track(x);
+    await flush(host, b, c);
+    return { host, b, c };
+  };
+  const syncAll = async (...list) => { for (const x of list) await x.sync(); };
+  const game = (client) => client.drain().filter((m) => m.t !== 'pong');
+
+  before(async () => { srv = await startServer({ MAX_CONNS_PER_IP: '500' }); });
+  after(async () => {
+    for (const c of clients) c.terminate();
+    await srv.close();
+  });
+
+  test('the sender receives the very envelope the room receives, once; only the literal `true` asks for it', async () => {
+    const { host, b, c } = await room3();
+    host.send({ t: 'drop', slot: 2, at: 57, echo: true });
+    const envelope = { t: 'drop', slot: 2, at: 57, echo: true, from: 0 };
+    await syncAll(host, b, c);
+    for (const x of [host, b, c]) assert.deepEqual(game(x), [envelope]);
+
+    const notTrue = [1, 'true', 'yes', {}, [true], null, false, 0];
+    for (const echo of notTrue) host.send({ t: 'chat', msg: 'plain', echo });
+    await syncAll(host, b, c);
+    assert.deepEqual(game(host), [], 'nothing comes back for echo values other than true');
+    assert.equal(game(b).length, notTrue.length, 'the room still receives every one of them');
+    assert.equal(game(c).length, notTrue.length);
+  });
+
+  test('the echo sits in the sender\'s stream exactly where the relay placed the message in the room\'s', async () => {
+    const { host, b, c } = await room3();
+    b.send({ t: 'eoi', tick: 1 });
+    await b.sync(); // the relay has handled it
+    host.send({ t: 'drop', slot: 2, at: 9, echo: true });
+    await host.sync();
+    b.send({ t: 'eoi', tick: 2 });
+    await syncAll(b, host, c);
+    const order = (client) => game(client).map((m) => m.t + ' from ' + m.from);
+    assert.deepEqual(order(host), ['eoi from 1', 'drop from 0', 'eoi from 1'], 'the host sees its own declaration between b\'s two messages');
+    assert.deepEqual(order(c), ['eoi from 1', 'drop from 0', 'eoi from 1'], '...exactly as a third party does');
+    assert.deepEqual(order(b), ['drop from 0'], 'b did not ask for its own messages');
+
+    // back to back from one sender: echoed and plain messages keep their order
+    host.send({ t: 'x', n: 1, echo: true });
+    host.send({ t: 'x', n: 2 });
+    host.send({ t: 'x', n: 3, echo: true });
+    await syncAll(host, b, c);
+    assert.deepEqual(game(host).map((m) => m.n), [1, 3]);
+    assert.deepEqual(game(b).map((m) => m.n), [1, 2, 3]);
+    assert.deepEqual(game(c).map((m) => m.n), [1, 2, 3]);
+  });
+
+  test('a host alone in its room still hears its own declaration back', async () => {
+    const { host } = await hostRoom(srv.wsUrl);
+    track(host);
+    await host.flush();
+    host.send({ t: 'drop', slot: 1, at: 5, echo: true });
+    await host.sync();
+    assert.deepEqual(game(host), [{ t: 'drop', slot: 1, at: 5, echo: true, from: 0 }]);
+  });
+
+  test('`to` wins: an addressed message is delivered to that slot only and never echoed', async () => {
+    const { host, b, c } = await room3();
+    host.send({ t: 'log', cmds: [], to: 1, echo: true });
+    b.send({ t: 'chat', msg: 'to myself', to: 1, echo: true });
+    host.send({ t: 'chat', msg: 'to nobody', to: 9, echo: true });
+    await syncAll(host, b, c);
+    assert.deepEqual(game(b), [{ t: 'log', cmds: [], to: 1, echo: true, from: 0 }]);
+    assert.deepEqual(game(host), []);
+    assert.deepEqual(game(c), []);
+  });
+
+  test('echo cannot be used to forge a sender: the copy carries the relay-stamped `from`', async () => {
+    const { host, b, c } = await room3();
+    b.send({ t: 'drop', slot: 0, at: 1, from: 0, echo: true }); // a guest posing as the host
+    await syncAll(b, host, c);
+    const stamped = { t: 'drop', slot: 0, at: 1, from: 1, echo: true };
+    assert.deepEqual(game(b), [stamped], 'what comes back says who really sent it');
+    assert.deepEqual(game(host), [stamped]);
+    assert.deepEqual(game(c), [stamped]);
+  });
+
+  test('relay-level messages take no echo: ping, create/join inside a room, anything sent outside a room', async () => {
+    const { host, b } = await room3();
+    host.send({ t: 'ping', ts: 5, echo: true });
+    assert.deepEqual(await host.next('pong'), { t: 'pong', ts: 5 });
+    b.send({ t: 'join', code: 'ABCD', name: 'x', echo: true });
+    assert.equal((await b.next('error')).reason, 'already-in-room');
+    await syncAll(host, b);
+    assert.deepEqual(game(host), [], 'the join attempt was neither relayed nor echoed');
+    assert.deepEqual(game(b), []);
+
+    const loner = track(await Client.open(srv.wsUrl));
+    loner.send({ t: 'chat', msg: 'anyone?', echo: true });
+    await loner.sync();
+    assert.deepEqual(game(loner), [], 'no room, no relay, no echo');
+  });
+
+  test('rate limits apply as to any message: an echo flood is cut off, and the echoes are not charged to anyone else', async (t) => {
+    const limited = await startServer({ RATE_MSGS_PER_SEC: '50', RATE_BURST: '120' });
+    t.after(() => limited.close());
+    const { host, code } = await hostRoom(limited.wsUrl);
+    const { peer: b } = await joinRoom(limited.wsUrl, code, 'b');
+    await flush(host, b);
+
+    for (let i = 0; i < 100; i++) b.send({ t: 'eoi', tick: i, echo: true }); // inside the burst allowance
+    await b.sync();
+    assert.deepEqual(b.drain().filter((m) => m.t === 'eoi').map((m) => m.tick), Array.from({ length: 100 }, (_, i) => i), 'all 100 came back, in order');
+    assert.ok(b.open);
+
+    for (let i = 0; i < 400; i++) b.send({ t: 'eoi', tick: 1000 + i, echo: true });
+    assert.equal((await b.next('error')).reason, 'rate-limited');
+    assert.equal((await b.waitClose()).code, 1008);
+    assert.deepEqual(await host.next('bye'), { t: 'bye', slot: 1, reason: 'disconnected' });
+    const echoed = b.drain().filter((m) => m.t === 'eoi').length;
+    assert.ok(echoed < 50, 'the flood was truncated for its sender too, echoed=' + echoed);
+    assert.ok(limited.logs.some((l) => l.evt === 'conn.kick' && l.reason === 'rate-limited'));
+
+    // the host's own allowance is untouched by what b had echoed: it can still use its full burst
+    await host.flush();
+    for (let i = 0; i < 100; i++) host.send({ t: 'eoi', tick: i, echo: true });
+    await host.sync();
+    assert.equal(host.drain().filter((m) => m.t === 'eoi').length, 100);
+    assert.ok(host.open);
+    assert.equal(limited.app.relay.counters.kicked, 1);
+    host.terminate();
   });
 });
 
