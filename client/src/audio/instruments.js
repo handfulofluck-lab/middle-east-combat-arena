@@ -60,6 +60,32 @@ function mkOsc(E, wave, freq) {
   return o;
 }
 
+// Looping noise for a persistent instrument. Right after audio unlocks the
+// coloured beds may still be in the worker and the engine hands out a short
+// stand-in; when the real bed lands the source is swapped (a 93 ms loop
+// would otherwise flutter for the life of the track).
+function liveNoise(inst, color, dest) {
+  const E = inst.E, ctx = E.ctx;
+  const mk = (buf) => {
+    const s = ctx.createBufferSource();
+    s.buffer = buf;
+    s.loop = true;
+    s.connect(dest);
+    s.start(0, E.rng() * Math.min(1.5, buf.duration * 0.9));
+    inst.srcs.push(s);
+    E.count(1);
+    return s;
+  };
+  const key = 'noise:' + color;
+  if (E.assets.has(key)) { mk(E.assets.get(key)); return; }
+  const first = mk(E.noise(color));
+  E.assets.get(key, (buf) => {
+    if (!inst.srcs.length) return; // instrument already disposed
+    mk(buf);
+    try { first.stop(); first.disconnect(); } catch (e) { /* ok */ }
+  });
+}
+
 class Inst {
   // o: { level, pan }
   constructor(E, o) {
@@ -150,19 +176,15 @@ export class BreathLead extends Inst {
   // o: { kind: 'ney' | 'duduk', level, pan }
   constructor(E, o) {
     super(E, o);
-    const ctx = E.ctx;
     const ney = o.kind !== 'duduk';
     this.band = ney ? 1 : 2;
     this.osc = mkOsc(E, ney ? 'ney' : 'duduk', 440);
     try { this.osc.detune.automationRate = 'k-rate'; } catch (e) { /* ok */ }
     this.amp = mkGain(E, 0);
     this.osc.connect(this.amp);
-    const nz = ctx.createBufferSource();
-    nz.buffer = E.noise('pink');
-    nz.loop = true;
     this.bp = mkFilter(E, 'bandpass', 440 * this.band, ney ? 3 : 2);
     this.breath = mkGain(E, 0);
-    nz.connect(this.breath); this.breath.connect(this.bp);
+    this.breath.connect(this.bp);
     const bg = mkGain(E, ney ? 6 : 2.8);
     this.bp.connect(bg); bg.connect(this.amp);
     const lfo = mkOsc(E, 'sine', ney ? 5.2 : 4.6);
@@ -171,9 +193,9 @@ export class BreathLead extends Inst {
     this.vibDepth = ney ? 22 : 16;
     const formant = mkFilter(E, 'peaking', ney ? 1600 : 750, ney ? 1.5 : 1.2, ney ? 3 : 5);
     this.amp.connect(formant); formant.connect(this.pre);
-    this.osc.start(); lfo.start(); nz.start(0, E.rng() * 1.5);
-    this.srcs.push(this.osc, lfo, nz);
-    E.count(1);
+    this.osc.start(); lfo.start();
+    this.srcs.push(this.osc, lfo);
+    liveNoise(this, 'pink', this.breath);
     this.lastEnd = -1;
   }
 
@@ -338,7 +360,6 @@ export class Drone extends Inst {
   // o: { level, root (MIDI of the low strings, default D2 = 38), air }
   constructor(E, o) {
     super(E, o);
-    const ctx = E.ctx;
     const f = midiHz(o.root || 38);
     this.sub = mkOsc(E, 'sine', f / 2);
     const sg = mkGain(E, 0.2);
@@ -348,19 +369,16 @@ export class Drone extends Inst {
     const tg = mkGain(E, 0.6);
     this.a.connect(tg); this.b.connect(tg); tg.connect(this.pre);
     // air: a slowly wandering resonant band of noise (desert wind in the hall)
-    const nz = ctx.createBufferSource();
-    nz.buffer = E.noise('pink');
-    nz.loop = true;
     const bp = mkFilter(E, 'bandpass', 950, 5);
     try { bp.frequency.automationRate = 'k-rate'; } catch (e) { /* ok */ }
     const wander = mkOsc(E, 'sine', 0.05);
     const wg = mkGain(E, 420);
     wander.connect(wg); wg.connect(bp.frequency);
     const ag = mkGain(E, 1.7 * (o.air === undefined ? 1 : o.air));
-    nz.connect(bp); bp.connect(ag); ag.connect(this.pre);
-    this.sub.start(); this.a.start(); this.b.start(); wander.start(); nz.start(0, E.rng() * 1.5);
-    this.srcs.push(this.sub, this.a, this.b, wander, nz);
-    E.count(1);
+    bp.connect(ag); ag.connect(this.pre);
+    this.sub.start(); this.a.start(); this.b.start(); wander.start();
+    this.srcs.push(this.sub, this.a, this.b, wander);
+    liveNoise(this, 'pink', bp);
   }
 
   // glide to a new root (key lifts)

@@ -1094,9 +1094,7 @@ function showArsenal(game) {
       if (d.type === 'SW') {
         const sw = superweaponInfo(data, d.faction);
         if (sw) para('Payload', sw.text);
-        const ic = interceptInfo(data, d.faction);
-        para('Counterplay', 'Enemy factions fielding an interceptor can stop warheads that fall near their defensive structures.'
-          + (ic.has ? '' : ''));
+        para('Counterplay', 'Enemy factions fielding an interceptor can stop warheads that fall near their defensive structures.');
       }
       if (d.type === 'Unique' || d.type === 'SW') {
         const ab = abilityInfo(data, d.faction);

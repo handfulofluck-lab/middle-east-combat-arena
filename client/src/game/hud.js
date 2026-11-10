@@ -1391,7 +1391,7 @@ function updateGrid(game, p, hasCy, hasMcvUnit) {
         t.deg = deg;
         t.prog.style.display = 'block';
         t.prog.style.background = 'conic-gradient(rgba(95,227,208,0) ' + deg
-          + 'deg, rgba(4,6,9,0.74) ' + deg + 'deg)';
+          + 'deg, rgba(4,6,9,0.6) ' + deg + 'deg)';
         t.bar.style.display = 'block';
         t.barFill.style.width = Math.round(m.progress * 100) + '%';
       }

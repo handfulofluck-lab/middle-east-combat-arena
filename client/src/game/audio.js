@@ -482,6 +482,11 @@ export function unlockAudio() {
     if (__dead) return;
     const EC = engineClass(), AC = contextClass();
     if (!EC || !AC) return; // headless harness / unsupported browser: stay silent
+    // called outside a user gesture (e.g. at boot): wait — a context created
+    // now would start suspended and the browser would log an autoplay warning.
+    // The pointer / key listeners below call again on the first real gesture.
+    const ua = globalThis.navigator && globalThis.navigator.userActivation;
+    if (ua && ua.hasBeenActive === false) return;
     loadVolumes();
     const m = lsGet('mca_muted');
     if (m !== null && m !== undefined) __muted = m === '1' || m === 'true';
@@ -767,12 +772,14 @@ export function audioInternals() {
   return { engine: __eng, ctx: __ctx };
 }
 
-// first-gesture unlock independent of the HUD (title / menu music)
+// first-gesture unlock independent of the HUD (title / menu music), and a
+// read-only probe surface next to window.__mca for perf overlays / harnesses
 try {
   if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
     const kick = () => { unlockAudio(); };
     window.addEventListener('pointerdown', kick, true);
     window.addEventListener('keydown', kick, true);
     window.addEventListener('touchend', kick, true);
+    window.__mcaAudio = { stats: audioStats, levels: getLevels };
   }
 } catch (e) { /* headless: nothing to hook */ }
