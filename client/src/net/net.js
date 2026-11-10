@@ -189,6 +189,10 @@ export const Net = {
     this.cfg = null;
     this.epoch = 0;
     this._pingTimes = {};
+    if (this._dropEcho && typeof clearTimeout === 'function') {
+      for (const k in this._dropEcho) clearTimeout(this._dropEcho[k]);
+    }
+    this._dropEcho = {};
   },
 
   _hook(name, a, b) {
@@ -299,7 +303,11 @@ export const Net = {
         }
         break;
       }
-      default: // cmd/stall/csum/drop/log/needlog -> lockstep scheduler / host
+      default: // cmd/eoi/csum/drop/log/needlog -> lockstep scheduler / host
+        if (msg.t === 'drop' && msg.from === this.slot && this._dropEcho && this._dropEcho[msg.slot]) {
+          clearTimeout(this._dropEcho[msg.slot]);   // my own declaration, echoed in room order
+          delete this._dropEcho[msg.slot];
+        }
         this._hook('onGameMsg', msg);
         break;
     }
@@ -352,10 +360,27 @@ export const Net = {
   },
 
   sendDrop(slot, at) { // host declares an AI takeover for a dropped slot;
-    // `at` is the absolute sim tick the takeover brain activates on (every
-    // peer schedules the same tick, so command emission stays aligned)
-    this._send({ t: 'drop', slot, at });
-    this._hook('onGameMsg', { t: 'drop', slot, at, from: this.slot });
+    // `at` is the absolute sim tick the takeover activates on.
+    //
+    // The declaration is NOT applied here. It asks the relay to echo it and
+    // takes effect when it comes back, i.e. at the same point of the room's
+    // message order as for every other peer. Applying it at once made the
+    // host stop listening to that player earlier than everyone else: input
+    // the player sent in the meantime counted for the others and not for
+    // the host. A relay without echo support never returns it, so after a
+    // grace it is applied locally (the old behaviour, with the old race).
+    this._send({ t: 'drop', slot, at, echo: true });
+    if (typeof setTimeout !== 'function') { // bare harness: no timers, no relay
+      this._hook('onGameMsg', { t: 'drop', slot, at, from: this.slot });
+      return;
+    }
+    if (!this._dropEcho) this._dropEcho = {};
+    if (this._dropEcho[slot]) clearTimeout(this._dropEcho[slot]);
+    this._dropEcho[slot] = setTimeout(() => {
+      if (!this._dropEcho || !this._dropEcho[slot]) return;
+      delete this._dropEcho[slot];
+      this._hook('onGameMsg', { t: 'drop', slot, at, from: this.slot });
+    }, 2500);
   },
 
   sendLog(to, entries) { // host streams the command log to a catching-up peer

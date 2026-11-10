@@ -1116,7 +1116,16 @@ function hostDropWatch(now) {
   // or load holds its sim): silence then says nothing about a peer's health
   if (G.paused || G.worldPending > 0 || (G.cinema && G.cinema.holdSim)) {
     G.mpStallSince = 0; G.mpStallSlots = ''; G.mpWaitNote = null;
+    G.mpHeld = true;
     return;
+  }
+  // coming out of a hold (a pause from either side, a load, an intro):
+  // nobody spoke while it lasted, so every silence clock starts over. Done
+  // here rather than in the pause button so the host, who is the only one
+  // who drops, is covered too.
+  if (G.mpHeld) {
+    G.mpHeld = false;
+    if (G.ls && G.ls.resume) G.ls.resume();
   }
   // everyone else: say who the room is waiting for (once per wait)
   if (G.ls && !G.state.over && G.ls.isWaiting()) {

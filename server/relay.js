@@ -296,10 +296,16 @@ export class Relay {
     msg.from = conn.slot;
     room.lastActivity = t;
     if (conn.slot === room.hostSlot) this.observeHost(room, msg);
+    // `echo: true` on a room broadcast also returns it to the sender, in
+    // room order. It is the only way a peer can learn where its own message
+    // landed relative to everyone else's; the lockstep drop declaration
+    // depends on that (every peer, the host included, must cut a dropped
+    // player's input at the same point of the stream).
+    const echo = msg.echo === true && only === undefined;
     let out;
     try { out = JSON.stringify(msg); } catch (e) { return; }
     for (const [slot, peer] of room.peers) {
-      if (slot === conn.slot) continue;
+      if (slot === conn.slot && !echo) continue;
       if (only !== undefined && slot !== only) continue;
       this.sendRaw(peer, out);
     }
