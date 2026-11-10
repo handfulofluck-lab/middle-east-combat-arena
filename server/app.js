@@ -41,6 +41,12 @@ export function createApp(config, options = {}) {
 
   // ---- licensing / payments (dormant until configured) ---------------------
   let licenses = null;
+  // why each feature is off, for the boot log (config reasons + runtime ones)
+  const featureReasons = {
+    licensing: [...config.features.licensing.reasons],
+    store: [...config.features.store.reasons],
+    admin: [...config.features.admin.reasons],
+  };
   if (config.features.licensing.enabled) {
     try {
       licenses = createLicenseService({
@@ -55,6 +61,9 @@ export function createApp(config, options = {}) {
         throw new ConfigError(['MCA_PAYWALL=' + config.paywall + ' needs a writable DATA_DIR (' + config.dataDir + '): ' + (e.code || e.message)]);
       }
       log.error('license.disabled', { reason: 'DATA_DIR is not usable', dir: config.dataDir, err: e.code || e.message });
+      featureReasons.licensing.push('DATA_DIR (' + config.dataDir + ') is not writable: ' + (e.code || e.message));
+      featureReasons.store.push('license signing is disabled');
+      featureReasons.admin.push('license signing is disabled');
     }
   }
   const features = {
@@ -309,6 +318,7 @@ export function createApp(config, options = {}) {
   return {
     config,
     features,
+    featureReasons,
     server,
     relay,
     licenses,

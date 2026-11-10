@@ -1829,6 +1829,7 @@ export function showLobby(game) {
 export function showDesyncOverlay(game, opts) {
   const banner = document.getElementById('banner');
   if (!banner) { if (opts && opts.onMenu) opts.onMenu(); return; }
+  watchBanner(banner);
   banner.classList.remove('hidden');
   banner.className = 'lost desync';
   clear(banner);
@@ -2078,8 +2079,19 @@ function playerLabel(game, p) {
   return p.slot === game.playerSlot ? 'You' : p.ai ? 'AI Commander' : 'Commander ' + (p.slot + 1);
 }
 
+// main.js / input.js close #banner by adding .hidden: mirror that onto a body
+// class so the HUD can step aside while a debrief or halt plate is up
+function watchBanner(banner) {
+  if (banner.__watched || typeof MutationObserver !== 'function') return;
+  banner.__watched = true;
+  const sync = () => document.body.classList.toggle('end-on', !banner.classList.contains('hidden'));
+  new MutationObserver(sync).observe(banner, { attributes: true, attributeFilter: ['class'] });
+  sync();
+}
+
 export function showEndBanner(game, opts) {
   const banner = document.getElementById('banner');
+  watchBanner(banner);
   banner.classList.remove('hidden');
   banner.className = opts.won ? 'won' : 'lost';
   clear(banner);

@@ -1,0 +1,63 @@
+# Fly.io configuration for MCA.
+#   fly launch --copy-config --no-deploy     (pick a unique app name + region)
+#   fly volumes create mca_data --size 1 --region <region>
+#   fly secrets set LICENSE_SECRET="$(openssl rand -base64 48)" ADMIN_TOKEN="$(openssl rand -base64 36)"
+#   fly deploy
+# Full walkthrough and the meaning of every variable: docs/ONLINE.md.
+
+app = "mca-change-me"
+primary_region = "fra"
+kill_signal = "SIGTERM"   # the server tells every room, then exits
+kill_timeout = "10s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+  [build.args]
+    # Fly mounts volumes owned by root. With this the container starts as
+    # root only long enough to hand /data to the unprivileged "node" user,
+    # then drops privileges for good (server/docker-entrypoint.sh).
+    RUNTIME_USER = "root"
+
+[env]
+  PORT = "8790"
+  DATA_DIR = "/data"
+  TRUST_PROXY = "1"
+  CLIENT_IP_HEADER = "fly-client-ip"
+  MCA_PAYWALL = "off"               # off | multiplayer | full  (docs/MONETIZATION.md)
+  PRODUCT_NAME = "Founder's Pass"
+  # PRICE_LABEL = "$9.99"           # display only; the real price is the Stripe Price
+  # PUBLIC_URL = "https://mca-change-me.fly.dev"
+  # Secrets (LICENSE_SECRET, ADMIN_TOKEN, STRIPE_SECRET_KEY, STRIPE_PRICE_ID,
+  # STRIPE_WEBHOOK_SECRET) go through `fly secrets set`, never in this file.
+
+# The license ledger. Without a volume it is lost on every deploy.
+[[mounts]]
+  source = "mca_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8790
+  force_https = true
+  # Rooms live in this machine's memory: it must not be stopped while idle
+  # players are in a lobby, and there must be exactly ONE machine
+  # (`fly scale count 1`; docs/ONLINE.md, "Capacity").
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 1800
+    hard_limit = 2000
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

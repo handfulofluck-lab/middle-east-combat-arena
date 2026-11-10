@@ -29,21 +29,24 @@
 //   sim's own A* (so the 40k expansion cap is exercised; spawn <-> spawn is
 //   skipped on maps tagged naval-separated), >= 2 oil fields with a legal Oil
 //   Depot site per spawn (Sim.canPlace on the deployed base, AI search window),
-//   and an all-AI smoke match (>= 600 ticks) in which every AI must build an
-//   Oil Depot and a production building.
+//   the AI's own depot routine must be able to place 2 depots from the ConYard,
+//   and an all-AI smoke match in which every AI must build an Oil Depot and a
+//   production building.
 // Extra checks on v3 maps:
 //   exact grid symmetry of terrain / spawns / oil, fairness (per-spawn path
 //   distance to the two nearest oil fields and to the centre), base room, no
 //   1-cell speckles / fins / diagonal pinches, route clearance, a Naval Yard
 //   site per spawn and one connected sea on maps tagged naval (yard site also
-//   on riverine), and a >= 3000-tick smoke match (600 with --ci).
+//   on riverine).
+// Smoke length: 3000 ticks on v3 and repaired maps, 600 on plain legacy maps;
+// --ci runs 600 everywhere (enough for the depot + production requirement).
 // Notes (--notes) are informational and never affect the result: e.g. spawns
 // with no Naval Yard site in reach on a wet map (that AI simply builds no navy).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import * as Sim from '../../client/src/sim/index.js';
 import * as G from './lib/grid.mjs';
+import { Sim, deployedState, depotSpot, aiDepotCount } from './lib/simrules.mjs';
 import {
   GENERATOR, LEGACY_GENERATOR, BIOMES, TODS, WEATHERS, SYMMETRIES, TAGLINE_MAX, MAX_PLAYERS, sizeClass,
 } from './lib/vocab.mjs';
@@ -179,14 +182,7 @@ function checkSpeckles(map, R) {
 
 // deploy every MCV through the real command pipeline
 function checkDeploy(map, id, data, hard, R) {
-  const players = playersFor(map, id, data);
-  const st = Sim.createMatch({ data, map, players, seed: 7 });
-  const cmds = [];
-  for (const u of Object.values(st.units)) {
-    if (u.defId === 'MCV') cmds.push({ player: u.owner, type: 'deployMCV', unitId: u.id });
-  }
-  Sim.tick(st, cmds);
-  for (let i = 0; i < 6; i++) Sim.tick(st);
+  const st = deployedState(map, data, playersFor(map, id, data));
   const yards = [];
   let ok = true;
   map.spawns.forEach((sp, slot) => {
@@ -261,30 +257,29 @@ function checkPaths(map, id, data, hard, R) {
   return perSpawn;
 }
 
-// >= 2 oil fields with a legal depot site from the freshly deployed ConYard
+// Economy from the freshly deployed ConYard, judged with the AI's own rules:
+//  - at least 2 oil fields with a legal Oil Depot site in the AI's window;
+//  - the AI's depot routine (fields in order, "served" within 5 cells of an own
+//    depot) must be able to place 2 depots - two fields 5 cells apart count as
+//    one for the AI.
 function checkDepots(map, deployed, hard, R) {
   const { st, yards } = deployed;
-  const def = st.structDefs['SH-03'];
   const soft = hard ? R.err : R.warn;
-  let min = Infinity;
-  const poor = [];
+  let min = Infinity, minAi = Infinity;
+  const poor = [], oneDepot = [];
   map.spawns.forEach((sp, slot) => {
     if (!yards[slot]) return;
-    let n = 0;
-    for (const o of map.oil) {
-      let found = false;
-      for (let dy = -4; dy <= 4 && !found; dy++) {
-        for (let dx = -4; dx <= 4 && !found; dx++) {
-          if (Sim.canPlace(st, slot, def, o.x + dx, o.y + dy)) found = true;
-        }
-      }
-      if (found) n++;
-    }
+    const n = map.oil.filter((o) => depotSpot(st, slot, o.x, o.y)).length;
+    const ai = aiDepotCount(st, slot);
     min = Math.min(min, n);
+    minAi = Math.min(minAi, ai);
     if (n < 2) poor.push(`${slot} (${n})`);
+    else if (ai < 2) oneDepot.push(slot);
   });
   if (poor.length) soft(`depots: spawn(s) ${poor.join(', ')} have fewer than 2 oil fields with a legal Oil Depot site from the ConYard (count in brackets)`);
+  if (oneDepot.length) soft(`depots: the AI at spawn(s) ${oneDepot.join(', ')} would stop at one depot (its second field is within 5 cells of the first depot)`);
   R.metrics.depotFields = min === Infinity ? 0 : min;
+  R.metrics.aiDepots = minAi === Infinity ? 0 : minAi;
 }
 
 // Wet maps: which spawns have a Naval Yard site within the AI's reach. Since
@@ -492,7 +487,8 @@ export function validateMap(id, map, data, { smoke = true, strict = false, ci = 
       checkDepots(map, deployed, hard, R);
       checkNaval(map, deployed, isNew, R);
       if (isNew) { checkFairness(map, perSpawn, R); if (!((map.meta.tags || []).includes('naval-separated'))) checkChokes(map, R); }
-      if (smoke) smokeMatch(map, id, data, hard, ci ? SMOKE_TICKS_CI : isNew ? SMOKE_TICKS_NEW : SMOKE_TICKS_LEGACY, R);
+      // full run: 3000 ticks on manifest-grade maps (v3 + repaired), 600 on plain legacy; --ci: 600 everywhere
+      if (smoke) smokeMatch(map, id, data, hard, ci ? SMOKE_TICKS_CI : hard ? SMOKE_TICKS_NEW : SMOKE_TICKS_LEGACY, R);
     }
   } catch (e) {
     R.err(`validator crashed: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
@@ -557,8 +553,8 @@ export function validateAll({ mapsDir = MAPS_DIR, only = null, all = false, smok
 }
 
 const COLS = [
-  ['map', 19], ['P', 2], ['size', 8], ['kind', 8], ['result', 6], ['deploy', 6], ['paths', 6], ['depot', 5],
-  ['naval', 19], ['fair oil1/oil2/ctr', 19], ['room', 5], ['choke', 5], ['smoke', 11], ['AI dep', 6], ['ms', 6],
+  ['map', 19], ['P', 2], ['size', 8], ['kind', 8], ['result', 6], ['deploy', 6], ['paths', 8], ['depot', 5],
+  ['naval', 19], ['fair oil1/oil2/ctr', 19], ['room', 5], ['choke', 5], ['smoke', 11], ['built', 5], ['ms', 6],
 ];
 export function formatHeader() {
   return COLS.map(([n, wd]) => n.padEnd(wd)).join(' ') + '\n' + COLS.map(([, wd]) => '-'.repeat(wd)).join(' ');
@@ -569,7 +565,7 @@ export function formatRow(R, { notes = false } = {}) {
   const cells = [
     R.id, String(R.players), R.size, R.kind || (R.isNew ? 'v3' : 'legacy'),
     R.ok ? (R.warnings.length ? 'WARN' : 'PASS') : 'FAIL',
-    m.deploy || '-', m.paths || '-', m.depotFields !== undefined ? String(m.depotFields) : '-',
+    m.deploy || '-', m.paths || '-', m.depotFields !== undefined ? `${m.depotFields}/${m.aiDepots}` : '-',
     m.naval || '-', m.fairness || '-', m.baseRoom || '-', m.choke !== undefined ? String(m.choke) : '-',
     s ? `${s.ticks}t${s.over ? ' over' : ''}` : '-', s ? String(s.minDepots) : '-', String(R.ms),
   ];

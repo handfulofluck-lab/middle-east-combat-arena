@@ -1233,6 +1233,7 @@ function updateTabs(game, p) {
   if (sig === H.tabSig) return;
   H.tabSig = sig;
   H.gridSig = '';
+  hideTooltipIn(H.tabs);
   clear(H.tabs);
   for (const t of TABS) {
     if (t.id === 'naval' && !water) continue; // no shipyards on a landlocked map
@@ -1393,7 +1394,7 @@ function updateGrid(game, p, hasCy, hasMcvUnit) {
 
 function rebuildTiles(game, metas) {
   const H = game.hud;
-  hideTooltip(); // kill any pending tooltip bound to a tile we're about to drop
+  hideTooltipIn(H.grid); // kill any tooltip bound to a tile we're about to drop
   clear(H.grid);
   H.tiles = {};
   metas.forEach((m, i) => {
@@ -1509,6 +1510,7 @@ function updateKits(game, p) {
   const sig = kits ? kits.map((k) => k.id + ':' + (k.owned ? 1 : 0) + ':' + (k.affordable ? 1 : 0)).join(',') : '';
   if (sig === H.kitSig) return;
   H.kitSig = sig;
+  hideTooltipIn(H.kits);
   clear(H.kits);
   H.kits.style.display = kits ? '' : 'none';
   if (!kits) return;
@@ -1574,7 +1576,7 @@ function updateQueueStrip(game, p) {
     if (H.queueSig !== '') {
       H.queueSig = '';
       H.queueEls = [];
-      hideTooltip(); // chips are gone — kill any tooltip bound to one
+      hideTooltipIn(strip); // chips are gone — kill any tooltip bound to one
       clear(strip);
     }
     H.queueLblSig = '';
@@ -1589,7 +1591,7 @@ function updateQueueStrip(game, p) {
   for (const q of model) sig += '|' + q.kind + ':' + q.id + ':' + q.producerId;
   if (sig !== H.queueSig) {
     H.queueSig = sig;
-    hideTooltip();
+    hideTooltipIn(strip);
     clear(strip);
     strip.appendChild(H.queueLbl); // label stays first, before the chips
     H.queueEls = [];
@@ -1739,6 +1741,12 @@ function hideTooltip() {
   __tipOwner = null;
   const tip = document.getElementById('tooltip');
   if (tip) tip.style.display = 'none';
+}
+
+// a container is about to be rebuilt: drop the tooltip only if it belongs to
+// one of its controls (a tile's card must survive the queue strip appearing)
+function hideTooltipIn(container) {
+  if (__tipOwner && container && container.contains(__tipOwner)) hideTooltip();
 }
 
 function simpleTip(title, lines, keys) {
@@ -2035,7 +2043,7 @@ function updatePowers(game, p) {
   const sig = [ability || '', passive ? 1 : 0, abGateOk ? 1 : 0, hasSw ? 1 : 0].join('|');
   if (sig !== H.powSig) {
     H.powSig = sig;
-    hideTooltip();
+    hideTooltipIn(H.powers);
     clear(H.powers);
     const R = H.powRefs = { ab: null, sw: null };
     const info = ability ? abilityInfo(st.data, p.faction) : null;
@@ -2079,7 +2087,7 @@ function updatePowers(game, p) {
     } else if (passive) {
       const chip = el('div', { class: 'pw pw-passive' }, [
         el('span', { class: 'pw-ring' }, [icon('shield')]),
-        el('span', { class: 'pw-text' }, [h('span', 'pw-name', info ? info.name : titleCase(ability)), h('span', 'pw-status', 'Passive')]),
+        el('span', { class: 'pw-text' }, [h('span', 'pw-name', info ? info.name : titleCase(ability)), h('span', 'pw-status', 'PASSIVE')]),
       ]);
       attachTooltip(game, chip, () => simpleTip(info ? info.name : titleCase(ability), info ? [info.text] : []), { dock: H.powers });
       H.powers.appendChild(chip);
@@ -2091,7 +2099,7 @@ function updatePowers(game, p) {
     const ready = p.swChargeTicks === 0;
     const armed = !!(game.targeting && game.targeting.kind === 'sw');
     const frac = ready ? 1 : 1 - Math.max(0, Math.min(1, p.swChargeTicks / SW_CHARGE_TICKS));
-    const txt = armed ? 'Select target' : ready ? 'READY' : fmtSecs(Math.max(0, p.swChargeTicks) / 10);
+    const txt = armed ? 'SELECT TARGET' : ready ? 'READY' : fmtSecs(Math.max(0, p.swChargeTicks) / 10);
     patchPower(R.sw, frac, ready, armed, txt, !ready);
   }
   if (R.ab) {
@@ -2100,7 +2108,7 @@ function updatePowers(game, p) {
     const armed = !!(game.targeting && game.targeting.kind === 'ability');
     const frac = !abGateOk ? 0 : 1 - Math.min(1, cd / ABILITY_CD_TICKS);
     const gateName = abGateId ? st.structDefs[abGateId].name : '';
-    const txt = armed ? 'Select target' : !abGateOk ? 'NEEDS ' + gateName.toUpperCase()
+    const txt = armed ? 'SELECT TARGET' : !abGateOk ? 'NEEDS ' + gateName.toUpperCase()
       : cd > 0 ? Math.ceil(cd / 10) + 's' : 'READY';
     patchPower(R.ab, frac, ready, armed, txt, !ready);
     R.ab.el.classList.toggle('gated', !abGateOk);

@@ -339,11 +339,11 @@ export class Drone extends Inst {
     const ctx = E.ctx;
     const f = midiHz(o.root || 38);
     this.sub = mkOsc(E, 'sine', f / 2);
-    const sg = mkGain(E, 0.5);
+    const sg = mkGain(E, 0.2);
     this.sub.connect(sg); sg.connect(this.pre);
-    this.a = mkOsc(E, 'dark', f * 0.9985);
-    this.b = mkOsc(E, 'dark', f * 1.0022);
-    const tg = mkGain(E, 0.42);
+    this.a = mkOsc(E, 'strings', f * 0.9985);
+    this.b = mkOsc(E, 'strings', f * 1.0022);
+    const tg = mkGain(E, 0.6);
     this.a.connect(tg); this.b.connect(tg); tg.connect(this.pre);
     // air: a slowly wandering resonant band of noise (desert wind in the hall)
     const nz = ctx.createBufferSource();
@@ -373,9 +373,9 @@ export class Drone extends Inst {
 // ---- percussion ------------------------------------------------------------------------
 
 const DRUM_GAIN = {
-  dum: 1.0, tek: 0.6, ka: 0.45, slap: 0.6, frame: 0.9, frame_tak: 0.5, riq: 0.4,
-  taiko: 1.0, taiko_ens: 0.75, clack: 0.5, boom: 1.0, timp: 0.9, snare: 0.6, tick: 0.35, cym: 0.4,
-  gong: 0.7, shaker: 0.5, shaker_l: 0.5, swell: 1.0,
+  dum: 1.0, tek: 0.85, ka: 0.65, slap: 0.75, frame: 0.8, frame_tak: 0.65, riq: 0.6,
+  taiko: 0.8, taiko_ens: 0.6, clack: 0.6, boom: 0.5, timp: 0.7, snare: 0.8, tick: 0.5, cym: 0.6,
+  gong: 0.55, shaker: 1.1, shaker_l: 1.1, swell: 1.0,
 };
 const BIG = { taiko: 1, taiko_ens: 1, boom: 1, timp: 1, gong: 1, cym: 1, swell: 1 };
 const KIT_LEVELS = [0.1, 0.16, 0.24, 0.34, 0.46, 0.6, 0.76, 0.94, 1.15];

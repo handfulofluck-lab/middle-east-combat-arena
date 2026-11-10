@@ -15,7 +15,7 @@ const BIOMES = {
     props: { rocks: 0.5, shrubs: 0.5, palms: 0.5, trees: 0.1 }, veg: 0.22,
   },
   highland: {
-    sandA: 0xb9a078, sandB: 0xa58a62, sandC: 0xcbb690, rockA: 0x7c7268, rockB: 0x5a524b,
+    sandA: 0xcbb48e, sandB: 0xb89c74, sandC: 0xdcc9a6, rockA: 0x8a7f72, rockB: 0x665c53,
     scrub: 0x66703f, wet: 0x8a7658, duneAmp: 0.45, duneScale: 1.5, rockStyle: 'mountain',
     props: { rocks: 1.0, shrubs: 0.6, palms: 0.0, trees: 0.35 }, veg: 0.3,
   },

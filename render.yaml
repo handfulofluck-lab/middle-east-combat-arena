@@ -1,0 +1,53 @@
+# Render Blueprint for MCA (https://render.com -> New -> Blueprint).
+# One Docker web service: static client + multiplayer relay + payments API.
+# Full walkthrough and the meaning of every variable: docs/ONLINE.md.
+services:
+  - type: web
+    name: mca
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter            # a persistent disk needs a paid instance type
+    region: frankfurt        # pick the region closest to your players
+    numInstances: 1          # rooms live in this process's memory: never scale out (docs/ONLINE.md, "Capacity")
+    autoDeploy: true
+    healthCheckPath: /healthz
+
+    # The license ledger (issued / revoked keys) lives here. Without a disk it
+    # is lost on every deploy: revoked keys would work again.
+    disk:
+      name: mca-data
+      mountPath: /data
+      sizeGB: 1
+
+    envVars:
+      - key: PORT
+        value: "8790"
+      - key: DATA_DIR
+        value: /data
+      # Render's edge terminates TLS and proxies to this service.
+      - key: TRUST_PROXY
+        value: "1"
+      - key: CLIENT_IP_HEADER
+        value: cf-connecting-ip   # check the `ip` field of conn.open log lines shows YOUR address
+      # --- product / paywall ---------------------------------------------------
+      - key: MCA_PAYWALL
+        value: "off"              # off | multiplayer | full  (docs/MONETIZATION.md)
+      - key: PRODUCT_NAME
+        value: "Founder's Pass"
+      - key: PRICE_LABEL
+        sync: false               # e.g. $9.99 -- display only; the real price is the Stripe Price
+      - key: PUBLIC_URL
+        sync: false               # https://<your-domain>  (where players load the game)
+      # --- secrets ---------------------------------------------------------------
+      - key: LICENSE_SECRET
+        generateValue: true       # signs license keys; changing it invalidates every key ever issued
+      - key: ADMIN_TOKEN
+        generateValue: true       # bearer token for POST /api/admin/license
+      # Stripe: leave unset to keep the store off. Set all three to enable it.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PRICE_ID
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false

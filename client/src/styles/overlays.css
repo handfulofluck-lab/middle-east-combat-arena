@@ -73,6 +73,8 @@
 #banner.won { background: radial-gradient(80% 60% at 50% 18%, rgba(233, 184, 114, 0.22), rgba(5, 7, 10, 0.72) 60%, rgba(5, 7, 10, 0.9)); }
 #banner.lost { background: radial-gradient(80% 60% at 50% 18%, rgba(255, 90, 60, 0.16), rgba(5, 7, 10, 0.76) 60%, rgba(5, 7, 10, 0.92)); }
 body.no-blur #banner, body.no-blur #briefing { -webkit-backdrop-filter: none; backdrop-filter: none; }
+body.no-blur #banner.won { background: radial-gradient(80% 60% at 50% 18%, rgba(120, 92, 50, 0.5), rgba(5, 7, 10, 0.86) 60%, rgba(5, 7, 10, 0.95)); }
+body.no-blur #banner.lost { background: radial-gradient(80% 60% at 50% 18%, rgba(120, 40, 26, 0.42), rgba(5, 7, 10, 0.88) 60%, rgba(5, 7, 10, 0.96)); }
 .end-box {
   width: min(1080px, 100%); margin: auto; display: flex; flex-direction: column; gap: clamp(12px, 2.2vh, 24px);
   animation: ui-screen-in 0.45s var(--ease-out) both;
@@ -108,7 +110,7 @@ body.no-blur #banner, body.no-blur #briefing { -webkit-backdrop-filter: none; ba
 
 .score-table { --cols: 6; display: flex; flex-direction: column; padding: 4px 0; overflow-x: auto; }
 .score-row {
-  display: grid; grid-template-columns: minmax(230px, 1.9fr) repeat(var(--cols), minmax(74px, 1fr));
+  display: grid; grid-template-columns: minmax(300px, 2.6fr) repeat(var(--cols), minmax(66px, 1fr));
   align-items: center; gap: 10px; padding: 9px 18px; border-top: 1px solid var(--hairline); min-width: 720px;
 }
 .score-head { border-top: 0; padding-top: 10px; padding-bottom: 8px; font: 600 11px/1 var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-mute); }

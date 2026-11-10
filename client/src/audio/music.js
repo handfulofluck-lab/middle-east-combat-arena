@@ -283,21 +283,28 @@ function stdKit(T, name, layer, level) {
   T.reg(name, () => new DrumKit(T.E, { level }), layer, 0);
 }
 
+// instrument levels, balanced from soloed-stem loudness measurements (lab:
+// renderStems) so the lead sits ~3-5 LU above the pad and the percussion
+const LVL = {
+  drone: 0.11, strings: 0.125, stac: 0.26, oud: 1.25, qanun: 1.4, bass: 0.74,
+  ney: 0.2, duduk: 0.3, brass: 0.24, kit: 0.68,
+};
+
 const TRACKS = {};
 
 TRACKS.title = {
   bpm: 92,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: 0.2 }), 0, 0.1);
-    T.reg('strings', () => new PadInst(T.E, { level: 0.05, wave: 'strings' }), 0, 0.35);
-    T.reg('stac', () => new StacInst(T.E, { voices: 2, level: 0.085, wave: 'bright' }), 0, 0.2);
-    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: 0.5, pan: -0.2 }), 0, 0.25);
-    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: 0.3, pan: 0.3 }), 0, 0.3);
-    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: 0.5 }), 0, 0.08);
-    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: 0.1, pan: 0.15 }), 0, 0.45);
-    T.reg('brass', () => new BrassInst(T.E, { level: 0.11 }), 0, 0.35);
-    stdKit(T, 'kit', 0, 0.55);
+    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.35);
+    T.reg('stac', () => new StacInst(T.E, { voices: 2, level: LVL.stac, wave: 'bright' }), 0, 0.2);
+    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.25);
+    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: LVL.qanun, pan: 0.3 }), 0, 0.3);
+    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: LVL.bass }), 0, 0.08);
+    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: LVL.ney, pan: 0.15 }), 0, 0.45);
+    T.reg('brass', () => new BrassInst(T.E, { level: LVL.brass }), 0, 0.35);
+    stdKit(T, 'kit', 0, LVL.kit);
   },
   form: [
     {
@@ -395,15 +402,16 @@ const notThemePass = (T) => T.pass % 4 !== 2;
 
 TRACKS.menu = {
   bpm: 76,
+  level: 1.4,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: 0.17 }), 0, 0.1);
-    T.reg('strings', () => new PadInst(T.E, { level: 0.05, wave: 'strings' }), 0, 0.4);
-    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: 0.5, pan: -0.2 }), 0, 0.3);
-    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: 0.26, pan: 0.3 }), 0, 0.35);
-    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: 0.45 }), 0, 0.08);
-    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: 0.1, pan: 0.15 }), 0, 0.5);
-    stdKit(T, 'kit', 0, 0.45);
+    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.4);
+    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.3);
+    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: LVL.qanun, pan: 0.3 }), 0, 0.35);
+    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: LVL.bass }), 0, 0.08);
+    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: LVL.ney, pan: 0.15 }), 0, 0.5);
+    stdKit(T, 'kit', 0, LVL.kit);
   },
   form: [
     {
@@ -413,9 +421,9 @@ TRACKS.menu = {
         { type: 'pad', inst: 'strings', vel: 0.42, atk: 0.5, rel: 0.6 },
         // every fourth cycle the oud states the whole theme
         { type: 'line', inst: 'oud', line: THEME, vel: 0.72, when: (T) => T.pass % 4 === 2 },
-        { type: 'phrases', inst: 'oud', pool: MENU_PHRASES, every: 2, prob: 0.62, vel: 0.68,
+        { type: 'phrases', inst: 'oud', pool: MENU_PHRASES, every: 2, prob: 0.58, vel: 0.68,
           flag: 'oud', when: notThemePass },
-        { type: 'phrases', inst: 'ney', pool: NEY_PHRASES, every: 2, prob: 0.6, vel: 0.7,
+        { type: 'phrases', inst: 'ney', pool: NEY_PHRASES, every: 2, prob: 0.75, vel: 0.7,
           unless: 'oud', flag: 'ney', when: notThemePass },
         { type: 'arp', inst: 'qanun', every: 2, prob: 0.3, vel: 0.35, unless: 'ney' },
         { type: 'bass', inst: 'bass', pat: RHYTHM.boom1, vel: 0.5 },
@@ -453,16 +461,17 @@ function briefParts(b) {
 
 TRACKS.briefing = {
   bpm: 100,
+  level: 1.25,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: 0.17 }), 0, 0.1);
-    T.reg('strings', () => new PadInst(T.E, { level: 0.045, wave: 'strings' }), 0, 0.35);
-    T.reg('stac', () => new StacInst(T.E, { voices: 2, level: 0.09, wave: 'bright' }), 0, 0.2);
-    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: 0.5, pan: -0.2 }), 0, 0.25);
-    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: 0.3, pan: 0.3 }), 0, 0.3);
-    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: 0.45 }), 0, 0.08);
-    T.reg('brass', () => new BrassInst(T.E, { level: 0.1 }), 0, 0.35);
-    stdKit(T, 'kit', 0, 0.5);
+    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.35);
+    T.reg('stac', () => new StacInst(T.E, { voices: 2, level: LVL.stac, wave: 'bright' }), 0, 0.2);
+    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.25);
+    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: LVL.qanun, pan: 0.3 }), 0, 0.3);
+    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: LVL.bass }), 0, 0.08);
+    T.reg('brass', () => new BrassInst(T.E, { level: LVL.brass }), 0, 0.35);
+    stdKit(T, 'kit', 0, LVL.kit);
   },
   form: [
     { id: 'a', bars: 8, chords: BRIEF_A, parts: briefParts(false) },
@@ -479,7 +488,7 @@ function combatParts(kind) {
     : [RHYTHM.taiko2, RHYTHM.taiko3];
   const parts = [
     // layer 0
-    { type: 'phrases', inst: 'oud', pool: COMBAT_PHRASES, every: 2, prob: 0.7, vel: 0.72,
+    { type: 'phrases', inst: 'oud', pool: COMBAT_PHRASES, every: 2, prob: 0.75, vel: 0.9,
       layer: 0, max: 0.45, flag: 'oud' },
     { type: 'hits', name: 'boom', at: [[0, 0, 0.35]], layer: 0, max: 0.3 },
     // layer 1
@@ -529,15 +538,15 @@ TRACKS.combat = {
   layers: 4,
   loopFrom: 0,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: 0.2 }), 0, 0.1);
-    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: 0.5, pan: -0.2 }), 0, 0.28);
-    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: 0.1, pan: 0.15 }), 0, 0.5);
-    stdKit(T, 'kit', 0, 0.55);
-    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: 0.28, pan: 0.3 }), 1, 0.25);
-    T.reg('stac', () => new StacInst(T.E, { voices: 2, level: 0.09, wave: 'bright' }), 2, 0.2);
-    T.reg('strings', () => new PadInst(T.E, { level: 0.045, wave: 'strings' }), 2, 0.35);
-    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: 0.5 }), 2, 0.08);
-    T.reg('brass', () => new BrassInst(T.E, { level: 0.11 }), 3, 0.35);
+    T.reg('drone', () => new Drone(T.E, { level: LVL.drone * 1.5 }), 0, 0.1);
+    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.28);
+    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: LVL.ney, pan: 0.15 }), 0, 0.5);
+    stdKit(T, 'kit', 0, LVL.kit);
+    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: LVL.qanun, pan: 0.3 }), 1, 0.25);
+    T.reg('stac', () => new StacInst(T.E, { voices: 2, level: LVL.stac, wave: 'bright' }), 2, 0.2);
+    T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 2, 0.35);
+    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: LVL.bass }), 2, 0.08);
+    T.reg('brass', () => new BrassInst(T.E, { level: LVL.brass }), 3, 0.35);
   },
   form: [
     { id: 'a', bars: 8, chords: COMBAT_A, parts: combatParts('a'), enter(T, t) { T.setKey(0, t); } },
@@ -556,14 +565,14 @@ TRACKS.victory = {
   bpm: 96,
   loopFrom: 1,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: 0.15 }), 0, 0.1);
-    T.reg('strings', () => new PadInst(T.E, { level: 0.05, wave: 'strings' }), 0, 0.4);
-    T.reg('brass', () => new BrassInst(T.E, { level: 0.12 }), 0, 0.4);
-    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: 0.5, pan: -0.2 }), 0, 0.3);
-    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: 0.3, pan: 0.3 }), 0, 0.3);
-    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: 0.5 }), 0, 0.08);
-    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: 0.1, pan: 0.15 }), 0, 0.5);
-    stdKit(T, 'kit', 0, 0.55);
+    T.reg('drone', () => new Drone(T.E, { level: LVL.drone }), 0, 0.1);
+    T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'strings' }), 0, 0.4);
+    T.reg('brass', () => new BrassInst(T.E, { level: LVL.brass }), 0, 0.4);
+    T.reg('oud', () => new PluckInst(T.E, { kind: 'oud', level: LVL.oud, pan: -0.2 }), 0, 0.3);
+    T.reg('qanun', () => new PluckInst(T.E, { kind: 'qanun', level: LVL.qanun, pan: 0.3 }), 0, 0.3);
+    T.reg('bass', () => new PluckInst(T.E, { kind: 'bass', level: LVL.bass }), 0, 0.08);
+    T.reg('ney', () => new BreathLead(T.E, { kind: 'ney', level: LVL.ney, pan: 0.15 }), 0, 0.5);
+    stdKit(T, 'kit', 0, LVL.kit);
   },
   form: [
     {
@@ -607,10 +616,10 @@ TRACKS.victory = {
 TRACKS.defeat = {
   bpm: 60,
   build(T) {
-    T.reg('drone', () => new Drone(T.E, { level: 0.17, air: 0.6 }), 0, 0.1);
-    T.reg('strings', () => new PadInst(T.E, { level: 0.05, wave: 'dark' }), 0, 0.45);
-    T.reg('duduk', () => new BreathLead(T.E, { kind: 'duduk', level: 0.16 }), 0, 0.5);
-    stdKit(T, 'kit', 0, 0.5);
+    T.reg('drone', () => new Drone(T.E, { level: LVL.drone, air: 0.6 }), 0, 0.1);
+    T.reg('strings', () => new PadInst(T.E, { level: LVL.strings, wave: 'dark' }), 0, 0.45);
+    T.reg('duduk', () => new BreathLead(T.E, { kind: 'duduk', level: LVL.duduk }), 0, 0.5);
+    stdKit(T, 'kit', 0, LVL.kit);
   },
   form: [
     {
@@ -686,7 +695,7 @@ class TrackPlayer {
     // start part-way in (lab / harness): fast-forward the counters
     let skip = (o.startBar || 0) * 16;
     while (skip-- > 0) this.advancePos(true);
-    const lvl = o.level === undefined ? 1 : o.level;
+    const lvl = (o.level === undefined ? 1 : o.level) * (this.def.level || 1);
     this.gain.gain.setTargetAtTime(lvl, t0 - 0.05, 0.08);
     this.wet.gain.setTargetAtTime(lvl * HALL_EXTRA, t0 - 0.05, 0.08);
   }
@@ -941,9 +950,9 @@ class StingerRig {
     let i = this.inst[name];
     if (i) return i;
     const E = this.E;
-    if (name === 'brass') i = new BrassInst(E, { level: 0.12 });
-    else if (name === 'kit') i = new DrumKit(E, { level: 0.6 });
-    else i = new PluckInst(E, { kind: name, level: name === 'qanun' ? 0.32 : 0.55 });
+    if (name === 'brass') i = new BrassInst(E, { level: LVL.brass });
+    else if (name === 'kit') i = new DrumKit(E, { level: LVL.kit });
+    else i = new PluckInst(E, { kind: name, level: LVL[name] });
     i.out.connect(this.out);
     this.inst[name] = i;
     return i;

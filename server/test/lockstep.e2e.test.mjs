@@ -22,6 +22,18 @@ const CLIENT = path.resolve(import.meta.dirname, '..', '..', 'client');
 const NET_MODULE = new URL('../../client/src/net/net.js', import.meta.url).href;
 const DATA_TEXT = fs.readFileSync(path.join(CLIENT, 'data', 'game.json'), 'utf8');
 const mapText = (id) => fs.readFileSync(path.join(CLIENT, 'maps', id + '.json'), 'utf8');
+
+// Maps come and go; pick from the shipped manifest by spawn count (keeping
+// the classic names when they are still around).
+const MAP_SPAWNS = new Map(JSON.parse(fs.readFileSync(path.join(CLIENT, 'maps', 'manifest.json'), 'utf8')).maps
+  .filter((id) => fs.existsSync(path.join(CLIENT, 'maps', id + '.json')))
+  .map((id) => [id, JSON.parse(mapText(id)).spawns.length]));
+function pickMap(minSpawns, preferred) {
+  if (MAP_SPAWNS.get(preferred) >= minSpawns) return preferred;
+  const hit = [...MAP_SPAWNS].find(([, spawns]) => spawns >= minSpawns);
+  assert.ok(hit, 'no shipped map has ' + minSpawns + '+ spawns');
+  return hit[0];
+}
 const TAKEOVER_DELAY_TICKS = 3; // as in main.js
 const SEED = 20260917;
 const clock = { t: 0 };         // virtual milliseconds, see beginMatch()
@@ -279,7 +291,7 @@ function wireChecksums(peer) {
 }
 
 describe('headless lockstep matches through the Node relay', () => {
-  test('2 humans + 1 AI on sinai: 600 ticks, identical checksums, zero desyncs, zero forced stalls', async (t) => {
+  test('2 humans + 1 AI: 600 ticks, identical checksums, zero desyncs, zero forced stalls', async (t) => {
     // The match runs flat out (hundreds of ticks per second), far above the
     // 10 Hz the per-connection limiter is sized for, so this server gets a
     // raised message budget. The real-time test below uses the defaults.
@@ -289,8 +301,9 @@ describe('headless lockstep matches through the Node relay', () => {
     const [host, guest] = await lobby(srv, [
       { name: 'Host', faction: 'Egypt' },
       { name: 'Guest', faction: 'Algeria' },
-    ], { map: 'sinai', aiPlayers: [{ slot: 2, faction: 'Israel', team: 2, ai: { personality: 'Front', difficulty: 'recruit' } }] });
+    ], { map: pickMap(3, 'sinai'), aiPlayers: [{ slot: 2, faction: 'Israel', team: 2, ai: { personality: 'Front', difficulty: 'recruit' } }] });
     t.after(() => { host.Net.leave(); guest.Net.leave(); });
+    const mapId = host.Net.cfg.map;
     assert.equal(host.Net.isHost, true);
     assert.equal(guest.Net.isHost, false);
     assert.equal(guest.Net.peers[0].name, 'Host');
@@ -367,7 +380,7 @@ describe('headless lockstep matches through the Node relay', () => {
     guest.Net.leave();
     await until(() => srv.app.relay.stats().connections === 0, 'sockets to close');
     assert.deepEqual(srv.app.relay.stats(), { rooms: 0, peers: 0, connections: 0, publicRooms: 0, inMatch: 0 });
-    t.diagnostic(`ticks=${host.state.tick}/${guest.state.tick} checksums compared=${compared} wire boundaries=${boundaries} `
+    t.diagnostic(`map=${mapId} ticks=${host.state.tick}/${guest.state.tick} checksums compared=${compared} wire boundaries=${boundaries} `
       + `cmds=${host.issued}+${guest.issued} relayed in=${srv.app.relay.counters.messagesIn} out=${srv.app.relay.counters.messagesOut}`);
   });
 
@@ -377,7 +390,7 @@ describe('headless lockstep matches through the Node relay', () => {
     const [host, guest] = await lobby(srv, [
       { name: 'Host', faction: 'Egypt' },
       { name: 'Cheater', faction: 'Algeria' },
-    ], { map: 'duel' });
+    ], { map: pickMap(2, 'duel') });
     t.after(() => { host.Net.leave(); guest.Net.leave(); });
     let tampered = false;
     await drive([host, guest], () => !!(host.desync || guest.desync) || host.state.tick > 400, {
@@ -398,14 +411,14 @@ describe('headless lockstep matches through the Node relay', () => {
     assert.equal(host.state.tick, frozen, 'a desynced match is frozen, not allowed to drift on');
   });
 
-  test('3 humans on gulf: one drops mid-match -> bye -> host declares AI takeover -> the rest stay in sync', async (t) => {
+  test('3 humans: one drops mid-match -> bye -> host declares AI takeover -> the rest stay in sync', async (t) => {
     const srv = await startServer({ RATE_MSGS_PER_SEC: '20000', RATE_BURST: '20000' });
     t.after(() => srv.close());
     const [host, bob, carol] = await lobby(srv, [
       { name: 'Host', faction: 'Egypt' },
       { name: 'Bob', faction: 'Turkey' },
       { name: 'Carol', faction: 'Iran' },
-    ], { map: 'gulf' });
+    ], { map: pickMap(3, 'gulf') });
     t.after(() => { for (const p of [host, bob, carol]) p.Net.leave(); });
 
     await drive([host, bob, carol], () => [host, bob, carol].every((p) => p.state.tick >= 180));
@@ -439,7 +452,7 @@ describe('headless lockstep matches through the Node relay', () => {
     const srv = await startServer(); // stock configuration, as deployed
     t.after(() => srv.close());
     const factions = ['Egypt', 'Saudi', 'UAE', 'Algeria', 'Turkey', 'Israel'];
-    const peers = await lobby(srv, factions.map((faction, i) => ({ name: 'P' + (i + 1), faction })), { map: 'gulf', delay: 2 });
+    const peers = await lobby(srv, factions.map((faction, i) => ({ name: 'P' + (i + 1), faction })), { map: pickMap(6, 'gulf'), delay: 2 });
     t.after(() => { for (const p of peers) p.Net.leave(); });
     assert.equal(peers.length, 6);
     for (const p of peers) { p.script.moveAt = 5 + p.slot; p.Net._peerPingTimer = -1e9; }

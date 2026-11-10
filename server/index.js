@@ -30,9 +30,9 @@ for (const message of config.warnings) log.warn('config.warning', { message });
 
 // Say exactly what is on and what is off, and why -- with no secret values.
 log.info('boot', app.describe());
-if (!app.features.licensing) log.info('feature.off', { feature: 'licensing', why: config.features.licensing.reasons });
-if (!app.features.store) log.info('feature.off', { feature: 'store', why: config.features.store.reasons });
-if (!app.features.admin) log.info('feature.off', { feature: 'admin', why: config.features.admin.reasons });
+for (const feature of ['licensing', 'store', 'admin']) {
+  if (!app.features[feature]) log.info('feature.off', { feature, why: app.featureReasons[feature] });
+}
 
 // An unexpected exception must not take every running match down with it:
 // log it and keep serving. (Rooms live in this process's memory.)

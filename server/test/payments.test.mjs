@@ -135,6 +135,8 @@ describe('dormant until configured', () => {
     assert.deepEqual(srv.app.features, { licensing: false, store: false, admin: false });
     assert.equal((await post(srv.origin + '/api/license/verify', { token: 'x' })).status, 503);
     assert.ok(srv.logs.some((l) => l.evt === 'license.disabled'));
+    assert.match(srv.app.featureReasons.licensing.join(' '), /DATA_DIR .* is not writable/);
+    assert.ok(srv.app.featureReasons.store.includes('license signing is disabled'));
     await assert.rejects(startServer({ LICENSE_SECRET: TEST_SECRETS.LICENSE_SECRET, MCA_PAYWALL: 'multiplayer' }, { dir }), /writable DATA_DIR/);
   });
 });

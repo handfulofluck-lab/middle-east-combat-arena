@@ -219,6 +219,26 @@ async function renderMusic(name, o) {
   return st;
 }
 
+// stem balance: the same stretch of a track with one instrument soloed at a time
+async function renderStems(name, o) {
+  const opt = Object.assign({ seconds: 24, intensity: 1, startBar: 0 }, o || {});
+  const insts = opt.insts || ['drone', 'strings', 'stac', 'oud', 'qanun', 'bass', 'ney', 'duduk', 'brass', 'kit'];
+  const rows = [];
+  const one = async (label, solo) => {
+    const res = await offline(opt.seconds, { volumes: DEFAULT_VOLUMES, seed: 42, rng: makeRng(43) },
+      (E) => { E.music.snap(opt.intensity); E.music.play(name, { startBar: opt.startBar, solo }); });
+    const m = mixdown(res.chs);
+    const sm = basicStats(m);
+    if (sm.peak < 1e-4) return;
+    const loud = loudness(res.chs, SR);
+    rows.push({ stem: label, lufs: r1(loud.integrated), lufsM: r1(loud.momentaryMax), rmsDb: r1(sm.rmsDb),
+      peakDb: r1(sm.peakDb), bands: octaveBands(m, SR).map((x) => Math.round(x)) });
+  };
+  await one('MIX', undefined);
+  for (const i of insts) await one(i, [i]);
+  return rows;
+}
+
 // intensity automation: 0 -> 1 at 10 s -> 0 at 25 s; reports the layer level over time
 async function renderIntensitySweep() {
   const res = await offline(50, { volumes: DEFAULT_VOLUMES, seed: 3, rng: makeRng(4) },
@@ -655,7 +675,7 @@ const api = {
   ready: true,
   list: () => ({ sfx: SFX_GROUPS, tracks: TRACK_NAMES, stingers: STINGER_NAMES, loops: Object.keys(LOOPS) }),
   renderSfx, renderAllSfx, renderDistance, renderMusic, renderIntensitySweep, renderStinger, renderLoop,
-  renderStress, renderCalibration, verifyAll, lastWav, calibrateSfx,
+  renderStress, renderCalibration, verifyAll, lastWav, calibrateSfx, renderStems,
   rt: {
     unlock: () => unlockAudio(),
     play: (n) => { setMusicOn(null, true); playMusicTrack(null, n); },

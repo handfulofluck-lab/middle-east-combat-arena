@@ -34,8 +34,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import * as Sim from '../../client/src/sim/index.js';
 import * as G from './lib/grid.mjs';
+import { Sim, depotSpot, aiDepotCount } from './lib/simrules.mjs';
 import { applyRepair, originalOil } from './lib/legacy.mjs';
 import { LEGACY_REPAIRS } from './legacy_repairs.mjs';
 
@@ -55,7 +55,6 @@ export function solve(id, diskMap, repair, data) {
   const st = Sim.createMatch({ data, map, players, seed: 1 });
   const pass = Sim.passGrid(st, 'Land');
   Sim.tick(st, Object.values(st.units).filter((u) => u.defId === 'MCV').map((u) => ({ player: u.owner, type: 'deployMCV', unitId: u.id })));
-  const depot = st.structDefs['SH-03'];
   const t8 = Uint8Array.from(map.terrain);
   const { label } = G.components(t8, w, h, (v) => v === 0);
   const clear = G.distanceTo(t8, w, h, (v) => v !== 0);
@@ -67,34 +66,10 @@ export function solve(id, diskMap, repair, data) {
     st.oilFields = {};
     oil.forEach((o, i) => { st.oilFields[i + 1] = { id: i + 1, x: o.x * Sim.CELL + Sim.CELL / 2, y: o.y * Sim.CELL + Sim.CELL / 2 }; });
   };
-  const capable = (slot, o) => {
-    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) if (Sim.canPlace(st, slot, depot, o.x + dx, o.y + dy)) return true;
-    return false;
-  };
+  const capable = (slot, o) => depotSpot(st, slot, o.x, o.y) !== null;
   const count = (slot) => oil.filter((o) => capable(slot, o)).length;
-  // ai.js findDepotSpot, replayed from the ConYard alone: fields in list order,
-  // skip a field with an own depot within 5 cells, first legal cell in the
-  // +-4 window. Returns how many depots the AI would end up placing.
-  const aiDepots = (slot) => {
-    const placed = [];
-    for (let guard = 0; guard < 4; guard++) {
-      let spot = null;
-      for (const o of oil) {
-        const served = placed.some((d) => {
-          const c = Sim.structCenter(d);
-          return Math.max(Math.abs(c.x - (o.x * Sim.CELL + Sim.CELL / 2)), Math.abs(c.y - (o.y * Sim.CELL + Sim.CELL / 2))) <= 5 * Sim.CELL;
-        });
-        if (served) continue;
-        for (let dy = -4; dy <= 4 && !spot; dy++) for (let dx = -4; dx <= 4 && !spot; dx++) if (Sim.canPlace(st, slot, depot, o.x + dx, o.y + dy)) spot = { x: o.x + dx, y: o.y + dy };
-        if (spot) break;
-      }
-      if (!spot) break;
-      placed.push(Sim.addStructure(st, 'SH-03', slot, spot.x, spot.y));
-    }
-    for (const d of placed) delete st.structures[d.id];
-    st.structVersion++;
-    return placed.length;
-  };
+  // how many depots ai.js would place from the ConYard alone (lib/simrules.mjs)
+  const aiDepots = (slot) => aiDepotCount(st, slot);
   const landBlock = (x, y) => {
     for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
       const nx = x + dx, ny = y + dy;

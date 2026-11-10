@@ -8,7 +8,7 @@
   transition: opacity 0.4s var(--ease-out), visibility 0s linear 0s;
 }
 /* hide all in-match chrome while a menu overlay owns the screen */
-body.in-menu #hud, body.in-menu #cursor-label, body.briefing-on #hud { display: none; }
+body.in-menu #hud, body.in-menu #cursor-label, body.briefing-on #hud, body.end-on #hud { display: none; }
 /* in-engine cinematics (intro fly-in, verdict): the HUD steps aside */
 body.cine-on #hud, body.cinematic #hud { opacity: 0; visibility: hidden; transition: opacity 0.3s, visibility 0s linear 0.3s; }
 body.cine-on #tooltip, body.cinematic #tooltip, body.cine-on #cursor-label { display: none !important; }
@@ -124,7 +124,7 @@ body.placing #topbar:hover, body.placing #hud-left:hover, body.placing #sel-pane
 }
 .hint-banner.mcv { border-left-color: var(--cyan); color: #d9fbf6; background: rgba(8, 30, 30, 0.82); }
 .hint-banner.fade { opacity: 0; }
-@keyframes ui-drop-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes ui-drop-in { from { transform: translateY(-10px); } to { transform: none; } }
 
 #spec-badge, #pause-banner {
   padding: 6px 18px 5px; font: 700 12px/1 var(--font-display); letter-spacing: 0.24em; text-transform: uppercase;
@@ -180,7 +180,7 @@ body.placing #topbar:hover, body.placing #hud-left:hover, body.placing #sel-pane
 .alert-banner:hover { background: rgba(60, 14, 8, 0.94); }
 .alert-banner:hover .alert-go { color: #fff; border-color: #ff9a86; }
 .alert-banner.fade { opacity: 0; }
-@keyframes ui-slide-in { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: none; } }
+@keyframes ui-slide-in { from { transform: translateX(22px); } to { transform: none; } }
 @keyframes ui-drain { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 
 /* ── bottom-left: army panel + minimap ─────────────────────────────────── */
@@ -260,7 +260,7 @@ body.placing #topbar:hover, body.placing #hud-left:hover, body.placing #sel-pane
 .pw-ring .ico { position: relative; font-size: 17px; color: var(--text-dim); }
 .pw-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .pw-name { font: 700 13px/1 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pw-status { font: 600 12px/1 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pw-status { font: 600 12px/1 var(--font-display); letter-spacing: 0.1em; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 button.pw:hover { border-color: rgba(233, 184, 114, 0.6); background: rgba(20, 22, 26, 0.84); }
 button.pw:focus-visible { outline: none; border-color: var(--gold-hi); }
 .pw.disabled { cursor: not-allowed; }
@@ -279,6 +279,11 @@ button.pw:focus-visible { outline: none; border-color: var(--gold-hi); }
 @keyframes ui-ring-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
 
 .cmd-panel { --c: 12px; display: flex; flex-direction: column; background: var(--glass); }
+/* faction-colour signature along the top edge of the two working panels */
+.cmd-panel::after, .sel-card::after {
+  content: ''; position: absolute; top: 0; left: var(--c); right: 0; height: 2px; z-index: 4; pointer-events: none;
+  background: linear-gradient(90deg, var(--accent), rgba(255, 255, 255, 0) 72%);
+}
 .cmd-head { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px 0 14px; }
 .cmd-title { flex: 1; font: 700 13px/1 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cmd-head .micro { color: var(--gold); }
@@ -448,7 +453,7 @@ button.pw:focus-visible { outline: none; border-color: var(--gold-hi); }
   animation: ui-rise var(--t-med) var(--ease-out);
 }
 .sel-card.hostile { --edge: rgba(255, 90, 60, 0.6); }
-@keyframes ui-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes ui-rise { from { transform: translateY(12px); } to { transform: none; } }
 .sel-info { min-width: 0; display: flex; }
 .sel-single { display: flex; gap: 14px; min-width: 0; }
 .sel-portrait { position: relative; flex: none; width: clamp(72px, 9.5vh, 108px); align-self: flex-start; border: 1px solid var(--hairline-strong); }
@@ -517,7 +522,7 @@ button.pw:focus-visible { outline: none; border-color: var(--gold-hi); }
   box-shadow: var(--shadow-2); font: 400 12px/1.4 var(--font-body); color: var(--text-dim);
   animation: ui-tip-in 0.12s var(--ease-out);
 }
-@keyframes ui-tip-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes ui-tip-in { from { transform: translateY(4px); } to { transform: none; } }
 .tt-simple { width: auto; min-width: 110px; max-width: 280px; padding: 9px 12px; gap: 5px; }
 .tt-head { display: flex; align-items: center; gap: 10px; }
 .tt-portrait { flex: none; width: 46px; border: 1px solid var(--hairline-strong); }
@@ -595,6 +600,7 @@ button.pw:focus-visible { outline: none; border-color: var(--gold-hi); }
 /* ── compact HUD ───────────────────────────────────────────────────────── */
 @media (max-width: 1560px), (max-height: 880px) {
   .cmd-head .micro { display: none; }
+  .ap-row > .ico { display: none; }
   .cmd-head { padding-left: 12px; }
   .tb-credits { font-size: 21px; min-width: 68px; }
   .tb-power-meter { width: 96px; }

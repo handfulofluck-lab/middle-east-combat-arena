@@ -115,7 +115,7 @@ class FinalPass extends Pass {
         uExposure: { value: 1 }, uTime: { value: 0 },
         uTint: { value: new THREE.Vector3(1, 1, 1) },
         uVignette: { value: 0.32 }, uGrain: { value: 0.035 },
-        uSaturation: { value: 1.0 }, uContrast: { value: 1.07 },
+        uSaturation: { value: 1.06 }, uContrast: { value: 1.1 },
         uAberration: { value: 0.00045 }, uLetterbox: { value: 0 },
         uFade: { value: 0 }, uFlash: { value: 0 },
         uRes: { value: new THREE.Vector2(1, 1) }, uSharpen: { value: 0.25 },
@@ -155,7 +155,7 @@ class FinalPass extends Pass {
           }
           col = max(col, 0.0) * uExposure * uTint;
           col += uFlash * vec3(1.0, 0.92, 0.8);
-          col = aces(col * 1.12);
+          col = aces(col * 1.27);
           col = pow(col, vec3(1.0 / 2.2));
           float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
           col = mix(vec3(l), col, uSaturation);

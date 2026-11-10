@@ -11,6 +11,7 @@ import {
 } from './engine.js';
 import { canPlaceReason } from '../sim/index.js';
 import { createSimpleKit } from './simplekit.js';
+import { createModelKit } from './models.js';
 
 const INF_CLS = new Set(['Infantry', 'AT infantry', 'AA infantry', 'SF', 'Engineer']);
 const SLOT_COLORS = [0x3d9bff, 0xff5a4d, 0x56d364, 0xf2cc60, 0xbc8cff, 0xff9d4d];
@@ -56,8 +57,14 @@ export function createEntities(gl) {
   root.name = 'entities';
   scene.add(root);
 
-  let kit = createSimpleKit();
-  let fallbackKit = kit;
+  // the procedural model library; the box kit stays as a per-model safety net
+  const fallbackKit = createSimpleKit();
+  let kit = fallbackKit;
+  try {
+    kit = createModelKit({ quality: gl.quality.name === 'low' ? 'low' : 'high' });
+  } catch (e) {
+    if (globalThis.__glErrors) globalThis.__glErrors.push('model kit: ' + (e && e.message));
+  }
   const units = new Map();    // unit id -> record
   const structs = new Map();  // structure id -> record
   const shots = new Map();    // projectile id -> record
@@ -95,14 +102,6 @@ export function createEntities(gl) {
     const me = state.players[gl.localSlot], p = state.players[owner];
     if (!me || !p) return false;
     return p.team !== me.team;
-  }
-
-  // remove a model from the scene; geometry the kit caches is flagged shared
-  function drop(obj) {
-    root.remove(obj);
-    obj.traverse((o) => {
-      if (o.geometry && !o.geometry.userData.shared && o.geometry.userData.ownedByInstance) o.geometry.dispose();
-    });
   }
 
   // ---- model kit ----------------------------------------------------------
@@ -257,6 +256,8 @@ export function createEntities(gl) {
     // face the map centre on spawn so fresh units do not all point east
     const mx = state.map.w * CELL / 2 - u.x, my = state.map.h * CELL / 2 - u.y;
     if (Math.abs(mx) + Math.abs(my) > 1) rec.yaw = Math.atan2(-my, mx);
+    // infantry are drawn larger than life so squads read at RTS distance
+    if (rec.inf) { rec.root.scale.setScalar(1.4); rec.radius *= 1.4; rec.height *= 1.4; }
     rec.root.position.set(wuToX(gl, u.x), 0, wuToZ(gl, u.y));
     rec.root.rotation.y = rec.yaw;
     root.add(rec.root);
@@ -508,8 +509,7 @@ export function createEntities(gl) {
         if (w.life < 4) o.position.y -= dt * 0.22;
       }
       if (w.life <= 0) {
-        root.remove(o);
-        o.traverse((m) => { if (m.geometry && !m.geometry.userData.shared) m.geometry.dispose(); });
+        root.remove(o);   // geometry belongs to the kit's cache
         wrecks.splice(i, 1);
       }
     }
