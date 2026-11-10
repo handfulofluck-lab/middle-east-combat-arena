@@ -242,6 +242,14 @@ function think(state, b, p, cmds) {
 
   // 5. attack waves every ~60-90s at the nearest enemy base; the two cheapest
   // combat units always stay home on guard
+  // Ceasefire: no waves and no strikes. The first wave leaves a little after
+  // it ends, staggered by slot so every AI does not march on the same tick.
+  const peace = state.tick < state.peaceUntil;
+  if (peace) {
+    const first = state.peaceUntil + 150 + p.slot * 40;
+    if (b.waveNext < first) b.waveNext = first;
+    return;
+  }
   if (state.tick >= b.waveNext) {
     b.waveNext = state.tick
       + Math.round((WAVE_BASE + b.rng.int(WAVE_SPREAD + 1)) * b.waveMult);

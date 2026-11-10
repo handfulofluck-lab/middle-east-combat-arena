@@ -54,7 +54,7 @@ export function isInfantryCls(cls) {
 // wave period live in ai.js; all three together define Easy..Expert.
 const AI_ECO_MULT = { recruit: 1, veteran: 1, elite: 1.1, marshal: 1.2 };
 
-export function createMatch({ data, map, players, seed }) {
+export function createMatch({ data, map, players, seed, options }) {
   const unitDefs = {};
   for (const u of data.units) unitDefs[u.id] = prepUnitDef(u);
   for (const d of Object.values(synthDefs(data.knobs))) unitDefs[d.id] = prepUnitDef(d);
@@ -93,6 +93,9 @@ export function createMatch({ data, map, players, seed }) {
     over: false,
     winner: -1,
     stats: { interceptRolls: 0, intercepted: 0 },
+    // ceasefire: until this tick no player can target another (see isHostile).
+    // A match option, identical on every peer; 0 = none.
+    peaceUntil: Math.max(0, Math.min(36000, (options && options.peaceTicks) | 0)),
   };
 
   let oid = 1;
@@ -290,7 +293,16 @@ export function isHostile(state, slot, ent) {
   if (ent.owner < 0 || ent.owner === slot) return false;
   const a = state.players[ent.owner];
   if (!a || a.eliminated) return false;
+  if (state.tick < state.peaceUntil) return false; // ceasefire: nobody is a target yet
   return teamOf(state, ent.owner) !== teamOf(state, slot);
+}
+
+// ceasefire at the start of a match (match option `peaceTicks`)
+export function inPeace(state) {
+  return state.tick < (state.peaceUntil | 0);
+}
+export function peaceTicksLeft(state) {
+  return Math.max(0, (state.peaceUntil | 0) - state.tick);
 }
 
 // memoized on the state: does the map contain any water cell (terrain 2)?

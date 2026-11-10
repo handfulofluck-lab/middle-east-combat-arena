@@ -329,8 +329,10 @@ export function playIntro(game, info, onDone) {
   const away = Math.atan2(bx, bz);
   const size = Math.max(map.w, map.h) * S;
   c.keys = [
-    { t: 0.0, x: 0, z: 0, dist: Math.min(300, size * 0.62), yaw: away + 0.9, pitch: 0.95, lift: 0 },
-    { t: 3.2, x: bx * 0.25, z: bz * 0.25, dist: Math.min(230, size * 0.46), yaw: away + 0.45, pitch: 0.7, lift: 0 },
+    // stay inside the range the world is built to be seen from (the player's
+    // own zoom limit): higher up, terrain detail and shadows fall apart
+    { t: 0.0, x: 0, z: 0, dist: Math.min(200, size * 0.5), yaw: away + 0.9, pitch: 0.95, lift: 0 },
+    { t: 3.2, x: bx * 0.25, z: bz * 0.25, dist: Math.min(160, size * 0.4), yaw: away + 0.45, pitch: 0.7, lift: 0 },
     { t: 6.0, x: bx * 0.8, z: bz * 0.8, dist: 110, yaw: away + 0.12, pitch: 0.46, lift: 2 },
     { t: 8.6, x: bx, z: bz, dist: 50, yaw: 0.62, pitch: 0.78, lift: 0 },
   ];

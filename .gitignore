@@ -1,4 +1,6 @@
 tools/.venv/
+tools/voicegen/.cache/
+tools/voicegen/__pycache__/
 tools/__pycache__/
 artwork/
 client/assets/*.json

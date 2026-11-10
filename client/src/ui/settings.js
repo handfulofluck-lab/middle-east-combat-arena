@@ -5,6 +5,9 @@
 // reload even when the owning module does not persist it itself.
 import * as Audio from '../game/audio.js';
 import { lsGet, lsSet, clamp } from './dom.js';
+import {
+  UI_SCALE_OPTIONS, getUiScalePref, setUiScalePref, getUiScale, describeUiScale, applyUiScale,
+} from './scale.js';
 
 export const QUALITY_LEVELS = [
   { id: 'low', label: 'Low', text: 'Maximum frame rate. Flat lighting, no post effects.' },
@@ -44,6 +47,13 @@ export function applyGlassBlur() {
     document.body.classList.toggle('no-blur', !getGlassBlur());
   }
 }
+
+// interface size (ui/scale.js owns the maths and applies itself on import)
+export const UI_SIZES = UI_SCALE_OPTIONS.map((o) => ({ id: o.id, label: o.label }));
+export function getUiSize() { return getUiScalePref(); }
+export function setUiSize(id) { return setUiScalePref(id); }
+export function uiSizeNote() { return describeUiScale(); }
+export function uiScaleNow() { return getUiScale(); }
 
 // ---- audio ----------------------------------------------------------------------------
 
@@ -142,6 +152,7 @@ export function unlockAudioSafe() {
 let __applied = { quality: false, volumes: false };
 export function applySavedSettings(game) {
   applyGlassBlur();
+  applyUiScale();
   if (!__applied.quality && qualityAvailable(game)) {
     __applied.quality = true;
     const q = lsGet(K_QUALITY, null);

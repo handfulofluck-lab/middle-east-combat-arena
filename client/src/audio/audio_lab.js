@@ -7,9 +7,10 @@
 // headless harness can drive it.
 import {
   unlockAudio, playSfx, playSfxAt, playMusicTrack, setMusicOn, setMusicIntensity, playStinger,
-  startLoop, getLevels, getVolume, setVolume, setMuted, isMuted, playVoice, audioStats,
+  startLoop, getLevels, getVolume, setVolume, setMuted, isMuted, playVoice, playUnitAck, audioStats,
   audioInternals,
 } from '../game/audio.js';
+import { VOICE_MANIFEST, ANNOUNCER_KEYS, ACK_EVENTS } from './voice.js';
 import { renderOffline, DEFAULT_VOLUMES } from './engine.js';
 import { SFX, SFX_GROUPS } from './sfx.js';
 import { LOOPS } from './loops.js';
@@ -573,9 +574,13 @@ function buildPage() {
   mus.appendChild(slider('intensity', 0, 1, 0, (v) => setMusicIntensity(v)));
   mus.appendChild(el('h3', '', 'Stingers'));
   for (const n of STINGER_NAMES) mus.appendChild(button(n, () => playStinger(null, n)));
-  mus.appendChild(el('h3', '', 'Voice (speechSynthesis)'));
-  mus.appendChild(button('EVA: under attack', () => playVoice(null, 'Egypt', 'attack')));
   root.appendChild(mus);
+
+  const vox = el('section');
+  vox.appendChild(el('h2', '', 'Voice (pre-rendered clips, tools/voicegen)'));
+  vox.appendChild(el('p', 'status', 'loading voice/manifest.json ...'));
+  root.appendChild(vox);
+  buildVoicePanel(vox);
 
   const sfx = el('section');
   sfx.appendChild(el('h2', '', 'SFX'));
@@ -685,8 +690,102 @@ function buildPage() {
   root.appendChild(ver);
 }
 
+// ---- voice clips ---------------------------------------------------------------------------
+
+async function voiceManifest() {
+  const r = await fetch(VOICE_MANIFEST, { cache: 'no-cache' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+function voiceClips(m) {
+  const out = [];
+  for (const section of ['ann', 'ack']) {
+    for (const bank of Object.keys(m[section])) {
+      for (const key of Object.keys(m[section][bank])) {
+        m[section][bank][key].forEach((c, i) => out.push({ section, bank, key, n: i + 1, clip: c }));
+      }
+    }
+  }
+  return out;
+}
+
+// play one exact clip on the engine's voice bus (so the sliders and mute apply)
+function auditionClip(clip) {
+  const E = audioInternals().engine;
+  const box = E && E.voice;
+  if (!box) return;
+  box.buffer(clip).then((buf) => { if (buf) box.start(buf, 1, 0); });
+}
+
+async function buildVoicePanel(sec) {
+  const note = sec.querySelector('p');
+  let m;
+  try { m = await voiceManifest(); } catch (e) {
+    note.textContent = 'voice/manifest.json not found (' + e.message + '): the game falls back to speechSynthesis.';
+    sec.appendChild(button('speech fallback: attack', () => playVoice(null, 'Egypt', 'attack')));
+    return;
+  }
+  const all = voiceClips(m);
+  note.textContent = all.length + ' clips · model ' + m.model + ' · announcer voice per faction: '
+    + Object.keys(m.factions).map((f) => f + ' ' + m.factions[f]).join(', ');
+  sec.appendChild(el('h3', '', 'Through the game API (throttled: 6 s per key, no overlaps, random variant)'));
+  const fsel = document.createElement('select');
+  for (const f of Object.keys(m.factions)) fsel.appendChild(new Option(f + ' (' + m.factions[f] + ': ' + m.voices.ann[m.factions[f]] + ')', f));
+  sec.appendChild(fsel);
+  for (const k of ANNOUNCER_KEYS) sec.appendChild(button(k, () => playVoice(null, fsel.value, k)));
+  for (const t of ['Core', 'Eco', 'Prod', 'Def', 'Tech', 'SW']) {
+    sec.appendChild(button('built ' + t, () => playVoice(null, fsel.value, 'built', { id: '', type: t })));
+  }
+  sec.appendChild(el('br'));
+  for (const g of Object.keys(m.ack)) for (const ev of ACK_EVENTS) sec.appendChild(button(g + ' ' + ev, () => playUnitAck(null, ev, g)));
+  let section = '';
+  for (const c of all) {
+    const head = c.section + ' / ' + c.bank;
+    if (head !== section) {
+      section = head;
+      const voice = (m.voices[c.section] || {})[c.bank] || '';
+      sec.appendChild(el('h3', '', (c.section === 'ann' ? 'Announcer ' : 'Unit radio: ') + c.bank + ' — ' + voice + ' (exact clips)'));
+    }
+    const b = button(c.key + ' ' + c.n + ': ' + c.clip.t, () => auditionClip(c.clip));
+    b.title = c.clip.f + ' · ' + c.clip.d + ' s';
+    sec.appendChild(b);
+  }
+}
+
+// Harness: decode every clip the way the game does (decodeAudioData) and
+// measure it. -> { clips, bytes, failed: [...], rows: [{ file, bytes, dur, peakDb, rmsDb, lufs, sr }] }
+async function voiceCheck() {
+  const m = await voiceManifest();
+  const base = VOICE_MANIFEST.replace(/[^/]*$/, '');
+  const ctx = new OfflineAudioContext(1, 1, 48000);
+  const rows = [], failed = [];
+  let bytes = 0;
+  for (const c of voiceClips(m)) {
+    try {
+      const r = await fetch(base + c.clip.f);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const type = r.headers.get('content-type');
+      const ab = await r.arrayBuffer();
+      const size = ab.byteLength;
+      const buf = await ctx.decodeAudioData(ab);
+      const ch = buf.getChannelData(0);
+      const st = basicStats(ch);
+      bytes += size;
+      rows.push({
+        file: c.clip.f, type, bytes: size, dur: r2(buf.duration), manifestDur: c.clip.d, channels: buf.numberOfChannels,
+        peakDb: r1(toDb(st.peak)), rmsDb: r1(toDb(st.rms)), lufs: r1(loudness([ch], buf.sampleRate)), nan: st.nan,
+      });
+    } catch (e) {
+      failed.push({ file: c.clip.f, error: String(e && e.message || e) });
+    }
+  }
+  return { clips: rows.length, bytes, failed, rows };
+}
+
 const api = {
   ready: true,
+  voiceCheck,
   list: () => ({ sfx: SFX_GROUPS, tracks: TRACK_NAMES, stingers: STINGER_NAMES, loops: Object.keys(LOOPS) }),
   renderSfx, renderAllSfx, renderDistance, renderMusic, renderIntensitySweep, renderStinger, renderLoop,
   renderStress, renderCalibration, verifyAll, lastWav, calibrateSfx, renderStems,
@@ -695,6 +794,8 @@ const api = {
     play: (n) => { setMusicOn(null, true); playMusicTrack(null, n); },
     intensity: (x) => setMusicIntensity(x),
     sfx: (n, pan, dist, gain) => (pan === undefined ? playSfx(null, n) : playSfxAt(null, n, pan, dist, gain)),
+    voice: (faction, key, detail) => playVoice(null, faction, key, detail),
+    ack: (event, group) => playUnitAck(null, event, group),
     stinger: (n) => playStinger(null, n),
     loop: (n) => startLoop(null, n),
     levels: () => Object.assign({}, getLevels()),

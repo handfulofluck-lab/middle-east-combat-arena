@@ -6,8 +6,11 @@
 //   ui voices  ─┼─ sfx volume ─┐           │                             │
 //   loops      ─┘              │           └──────── sfx volume ◄────────┘
 //   music ─ duck ─ music vol ──┼─ 24 Hz HP ─ bus compressor ─ limiter ─ soft
-//   stingers ──── music vol ───┘      clipper ─ master volume / mute ─ output
-//                                                              └─ analyser tap
+//   stingers ──── music vol ───┤      clipper ─ master volume / mute ─ output
+//   voice clips ─ voice vol ───┘                               └─ analyser tap
+//
+// Voice clips (announcer + unit acknowledgements) are the one thing that is
+// not synthesised here: they are pre-rendered files played by ./voice.js.
 //
 // Everything audible is scheduled on the context clock. tick() is the single
 // heartbeat (setInterval in real time, OfflineAudioContext.suspend() pumps in
@@ -25,6 +28,7 @@ import { makeRng } from './dsp.js';
 import { SFX } from './sfx.js';
 import { LOOPS, LOOP_LEN, buildLoop } from './loops.js';
 import { MusicDirector } from './music.js';
+import { VoiceBox } from './voice.js';
 
 export const DEFAULT_VOLUMES = { master: 0.9, music: 0.55, sfx: 0.8, voice: 0.9 };
 
@@ -58,6 +62,8 @@ const PAN_LEVELS = [-0.9, -0.6, -0.3, 0, 0.3, 0.6, 0.9];
 // in-match piece between -22 (quiet) and -15.5 LUFS (full combat) at the
 // default volumes
 const MUSIC_TRIM = 1.12;
+// trim of the voice bus: the clips are rendered to -16 LUFS (tools/voicegen)
+const VOICE_TRIM = 1;
 
 const taper = (v) => v * v;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -520,6 +526,15 @@ export class AudioEngine {
     this.baker = new Baker(this);
     this.wire(o);
     this.music = new MusicDirector(this, o);
+    // pre-rendered voice clips: live contexts only; the manifest is fetched in
+    // idle time, the clips on first need
+    this.voice = null;
+    if (!this.offline && typeof VoiceBox === 'function') {
+      try {
+        this.voice = new VoiceBox(this);
+        whenIdle(() => { try { this.voice.load(); } catch (e) { /* ok */ } });
+      } catch (e) { this.voice = null; }
+    }
     if (!this.offline) {
       this.assets.prewarm(['noise:pink', 'noise:brown', 'crackle']);
       // assigning a ConvolverNode's buffer builds its FFT kernel on the main
@@ -647,6 +662,9 @@ export class AudioEngine {
     bus.music = G(1); // also the ducking gain
     bus.music.connect(bus.musicVol);
     bus.stinger = bus.musicVol;
+    // voice side: dry and centred, straight into the mix
+    bus.voice = G(taper(this.vols.voice) * VOICE_TRIM);
+    bus.voice.connect(bus.mix);
     bus.hallSend = G(1);
     bus.hallSend.channelCount = 1; bus.hallSend.channelCountMode = 'explicit';
     this.hallConv = ctx.createConvolver();
@@ -655,7 +673,7 @@ export class AudioEngine {
     widen(hRet, bus.music, 0.0171, 0.0263);
     this.hallReturn = hRet;
     this.bus = bus;
-    this.count(62);
+    this.count(63);
   }
 
   // the hall is only needed once music or a stinger plays
@@ -691,6 +709,7 @@ export class AudioEngine {
     if (kind === 'master') this.ramp(this.bus.master.gain, this.muted ? 0 : g, t);
     else if (kind === 'sfx') this.ramp(this.bus.sfxVol.gain, g, t);
     else if (kind === 'music') this.ramp(this.bus.musicVol.gain, g * MUSIC_TRIM, t);
+    else if (kind === 'voice') this.ramp(this.bus.voice.gain, g * VOICE_TRIM, t);
   }
 
   ramp(param, v, t) {
@@ -705,6 +724,7 @@ export class AudioEngine {
   mute(on) {
     this.muted = !!on;
     this.ramp(this.bus.master.gain, this.muted ? 0 : taper(this.vols.master), this.ctx.currentTime);
+    if (this.muted && this.voice) this.voice.stopAll();
   }
 
   // ---- music ducking (sidechain-style, driven by events not by a detector) ---
@@ -942,14 +962,15 @@ export class AudioEngine {
     if (i >= 0) this.loops.splice(i, 1);
   }
 
-  // quiet desert ambience during matches: a soft wind bed plus a far-off
-  // rumble every 20-45 s
+  // quiet desert ambience during matches: a soft wind bed
   ambience(on) {
     if (on) {
       if (this.bed) return;
       this.bed = this.loopStart('wind');
       if (this.bed) this.bed.set(0, 0.5, 0.3);
-      this.rumbleAt = this.ctx.currentTime + 20 + this.rng() * 25;
+      // no far-off rumble: play-testers heard distant battle with no battle in
+      // sight. The bed is wind only; combat is heard where it is seen.
+      this.rumbleAt = Infinity;
     } else {
       if (this.bed) { try { this.bed.stop(); } catch (e) { /* ok */ } }
       this.bed = null;
@@ -1055,6 +1076,7 @@ export class AudioEngine {
   dispose() {
     this.halt();
     try { this.music.halt(0); } catch (e) { /* ok */ }
+    try { if (this.voice) this.voice.dispose(); } catch (e) { /* ok */ }
     for (const lp of this.loops.slice()) { try { lp.stop(); } catch (e) { /* ok */ } }
     try { this.bus.master.disconnect(); } catch (e) { /* ok */ }
     this.assets.dispose();

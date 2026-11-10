@@ -4,5 +4,5 @@ export {
   initGl, glFrame, focusGl, setGlVisible, syncLegacyFog, glWorldToScreen,
   glScreenToWorld, panGlBy, zoomGlBy, setCinematicReveal, glPickEntity, glUnitToScreen,
   glViewQuad,
-  setQuality, getQuality, readQualityPref, resizeGl, setWorld,
+  setQuality, getQuality, readQualityPref, resizeGl, setWorld, setEdgePan, getEdgePan, warmGl,
 } from '../gfx/engine.js';

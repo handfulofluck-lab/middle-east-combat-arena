@@ -430,6 +430,7 @@ function loadSetup(game, tutorialPath) {
     opponents: [{ faction: pick('Algeria', factions[factions.length > 1 ? 1 : 0]), personality: 'Auto', difficulty: 'recruit' }],
     ally: null,
     tutorial: false,
+    peace: PEACE_DEFAULT,
   };
   const saved = lsGetJson(K_SETUP, null);
   const cleanAi = (o, fallback) => ({
@@ -444,13 +445,34 @@ function loadSetup(game, tutorialPath) {
       cfg.opponents = saved.opponents.slice(0, 5).map((o) => cleanAi(o, cfg.opponents[0].faction));
     }
     if (saved.ally) cfg.ally = cleanAi(saved.ally, pick('Saudi', factions[0]));
+    if (saved.peace !== undefined) cfg.peace = cleanPeace(saved.peace);
   }
   cfg.tutorial = !!tutorialPath;
   return cfg;
 }
 
 function saveSetup(cfg) {
-  lsSet(K_SETUP, JSON.stringify({ map: cfg.map, faction: cfg.faction, opponents: cfg.opponents, ally: cfg.ally }));
+  lsSet(K_SETUP, JSON.stringify({ map: cfg.map, faction: cfg.faction, opponents: cfg.opponents, ally: cfg.ally, peace: cfg.peace }));
+}
+
+// Peace timer (minutes of ceasefire at the start of a match): nobody can
+// attack until it runs out. Shared by skirmish setup and the online lobby.
+const PEACE_CHOICES = [0, 3, 5, 10, 15];
+const PEACE_DEFAULT = 5;
+function cleanPeace(v) {
+  const n = Number(v);
+  return PEACE_CHOICES.includes(n) ? n : PEACE_DEFAULT;
+}
+function peaceControl(value, onChange, cls) {
+  const f = h('div', 'field peace-field');
+  f.appendChild(h('span', 'micro', 'Peace timer'));
+  f.appendChild(segmented(
+    PEACE_CHOICES.map((m) => ({
+      value: String(m), label: m ? m + ' min' : 'Off',
+      title: m ? 'No attacks for the first ' + m + ' minutes: time to build a base' : 'Fighting can start at once',
+    })),
+    String(cleanPeace(value)), (v) => onChange(Number(v)), cls || 'seg-sm'));
+  return f;
 }
 
 function mapChips(md) {
@@ -695,6 +717,9 @@ function showSetup(game, onStart, tutorialPath) {
   colO.appendChild(headO);
   const forces = h('div', 'forces-body');
   colO.appendChild(forces);
+  const rules = h('div', 'forces-rules');
+  rules.appendChild(peaceControl(cfg.peace, (m) => { cfg.peace = m; saveSetup(cfg); }));
+  colO.appendChild(rules);
   const foot = h('div', 'forces-foot');
   const tutSwitch = switchEl(cfg.tutorial, (on) => { cfg.tutorial = on; }, 'Guided training');
   tutSwitch.classList.add('tutor-switch');
@@ -716,6 +741,7 @@ function showSetup(game, onStart, tutorialPath) {
       opponents: cfg.opponents.map((o) => ({ faction: o.faction, personality: o.personality, difficulty: o.difficulty })),
       ally: cfg.ally ? { faction: cfg.ally.faction, personality: cfg.ally.personality, difficulty: cfg.ally.difficulty } : null,
       tutorial: !!cfg.tutorial,
+      peace: cleanPeace(cfg.peace),
     });
   });
   foot.appendChild(deploy);
@@ -1270,6 +1296,18 @@ function showSettings(game, opts) {
 
     const sec2 = h('div', 'set-sec');
     sec2.appendChild(h('h3', null, 'Interface'));
+    {
+      // text + panel size for menus and the HUD (ui/scale.js); applies live
+      const sizeNote = h('span', 'set-note');
+      const sizeSeg = segmented(Settings.UI_SIZES.map((o) => ({ value: o.id, label: o.label })), Settings.getUiSize(),
+        (v) => { Settings.setUiSize(v); sizeNote.textContent = Settings.uiSizeNote(); });
+      const sizeRow = settingRow('Interface size',
+        'Size of all menu and HUD text and panels. Auto fits it to the window.', sizeSeg);
+      sizeRow.classList.add('set-row-wide');
+      sizeRow.querySelector('.set-label').appendChild(sizeNote);
+      sizeNote.textContent = Settings.uiSizeNote();
+      sec2.appendChild(sizeRow);
+    }
     sec2.appendChild(settingRow('Frosted glass panels',
       'Blurs the battlefield behind HUD panels. Turn off to save GPU time on integrated graphics.',
       switchEl(Settings.getGlassBlur(), (on) => Settings.setGlassBlur(on))));
@@ -1584,7 +1622,7 @@ export function showLobby(game) {
   screen.appendChild(grid);
 
   const slots = net.lobbySlots ? net.lobbySlots() : [];
-  const lobby = game.lobby || (net.cfg ? { map: net.cfg.map, seed: net.cfg.seed, delay: net.cfg.delay } : null);
+  const lobby = game.lobby || (net.cfg ? { map: net.cfg.map, seed: net.cfg.seed, delay: net.cfg.delay, peace: net.cfg.peace } : null);
   const maps = Object.keys(game.maps);
   const curMap = lobby && lobby.map && game.maps[lobby.map] ? lobby.map : (net.isHost ? maps[0] : null);
   const md = curMap ? game.maps[curMap] : null;
@@ -1716,10 +1754,14 @@ export function showLobby(game) {
       String(lobby && lobby.delay ? lobby.delay : 2),
       (v) => { if (game.mpSetLobby) game.mpSetLobby({ delay: Number(v) }); }, 'seg-sm'));
     row.appendChild(dF);
+    row.appendChild(peaceControl(lobby && lobby.peace !== undefined ? lobby.peace : PEACE_DEFAULT,
+      (m) => { if (game.mpSetLobby) game.mpSetLobby({ peace: m }); }));
     info.appendChild(row);
   } else if (lobby && lobby.map) {
-    info.appendChild(h('div', 'mp-note', 'Seed ' + lobby.seed + ' · input delay ' + (lobby.delay || 2)
-      + ' ticks — the host starts the match'));
+    const pm = lobby.peace === undefined ? null : Number(lobby.peace) | 0;
+    info.appendChild(h('div', 'mp-note', 'Seed ' + lobby.seed + ' · input delay ' + (lobby.delay || 2) + ' ticks'
+      + (pm === null ? '' : pm > 0 ? ' · peace timer ' + pm + ' min' : ' · no peace timer')
+      + ' — the host starts the match'));
   }
   mapBody.appendChild(info);
   mapPanel.appendChild(mapBody);

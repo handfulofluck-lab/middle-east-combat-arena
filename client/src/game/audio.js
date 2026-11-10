@@ -1,8 +1,10 @@
 // Central audio module — public facade over the synthesis engine in
-// ../audio/ (v1.0 audio rebuild). Everything is synthesised at runtime with
-// the Web Audio API: layered SFX, an adaptive orchestral-hybrid score,
-// positional one-shots, renderer-owned loops, per-faction EVA voice lines
-// (speechSynthesis) and a quiet desert ambience bed during matches.
+// ../audio/ (v1.0 audio rebuild). Effects and music are synthesised at runtime
+// with the Web Audio API: layered SFX, an adaptive orchestral-hybrid score,
+// positional one-shots, renderer-owned loops and a quiet desert ambience bed
+// during matches. The one exception is speech: the announcer lines and the
+// unit radio acknowledgements are pre-rendered clips (client/public/voice/,
+// produced by tools/voicegen), with speechSynthesis as the fallback.
 //
 // Contract:
 //  - every public function is guarded: with no AudioContext, speechSynthesis
@@ -23,20 +25,22 @@
 //   getVolume(kind)  setVolume(kind, v)   kind: master | music | sfx | voice
 //   startLoop(game, name) -> { set(pan, dist, gain[, pitch]), stop() } | null
 //   getLevels() -> { rms, low, mid, high, peak }   playVoice(game, faction, key, detail)
+//   playUnitAck(game, event, group) -> bool   unitVoiceGroup(unitDef) -> group | null
 // SFX names live in ../audio/sfx.js (SFX_GROUPS); unknown names are ignored.
 // Try everything in client/audio_lab.html.
 //
-// Persisted preferences (localStorage): mca_muted, mca_music ('0' = off;
-// music is ON by default), mca.vol.master / .music / .sfx / .voice.
+// Persisted preferences (localStorage): mca_muted, mca_music ('1' = on;
+// music is OFF by default), mca.vol.master / .music / .sfx / .voice.
 import { AudioEngine } from '../audio/engine.js';
 import { SFX } from '../audio/sfx.js';
+import { unitVoiceGroup as voiceGroupOf } from '../audio/voice.js';
 
 let __game = null;       // stored by initAudio (the ambience bed watches .state)
 let __ctx = null;        // AudioContext, created by unlockAudio on a gesture
 let __eng = null;        // AudioEngine bound to __ctx
 let __dead = false;      // engine construction failed once: stay silent
 let __muted = false;     // persisted to localStorage 'mca_muted'
-let __musicOn = true;    // persisted to 'mca_music' — ON unless the user turned it off
+let __musicOn = false;   // persisted to 'mca_music' — OFF unless the player turned it on
 let __track = null;      // requested music track (remembered while audio is locked)
 let __intensity = 0;     // requested adaptive intensity 0..1
 let __ambWanted = false; // ambience bed should run (set by initAudio)
@@ -66,228 +70,28 @@ const __voiceAt = {};
 let __unitCount = 0;
 let __attackVoiceAt = -Infinity;
 
-// speechSynthesis voice availability: lang prefix -> bool; negatives are
-// cached only once the voice list is non-empty, and the whole cache drops on
-// voiceschanged (voices often load after the first getVoices() call)
-let __voiceCache = {};
+// speechSynthesis fallback voice: undefined = not chosen yet, null = the
+// system default. Only cached once the voice list is non-empty, and dropped
+// on voiceschanged (voices often load after the first getVoices() call)
+let __speechVoice;
 let __voiceWatched = false;
 
-// ---- EVA voice lines (Grok review slice 4) -----------------------------------
-// byFaction: BCP-47 lang + short RTS-EVA lines per key.
-const VOICE_KEYS = ['online', 'built', 'unit', 'harv', 'attack', 'lost', 'structLost',
-  'captured'];
-const VOICES = {
-  Egypt: {
-    lang: 'ar-EG',
-    lines: {
-      online: 'القيادة شغالة يا باشا',
-      built: 'المبنى خلص يا باشا',
-      unit: 'الوحدة جاهزة يا معلم',
-      harv: 'الحصادة نزلت تشتغل في البترول',
-      attack: 'القاعدة بتتهجم يا جدعان',
-      lost: 'ضيعنا الوحدة',
-      structLost: 'المبنى اتهدّم',
-      captured: 'المبنى بقى بتاعنا',
-    },
-    // v0.4.1: per-building Egyptian-dialect lines for everything Egypt can
-    // build (All-faction SH-01..SH-11 + Sa'ka Tent + October Battery)
-    builtById: {
-      'SH-01': 'القاعدة جاهزة يا باشا',
-      'SH-02': 'الكهربا اشتغلت',
-      'SH-03': 'البترول بيضخ',
-      'SH-04': 'الثكنة جهزت',
-      'SH-05': 'مصنع المدرعات شغال',
-      'SH-06': 'المطار جاهز',
-      'SH-07': 'الميناء جاهز',
-      'SH-08': 'مركز القيادة اتفتح',
-      'SH-09': 'الدفاعات اتنصبت',
-      'SH-10': 'الدفاعات اتنصبت',
-      'SH-11': 'الدفاعات اتنصبت',
-      'SH-12': 'خيمة الصاعقة جهزت',
-      'SH-13': 'السلاح الثقيل جاهز',
-    },
-  },
-  Saudi: {
-    lang: 'ar-SA',
-    lines: {
-      online: 'غرفة القيادة جاهزة',
-      built: 'اكتمل البناء',
-      unit: 'الوحدة جاهزة',
-      harv: 'الحاصدة تشتغل',
-      attack: 'قاعدتنا تحت الهجوم',
-      lost: 'فقدنا الوحدة',
-      structLost: 'فقدنا المبنى',
-      captured: 'المبنى صار لنا',
-    },
-    builtByType: {
-      Core: 'المقر الرئيسي اكتمل',
-      Eco: 'الطاقة والموارد شغالة',
-      Prod: 'مبنى الإنتاج جاهز',
-      Def: 'الدفاعات جاهزة',
-      Tech: 'مركز التقنية اكتمل',
-      SW: 'السلاح الاستراتيجي جاهز',
-    },
-  },
-  UAE: {
-    lang: 'ar-AE',
-    lines: {
-      online: 'القيادة متصلة',
-      built: 'البناء اكتمل',
-      unit: 'الوحدة جاهزة',
-      harv: 'الحصاد جاري',
-      attack: 'القاعدة تتعرض لهجوم',
-      lost: 'خسرنا وحدة',
-      structLost: 'خسرنا مبنى',
-      captured: 'المبنى صار تحت سيطرتنا',
-    },
-    builtByType: {
-      Core: 'القاعدة الأم جاهزة',
-      Eco: 'الطاقة شغالة',
-      Prod: 'مبنى الإنتاج جاهز',
-      Def: 'الدفاعات منصوبة',
-      Tech: 'مركز القيادة التقني جاهز',
-      SW: 'السلاح الثقيل جاهز',
-    },
-  },
-  Algeria: {
-    lang: 'fr-FR',
-    lines: {
-      online: 'Systèmes en ligne',
-      built: 'Construction terminée',
-      unit: 'Unité prête',
-      harv: 'Récolte en cours',
-      attack: 'Notre base est attaquée',
-      lost: 'Unité perdue',
-      structLost: 'Bâtiment détruit',
-      captured: 'Bâtiment capturé',
-    },
-    builtByType: {
-      Core: 'Base principale opérationnelle',
-      Eco: 'Économie en marche',
-      Prod: 'Site de production prêt',
-      Def: 'Défenses en place',
-      Tech: 'Centre technique opérationnel',
-      SW: 'Arme lourde prête',
-    },
-  },
-  Turkey: {
-    lang: 'tr-TR',
-    lines: {
-      online: 'Komuta çevrimiçi',
-      built: 'İnşaat tamamlandı',
-      unit: 'Birim hazır',
-      harv: 'Hasat sürüyor',
-      attack: 'Üssümüz saldırı altında',
-      lost: 'Birim kaybedildi',
-      structLost: 'Bina yıkıldı',
-      captured: 'Bina ele geçirildi',
-    },
-    builtByType: {
-      Core: 'Ana üs hazır',
-      Eco: 'Enerji ve ekonomi aktif',
-      Prod: 'Üretim binası hazır',
-      Def: 'Savunmalar kuruldu',
-      Tech: 'Teknoloji merkezi açıldı',
-      SW: 'Ağır silah hazır',
-    },
-  },
-  Israel: {
-    lang: 'he-IL',
-    lines: {
-      online: 'המערכות מקוונות',
-      built: 'הבנייה הושלמה',
-      unit: 'היחידה מוכנה',
-      harv: 'הקציר פעיל',
-      attack: 'הבסיס תחת מתקפה',
-      lost: 'איבדנו יחידה',
-      structLost: 'איבדנו מבנה',
-      captured: 'המבנה נכבש',
-    },
-    builtByType: {
-      Core: 'הבסיס הראשי מוכן',
-      Eco: 'אנרגיה ומשאבים פעילים',
-      Prod: 'מבנה הייצור מוכן',
-      Def: 'ההגנות הוצבו',
-      Tech: 'מרכז הטכנולוגיה נפתח',
-      SW: 'הנשק הכבד מוכן',
-    },
-  },
-  Iran: {
-    lang: 'fa-IR',
-    lines: {
-      online: 'فرماندهی آنلاین شد',
-      built: 'ساخت و ساز کامل شد',
-      unit: 'یگان آماده است',
-      harv: 'برداشت در جریان است',
-      attack: 'پایگاه تحت حمله است',
-      lost: 'یگان را از دست دادیم',
-      structLost: 'ساختمان را از دست دادیم',
-      captured: 'ساختمان به تصرف ما درآمد',
-    },
-    builtByType: {
-      Core: 'پایگاه اصلی آماده است',
-      Eco: 'انرژی و اقتصاد فعال شد',
-      Prod: 'ساختمان تولید آماده است',
-      Def: 'دفاع‌ها نصب شد',
-      Tech: 'مرکز فناوری باز شد',
-      SW: 'سلاح سنگین آماده است',
-    },
-  },
-  India: {
-    lang: 'hi-IN',
-    lines: {
-      online: 'कमान ऑनलाइन है',
-      built: 'निर्माण पूरा हुआ',
-      unit: 'यूनिट तैयार है',
-      harv: 'कटाई जारी है',
-      attack: 'बेस पर हमला हो रहा है',
-      lost: 'यूनिट खो गई',
-      structLost: 'इमारत नष्ट हो गई',
-      captured: 'इमारत हमारे कब्ज़े में है',
-    },
-    builtByType: {
-      Core: 'मुख्य बेस तैयार है',
-      Eco: 'ऊर्जा और अर्थव्यवस्था चालू',
-      Prod: 'उत्पादन भवन तैयार',
-      Def: 'रक्षा स्थापित',
-      Tech: 'तकनीकी केंद्र खुला',
-      SW: 'भारी हथियार तैयार',
-    },
-  },
-  Pakistan: {
-    lang: 'ur-PK',
-    lines: {
-      online: 'کمانڈ آن لائن ہے',
-      built: 'تعمیر مکمل ہو گئی',
-      unit: 'یونٹ تیار ہے',
-      harv: 'کٹائی جاری ہے',
-      attack: 'ہمارے اڈے پر حملہ ہو رہا ہے',
-      lost: 'ہم نے یونٹ کھو دیا',
-      structLost: 'عمارت تباہ ہو گئی',
-      captured: 'عمارت ہمارے قبضے میں ہے',
-    },
-    builtByType: {
-      Core: 'مرکزی اڈہ تیار ہے',
-      Eco: 'توانائی اور معیشت فعال',
-      Prod: 'پیداواری عمارت تیار',
-      Def: 'دفاع نصب ہو گئے',
-      Tech: 'ٹیکنالوجی سینٹر کھل گیا',
-      SW: 'بھاری ہتھیار تیار',
-    },
-  },
-  default: {
-    lang: 'en-US',
-    lines: {
-      online: 'Command online',
-      built: 'Construction complete',
-      unit: 'Unit ready',
-      harv: 'Harvesting underway',
-      attack: 'Our base is under attack',
-      lost: 'Unit lost',
-      structLost: 'Structure lost',
-      captured: 'Structure captured',
-    },
-  },
+// ---- announcer lines ------------------------------------------------------------
+// The announcer and the unit acknowledgements are pre-rendered clips
+// (client/public/voice/, rendered by tools/voicegen, played by
+// ../audio/voice.js). This table is only the English text for the
+// speechSynthesis fallback, used when the clips cannot be loaded.
+const VOICE_LINES = {
+  online: 'Command link established.',
+  built: 'Structure operational.',
+  unit: 'New unit on the field.',
+  harv: 'Harvester deployed.',
+  attack: 'Warning. Our base is taking fire.',
+  lost: 'We have lost a unit.',
+  structLost: 'Structure destroyed.',
+  captured: 'Structure seized.',
+  peaceStart: 'Ceasefire in effect. Hold your fire.',
+  peaceEnd: 'Ceasefire has ended. Weapons free.',
 };
 
 // ---- tiny guarded helpers ------------------------------------------------------
@@ -331,7 +135,7 @@ function contextClass() {
 
 function musicPref() {
   const mu = lsGet('mca_music');
-  return !(mu === '0' || mu === 'false'); // ON by default
+  return mu === '1' || mu === 'true'; // OFF unless the player turned it on
 }
 
 // ---- volumes -------------------------------------------------------------------
@@ -426,17 +230,18 @@ function resumeContext() {
   } catch (e) { /* best-effort */ }
 }
 
-// ---- speechSynthesis voice availability ---------------------------------------
-// Never speak Arabic/Hebrew/Farsi/etc text through an English engine: before
-// using a faction's native lines, require an installed voice whose lang
-// starts with the set's language prefix ('ar' for ar-EG); otherwise fall back
-// to the English default lines.
+// ---- voice: clip player + speechSynthesis fallback ------------------------------
+// Speech synthesis is only the fallback for announcer lines whose clip cannot
+// be had (file missing, single-file build opened from disk, no Web Audio).
+// English only. The system default voice is usually the robotic one, so an
+// installed natural-sounding English voice is preferred: a name containing
+// "Natural", then "Online", "Neural", "Google".
 
 function watchVoices(synth) {
   if (__voiceWatched) return;
   __voiceWatched = true;
   try {
-    const clear = () => { __voiceCache = {}; };
+    const clear = () => { __speechVoice = undefined; };
     if (typeof synth.addEventListener === 'function') {
       synth.addEventListener('voiceschanged', clear);
     } else {
@@ -445,23 +250,72 @@ function watchVoices(synth) {
   } catch (e) { /* best-effort */ }
 }
 
-function hasVoiceFor(synth, lang) {
-  const prefix = String(lang || '').split('-')[0].toLowerCase();
-  if (!prefix) return false;
-  if (__voiceCache[prefix] !== undefined) return __voiceCache[prefix];
+function speechVoice(synth) {
+  if (__speechVoice !== undefined) return __speechVoice;
   try {
     const vs = typeof synth.getVoices === 'function' ? synth.getVoices() : null;
-    if (!vs || !vs.length) return false; // not loaded yet: re-check next call
-    let ok = false;
+    if (!vs || !vs.length) return null; // not loaded yet: re-check next call
+    let best = null;
+    let top = 0;
     for (const v of vs) {
-      const vl = String(v && v.lang || '').toLowerCase();
-      if (vl.indexOf(prefix) === 0) { ok = true; break; }
+      const lang = String(v && v.lang || '').toLowerCase().replace('_', '-');
+      if (lang.indexOf('en') !== 0) continue;
+      const name = String(v.name || '');
+      let score = /natural/i.test(name) ? 40 : /online/i.test(name) ? 30
+        : /neural/i.test(name) ? 20 : /google/i.test(name) ? 10 : 0;
+      if (!score) continue;
+      score += lang === 'en-us' ? 2 : lang === 'en-gb' ? 1 : 0;
+      if (score > top) { top = score; best = v; }
     }
-    __voiceCache[prefix] = ok;
-    return ok;
+    __speechVoice = best;
+    return best;
   } catch (e) {
-    return false;
+    return null;
   }
+}
+
+// Speak an announcer line with the system speech engine. `text` defaults to
+// the key's English line. Returns the seconds it should take (0 = silent).
+function speakLine(key, text) {
+  try {
+    if (__muted) return 0;
+    const synth = globalThis.speechSynthesis;
+    const Utterance = globalThis.SpeechSynthesisUtterance;
+    if (!synth || typeof synth.speak !== 'function' || typeof Utterance !== 'function') return 0;
+    const line = (typeof text === 'string' && text) ? text : VOICE_LINES[key];
+    if (!line) return 0;
+    const vol = voiceVolume();
+    if (vol <= 0) return 0;
+    watchVoices(synth);
+    const voice = speechVoice(synth);
+    const u = new Utterance(line);
+    u.lang = (voice && voice.lang) ? voice.lang : 'en-US';
+    if (voice) u.voice = voice;
+    u.rate = voice ? 1 : 1.05;
+    u.volume = vol; // 0.9 at the default voice / master volumes
+    // duck the score under the line; released when the utterance ends (the
+    // duck also times out on its own if the browser never reports the end)
+    const eng = __eng;
+    if (eng && __ctx && __ctx.state === 'running') {
+      eng.duck(5, 3.5, 0.9);
+      const release = () => { try { eng.unduck(); } catch (e) { /* ok */ } };
+      u.onend = release;
+      u.onerror = release;
+    }
+    synth.speak(u);
+    return 0.6 + line.length * 0.07;
+  } catch (e) {
+    return 0; // speechSynthesis missing or busy: never throws
+  }
+}
+
+// the engine's clip player (../audio/voice.js), wired to the speech fallback;
+// null until the engine exists
+function voiceBox() {
+  const box = __eng ? __eng.voice : null;
+  if (!box) return null;
+  if (box.onFallback !== speakLine) box.onFallback = speakLine;
+  return box;
 }
 
 // ---- public API ------------------------------------------------------------------
@@ -492,6 +346,7 @@ export function resetAudioThrottles() {
     __unitCount = 0;
     __attackVoiceAt = -Infinity;
     if (__eng) __eng.unthrottle();
+    if (__eng && __eng.voice) __eng.voice.reset();
   } catch (e) { /* never throws */ }
 }
 
@@ -679,13 +534,17 @@ export function setVolume(kind, v) {
   } catch (e) { /* never throws */ }
 }
 
+// Announcer line. key: 'online' | 'built' | 'unit' | 'harv' | 'attack' | 'lost' |
+// 'structLost' | 'captured' | 'peaceStart' | 'peaceEnd'. `faction` picks the
+// announcer voice; for 'built', detail = { id, type } picks the line for that
+// structure type when there is one. Plays a pre-rendered clip (a random
+// variant, never the same twice running) on the voice bus; lines never
+// overlap (see ../audio/voice.js). If the clips cannot be loaded the line is
+// spoken by speechSynthesis instead.
 export function playVoice(game, faction, key, detail) {
   try {
     if (__muted) return;
-    const synth = globalThis.speechSynthesis;
-    const Utterance = globalThis.SpeechSynthesisUtterance;
-    if (!synth || typeof synth.speak !== 'function' || typeof Utterance !== 'function') return;
-    if (VOICE_KEYS.indexOf(key) < 0) return;
+    if (!Object.prototype.hasOwnProperty.call(VOICE_LINES, key)) return;
     const now = nowMs();
     if (__voiceAt[key] !== undefined && now - __voiceAt[key] < 6000) return; // 6s/key
     // 'unit' spam guard: at most every 3rd eligible trigger, and never while
@@ -695,48 +554,43 @@ export function playVoice(game, faction, key, detail) {
       __unitCount++;
       if (__unitCount % 3 !== 1) return;
     }
-    watchVoices(synth);
-    let set = VOICES[faction] || VOICES.default;
-    // never speak Arabic/Hebrew/Farsi/etc through an English engine: without
-    // a matching installed voice, fall back to the English default lines
-    if (set !== VOICES.default && set.lang && !hasVoiceFor(synth, set.lang)) {
-      set = VOICES.default;
-    }
-    // v0.4.1 per-building lines: for 'built', detail = { id, type } from the
-    // HUD; resolution: exact defId -> structure type -> faction generic ->
-    // English default
-    let line = null;
-    if (key === 'built' && detail) {
-      if (detail.id && set.builtById && set.builtById[detail.id]) {
-        line = set.builtById[detail.id];
-      }
-      if (!line && detail.type && set.builtByType && set.builtByType[detail.type]) {
-        line = set.builtByType[detail.type];
-      }
-    }
-    if (!line) line = set && set.lines ? set.lines[key] : null;
-    if (!line && set !== VOICES.default) line = VOICES.default.lines[key];
-    if (!line) return;
+    const box = voiceBox();
+    // Web Audio is there but still locked (no user gesture yet): stay quiet
+    // rather than send the line to the speech engine
+    if (!box && !__dead && engineClass() && contextClass()) return;
     __voiceAt[key] = now;
     if (key === 'attack') __attackVoiceAt = now;
     pollLegacyVolume(now);
-    const vol = voiceVolume();
-    if (vol <= 0) return;
-    const u = new Utterance(line);
-    if (set.lang) u.lang = set.lang;
-    u.rate = 1.05;
-    u.volume = vol; // 0.9 at the default voice / master volumes
-    // duck the score under the line; released when the utterance ends (the
-    // duck also times out on its own if the browser never reports the end)
-    const eng = __eng;
-    if (eng && __ctx && __ctx.state === 'running') {
-      eng.duck(5, 3.5, 0.9);
-      const release = () => { try { eng.unduck(); } catch (e) { /* ok */ } };
-      u.onend = release;
-      u.onerror = release;
-    }
-    synth.speak(u);
-  } catch (e) { /* speechSynthesis missing or busy: never throws */ }
+    if (box) box.announce(faction, key, detail);
+    else speakLine(key, null);
+  } catch (e) { /* never throws */ }
+}
+
+// Short radio acknowledgement from the player's own units.
+//   event: 'select' | 'move' | 'attack'
+//   group: 'infantry' | 'vehicle' | 'air' | 'naval' | 'support' (unitVoiceGroup)
+// Rate-limited inside: one at a time, order replies at most one per 2 s,
+// selection replies one per 5 s, never over an announcer line; an order reply
+// may cut a selection reply short. Silent when the clips are unavailable.
+// Returns true when a reply was started.
+export function playUnitAck(game, event, group) {
+  try {
+    if (__muted) return false;
+    const box = voiceBox();
+    return box ? box.ack(event, group) === true : false;
+  } catch (e) { /* never throws */ }
+  return false;
+}
+
+// Which radio voice answers for a unit definition (state.unitDefs[defId]):
+// 'support' for the MCV, harvesters and engineers, 'air' / 'naval' by domain,
+// 'infantry' for the infantry classes, 'vehicle' for every other land unit;
+// null without a definition.
+export function unitVoiceGroup(def) {
+  try {
+    return (typeof voiceGroupOf === 'function') ? voiceGroupOf(def) : null;
+  } catch (e) { /* never throws */ }
+  return null;
 }
 
 export function setMuted(game, muted) {
@@ -781,15 +635,15 @@ export function stopAmbient() {
   } catch (e) { /* never throws */ }
 }
 
-// persisted music preference (localStorage 'mca_music'); music is ON unless
-// the player turned it off — main.js initializes game.musicOn from this so
+// persisted music preference (localStorage 'mca_music'); music is OFF unless
+// the player turned it on — main.js initializes game.musicOn from this so
 // the toggle starts truthful
 export function getMusicOn() {
   try {
     __musicOn = musicPref();
     return __musicOn;
   } catch (e) { /* never throws */ }
-  return true;
+  return false;
 }
 
 // ---- diagnostics (audio lab / perf overlays; not part of the game contract) ----
@@ -810,6 +664,7 @@ export function audioStats() {
       // scheduler tick, one playSfx call, one bake set-up, one asset hand-over
       initMs: s.initMs, maxFireMs: s.maxFireMs, maxBakeMs: __eng.baker.maxSliceMs,
       maxStoreMs: __eng.assets.maxStoreMs,
+      voice: __eng.voice ? __eng.voice.status() : null,
     };
   } catch (e) { /* never throws */ }
   return { ready: false, state: 'error' };
@@ -827,6 +682,6 @@ try {
     window.addEventListener('pointerdown', kick, true);
     window.addEventListener('keydown', kick, true);
     window.addEventListener('touchend', kick, true);
-    window.__mcaAudio = { stats: audioStats, levels: getLevels };
+    window.__mcaAudio = { stats: audioStats, levels: getLevels, playVoice, playUnitAck };
   }
 } catch (e) { /* headless: nothing to hook */ }

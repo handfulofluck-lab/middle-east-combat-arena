@@ -178,3 +178,23 @@ body.cine-on #minimap, body.cine-on #hint, body.cine-on #alerts, body.cine-on #t
 body.cine-on #cursor-label, body.cine-on #hud, body.cine-on .hud-root {
   opacity: 0 !important; pointer-events: none !important;
 }
+
+/* ── peace timer chip (top centre, under the bar) ───────────────────────── */
+#peace-chip {
+  display: inline-flex; align-items: baseline; gap: 10px; padding: 7px 16px 6px;
+  background: var(--glass-strong); border: 1px solid var(--cyan); box-shadow: var(--shadow-1);
+  font: 700 13px/1 var(--font-display); letter-spacing: 0.2em; text-transform: uppercase; color: var(--cyan);
+}
+#peace-chip .pc-time { font-size: 20px; letter-spacing: 0.04em; color: var(--text); min-width: 2.6em; text-align: center; }
+#peace-chip .pc-note { font: 500 12px/1 var(--font-body); letter-spacing: 0.02em; text-transform: none; color: var(--text-dim); }
+#peace-chip.ending { border-color: var(--amber); color: var(--amber); animation: peace-pulse 1s ease-in-out infinite; }
+@keyframes peace-pulse { 50% { box-shadow: 0 0 0 3px rgba(255, 179, 71, 0.28); } }
+
+/* skirmish setup: match rules row above the deploy bar */
+.forces-rules { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; padding: 10px 14px 2px; border-top: 1px solid var(--hairline); }
+.peace-field .seg { flex-wrap: nowrap; }
+
+/* army panel: the group strip always holds one chip's height (a hidden,
+   zero-width chip), so the panel never grows or shrinks under the pointer */
+.ap-group.ap-ghost { visibility: hidden; width: 0; min-width: 0; padding-left: 0; padding-right: 0; border-left-width: 0; border-right-width: 0; margin-right: -4px; overflow: hidden; }
+.ap-hint { align-self: center; font: 500 11px/1 var(--font-body); color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -200,16 +200,18 @@ const ARMY_BRANCHES = [
   { id: 'air', label: 'Air', ico: 'air' },
   { id: 'armor', label: 'Armor', ico: 'vehicles' },
   { id: 'inf', label: 'Infantry', ico: 'infantry' },
+  { id: 'sea', label: 'Naval', ico: 'naval' },
 ];
 
 function armyBranchTest(state, u, branchId) {
   const d = state.unitDefs[u.defId];
   if (branchId === 'air') return d.domain === 'Air';
+  if (branchId === 'sea') return d.domain === 'Sea';
   if (branchId === 'armor') {
     return d.domain === 'Land' && !isInfantryCls(d.cls)
       && u.defId !== 'MCV' && u.defId !== 'HARV';
   }
-  return isInfantryCls(d.cls);
+  return d.domain === 'Land' && isInfantryCls(d.cls);
 }
 
 // own units of a branch, sorted by unit id ascending (deterministic pick)
@@ -657,7 +659,7 @@ export function initHud(game) {
       btns.push(b);
     }
     apBody.appendChild(r);
-    apRows[br.id] = { count: cnt, btns };
+    apRows[br.id] = { row: r, count: cnt, btns };
   }
   // control groups (Ctrl+1..9 in input.js) surfaced as recall chips
   const apGroups = h('div', 'ap-groups');
@@ -1126,8 +1128,12 @@ function heavyScans(game, st, p) {
   }
 
   // SFX hooks (v0.3.6): weapon crack for fresh tracers visible on screen,
-  // explosion thump when the entity count drops.
-  if (game.camera) {
+  // explosion thump when the entity count drops. 2D fallback only: the 3D
+  // renderer plays every shot and blast itself, at its position and only
+  // where the player can see it. Run here as well, these fired for any death
+  // anywhere on the map, close and unplaced: gunfire with no enemy in sight.
+  const legacySfx = game.gfx !== '3d';
+  if (legacySfx && game.camera) {
     const cam = game.camera;
     const fog = st.fog[game.playerSlot].visible;
     const mw = st.map.w;
@@ -1150,7 +1156,7 @@ function heavyScans(game, st, p) {
   let entCount = 0;
   for (const id in st.units) entCount++;
   for (const id in st.structures) entCount++;
-  if (H.lastEntCount >= 0 && entCount < H.lastEntCount) playBoom(game);
+  if (legacySfx && H.lastEntCount >= 0 && entCount < H.lastEntCount) playBoom(game);
   H.lastEntCount = entCount;
 }
 
@@ -1159,7 +1165,10 @@ function heavyScans(game, st, p) {
 function updateArmyPanel(game, st, p) {
   const A = game.hud.army;
   if (!A) return;
-  let sig = '';
+  // the naval row exists only on maps with water; decided once per match so
+  // the rows never move under the pointer
+  const water = mapHasWater(st);
+  let sig = water ? 'w' : 'd';
   let total = 0;
   const counts = {};
   for (const br of ARMY_BRANCHES) {
@@ -1172,6 +1181,7 @@ function updateArmyPanel(game, st, p) {
     for (const br of ARMY_BRANCHES) {
       const r = A.rows[br.id];
       const n = counts[br.id];
+      if (br.id === 'sea' && r.row) r.row.style.display = water ? '' : 'none';
       r.count.textContent = '×' + n;
       r.count.classList.toggle('zero', n === 0);
       for (const b of r.btns) {
@@ -1194,7 +1204,16 @@ function updateArmyPanel(game, st, p) {
   if (gsig !== A.groupSig) {
     A.groupSig = gsig;
     clear(A.groups);
-    A.groups.style.display = (live.length || idle) ? '' : 'none';
+    // the strip always keeps its line: a panel that grows and shrinks as the
+    // idle chip comes and goes slides the percentage buttons out from under
+    // the pointer (the column is anchored at the bottom of the screen)
+    A.groups.style.display = '';
+    // an invisible, zero-width chip gives the strip the height of a real one
+    const ghost = el('span', { class: 'ap-group ap-ghost', 'aria-hidden': 'true' }, [h('span', 'kbd', '1')]);
+    A.groups.appendChild(ghost);
+    if (!live.length && !idle) {
+      A.groups.appendChild(h('span', 'ap-hint', 'Ctrl + 1…9 saves a group'));
+    }
     if (idle) {
       const ib = el('button', { class: 'ap-group ap-idle', type: 'button', title: idle + ' idle worker' + (idle === 1 ? '' : 's') + ' — jump to the next one' }, [
         icon('warn'), h('span', null, 'Idle'), h('span', 'num', String(idle)), h('span', 'kbd', '.'),

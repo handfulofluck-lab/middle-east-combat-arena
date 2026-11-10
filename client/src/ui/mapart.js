@@ -2,6 +2,7 @@
 // 1 rock, 2 water): shaded coastlines, wind-rippled sand, oil and spawn
 // markers. Used by the map pickers (menu) and the in-match minimap so both
 // share one cartographic language. Pure canvas, cached per map object.
+import { getUiScale } from './scale.js';
 
 const PALETTES = {
   // menu previews: warm satellite-style plate
@@ -150,6 +151,9 @@ export function drawMapPreview(canvas, map, opts) {
   const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
   const box = o.size || canvas.clientWidth || 200;
   const boxH = o.sizeH || canvas.clientHeight || box;
+  // markers follow the interface scale: `u` is one design px in backing pixels
+  const ui = getUiScale() || 1;
+  const u = dpr * ui;
   const W = Math.max(16, Math.round(box * dpr));
   const H = Math.max(16, Math.round(boxH * dpr));
   if (canvas.width !== W) canvas.width = W;
@@ -168,7 +172,7 @@ export function drawMapPreview(canvas, map, opts) {
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(terr, ox, oy, dw, dh);
 
-  if (o.grid !== false && box >= 150) {
+  if (o.grid !== false && box / ui >= 150) {
     ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -190,9 +194,9 @@ export function drawMapPreview(canvas, map, opts) {
   ctx.fillStyle = vg;
   ctx.fillRect(0, 0, W, H);
 
-  const big = box >= 150;
+  const big = box / ui >= 150;
   if (o.oil !== false && map.oil) {
-    const r = (big ? 3.4 : 1.8) * dpr;
+    const r = (big ? 3.4 : 1.8) * u;
     for (const f of map.oil) {
       const x = ox + (f.x + 0.5) * k, y = oy + (f.y + 0.5) * k;
       ctx.beginPath();
@@ -200,7 +204,7 @@ export function drawMapPreview(canvas, map, opts) {
       ctx.closePath();
       ctx.fillStyle = '#ffd98a';
       ctx.strokeStyle = 'rgba(20,12,2,0.9)';
-      ctx.lineWidth = Math.max(1, dpr * (big ? 1.2 : 0.8));
+      ctx.lineWidth = Math.max(1, u * (big ? 1.2 : 0.8));
       ctx.fill();
       ctx.stroke();
     }
@@ -211,12 +215,12 @@ export function drawMapPreview(canvas, map, opts) {
     map.spawns.forEach((sp, idx) => {
       const st = ROLE_STYLE[roles[idx] || 'open'];
       const x = ox + (sp.x + 0.5) * k, y = oy + (sp.y + 0.5) * k;
-      const r = (big ? 9 : 3.2) * dpr;
+      const r = (big ? 9 : 3.2) * u;
       if (big && roles[idx] && roles[idx] !== 'open') {
         ctx.beginPath();
-        ctx.arc(x, y, r + 4 * dpr, 0, Math.PI * 2);
+        ctx.arc(x, y, r + 4 * u, 0, Math.PI * 2);
         ctx.strokeStyle = st.ring;
-        ctx.lineWidth = 1.5 * dpr;
+        ctx.lineWidth = 1.5 * u;
         ctx.stroke();
       }
       ctx.beginPath();
@@ -224,14 +228,14 @@ export function drawMapPreview(canvas, map, opts) {
       ctx.fillStyle = roles[idx] && roles[idx] !== 'open' ? st.fill : 'rgba(8,11,16,0.72)';
       ctx.fill();
       ctx.strokeStyle = roles[idx] && roles[idx] !== 'open' ? 'rgba(5,7,10,0.9)' : st.ring;
-      ctx.lineWidth = (big ? 1.5 : 1) * dpr;
+      ctx.lineWidth = (big ? 1.5 : 1) * u;
       ctx.stroke();
       if (big) {
         ctx.fillStyle = roles[idx] && roles[idx] !== 'open' ? st.ink : st.ink;
-        ctx.font = '700 ' + Math.round(11 * dpr) + 'px Rajdhani, sans-serif';
+        ctx.font = '700 ' + Math.round(11 * u) + 'px Rajdhani, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(String(idx + 1), x, y + 0.5 * dpr);
+        ctx.fillText(String(idx + 1), x, y + 0.5 * u);
       }
     });
   }

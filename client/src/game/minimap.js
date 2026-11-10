@@ -9,6 +9,7 @@ import { CELL, isInfantryCls } from '../sim/index.js';
 import { centerCameraOn, clampCameraToMap } from './camera.js';
 import { ownerColorOf } from './sprites.js';
 import { terrainCanvas } from '../ui/mapart.js';
+import { teamFog, isAllyOrSelf } from './teamfog.js';
 
 const FOG_MS = 160; // fog mask refresh cadence (real time)
 
@@ -118,7 +119,7 @@ function fitCanvas(M) {
 // fog mask at map resolution: unexplored = opaque ink, explored-but-dark = veil
 function fogLayer(game, st) {
   const M = game.minimap;
-  const fog = st.fog && st.fog[game.playerSlot];
+  const fog = st.fog && teamFog(game, st);
   if (!fog || !fog.visible) return null;
   const w = st.map.w, hgt = st.map.h;
   if (!M.fog || M.fogFor !== st) {
@@ -186,7 +187,7 @@ function drawMinimap(game) {
 
   const fx = dw / (st.map.w * CELL);
   const fy = dh / (st.map.h * CELL);
-  const fog = st.fog[game.playerSlot];
+  const fog = teamFog(game, st); // own sight plus every ally's
   const outline = 'rgba(4,6,9,0.9)';
 
   // oil fields: small gold diamonds (terrain feature, drawn under the fog)
@@ -203,7 +204,7 @@ function drawMinimap(game) {
   ctx.lineWidth = Math.max(1, u);
   for (const id in st.structures) {
     const s = st.structures[id];
-    const own = s.owner === game.playerSlot;
+    const own = isAllyOrSelf(st, game.playerSlot, s.owner);
     if (!own && !fog.visible[(s.cy + (s.fp >> 1)) * st.map.w + s.cx + (s.fp >> 1)]) continue;
     const type = st.structDefs[s.defId].type;
     const px = ox + (s.cx + (s.fp >> 1)) * CELL * fx;
@@ -217,7 +218,7 @@ function drawMinimap(game) {
   }
   for (const id in st.units) {
     const un = st.units[id];
-    const own = un.owner === game.playerSlot;
+    const own = isAllyOrSelf(st, game.playerSlot, un.owner);
     if (!own && !fog.visible[cellIdx(st, un.x, un.y)]) continue;
     const def = st.unitDefs[un.defId];
     const px = ox + un.x * fx, py = oy + un.y * fy;

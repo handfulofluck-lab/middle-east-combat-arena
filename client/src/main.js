@@ -8,7 +8,7 @@ import { createCamera, centerCameraOn, clampCameraToMap, worldToScreen } from '.
 import { initInput, handleInputFrame } from './game/input.js';
 import { initRenderer, renderFrame } from './game/render.js';
 import { initGl, glFrame, focusGl, setGlVisible, syncLegacyFog,
-  glWorldToScreen, glViewQuad, setQuality, getQuality } from './game/gl.js';
+  glWorldToScreen, glViewQuad, setQuality, getQuality, warmGl } from './game/gl.js';
 import { initCinematics, updateCinematics, startMenuCinematic,
   stopMenuCinematic, playIntro, playOutro, playTitle, skipCinematic,
   cancelCinematics, isCinematicActive } from './game/cinematics.js';
@@ -17,6 +17,7 @@ import { initStore } from './game/store.js';
 import { initHud, updateHud, showHint, AUTO_DEPLOY_TICKS,
   updateTutorial, abortTutorial } from './game/hud.js';
 import { initMinimap, updateMinimap } from './game/minimap.js';
+import { updatePeace } from './game/peace.js';
 import { dirArtBitmap, unitArtBitmap, structArtBitmap } from './game/sprites.js';
 import { showMenu, showPauseMenu, showEndBanner, showBriefing, showLobby,
   showMpSetup, showDesyncOverlay, closeLobbyUi } from './game/menu.js';
@@ -267,6 +268,32 @@ function veil(on, title, sub) {
   v.classList.toggle('on', !!on);
 }
 
+// ---- unit radio acknowledgements ---------------------------------------------
+// The first unit of the group answers: "select" when the selection changes,
+// "move" / "attack" when an order goes out. Presentation only.
+function unitAck(event, unitIds) {
+  try {
+    if (!event || !G || !G.state || !unitIds || !unitIds.length) return;
+    if (typeof AudioApi.playUnitAck !== 'function' || typeof AudioApi.unitVoiceGroup !== 'function') return;
+    let u = null;
+    for (const id of unitIds) { u = G.state.units[id]; if (u) break; }
+    if (!u || u.owner !== G.playerSlot) return;
+    const def = G.state.unitDefs[u.defId];
+    if (!def) return;
+    AudioApi.playUnitAck(G, event, AudioApi.unitVoiceGroup(def));
+  } catch (e) { /* optional */ }
+}
+
+let selSig = '';
+function selectionVoice() {
+  if (!G || !G.state || G.state.over) { selSig = ''; return; }
+  const sel = G.selection || [];
+  const sig = sel.length ? sel.length + ':' + sel[0] + ':' + sel[sel.length - 1] : '';
+  if (sig === selSig) return;
+  selSig = sig;
+  if (sel.length) unitAck('select', sel);
+}
+
 // ---- renderer <-> audio / camera feel wiring (once per renderer) -------------
 const SHOT_SFX = {
   rifle: 'rifle', mg: 'mg', autocannon: 'autocannon', flak: 'aa_gun', cannon: 'cannon',
@@ -284,7 +311,12 @@ function wireGfx() {
     if (!name || typeof AudioApi.playSfxAt !== 'function') return;
     const dx = x - gl.focus.x, dz = z - gl.focus.z;
     const d = Math.hypot(dx, dz);
-    const dist = Math.min(1, d / (gl.dist * 1.7 + 30));
+    // audible range follows the view: full presence at the focus, fading to
+    // the far, dull register around the screen edge, and nothing at all from
+    // well beyond it. A fight you cannot see should not sound like yours.
+    const reach = gl.dist * 1.15 + 14;
+    if (d > reach * 1.35) return;
+    const dist = Math.min(1, d / reach);
     // pan from the camera's right vector
     const pan = Math.max(-1, Math.min(1, (dx * Math.cos(gl.yaw) - dz * Math.sin(gl.yaw)) / (gl.dist * 0.9 + 10)));
     // the battle behind the menus is set dressing: keep it well under the score
@@ -304,6 +336,8 @@ function wireGfx() {
   const S2 = 2 / Sim.CELL;
   G.onCmd = (cmd) => {
     if (!gl.fx || !gl.state || gl.attract) return;
+    unitAck(cmd.type === 'attackTarget' || cmd.type === 'attackMove' ? 'attack'
+      : (cmd.type === 'move' || cmd.type === 'patrol') ? 'move' : null, cmd.unitIds);
     let x = cmd.x, y = cmd.y, hostile = false;
     if (cmd.type === 'attackTarget' || cmd.type === 'load' || cmd.type === 'repair') {
       const e = gl.state.units[cmd.targetId] || gl.state.structures[cmd.targetId];
@@ -747,7 +781,9 @@ export function startMatch(cfg) {
   }
   const seed = (cfg.seed !== undefined ? cfg.seed : (Date.now() & 0x7fffffff)) >>> 0;
   G.playerSlot = slot;
-  G.state = Sim.createMatch({ data: G.data, map, players, seed });
+  // ceasefire at the start (minutes, from skirmish setup or the host's lobby)
+  const peaceMin = Math.max(0, Math.min(30, Number(cfg.peace) | 0));
+  G.state = Sim.createMatch({ data: G.data, map, players, seed, options: { peaceTicks: peaceMin * 600 } });
   G.ai = Sim.createAI(players, seed);
   G.mpPendingDrops = [];
   G.mpDesync = null;
@@ -840,6 +876,7 @@ export function startMatch(cfg) {
   initRenderer(G);
   updateHud(G);
   updateMinimap(G);
+  updatePeace(G);
   if (G.tutor) updateTutorial(G); // show the first briefing prompt immediately
 
   const use3d = G.gfx === '3d' && G.gfxSupported;
@@ -881,9 +918,12 @@ function buildBattlefield() {
     if (G.gl.proxy) G.gl.proxy.ready = false;
     if (G.gl.portraits) G.gl.portraits.requestAll(G.state, G.playerSlot);
     if (G.gl.ents && G.gl.ents.prewarm) G.gl.ents.prewarm(G.state);
-    // Render one frame now, behind the veil: this is where the GPU compiles
-    // every shader, and it must happen before this peer starts talking in a
-    // multiplayer match (a silent peer makes everyone wait).
+    // Render now, behind the veil: this is where the GPU compiles every
+    // shader and takes every mesh, and it must happen before this peer starts
+    // talking in a multiplayer match (a silent peer makes everyone wait) and
+    // before the intro flies across the map (or the flight stutters). First
+    // the whole battlefield from above, then the opening view itself.
+    try { warmGl(G); } catch (e) { /* best-effort */ }
     try { glFrame(G, 16); } catch (e) { /* the frame loop reports real errors */ }
     if (document.body && document.body.classList) document.body.classList.add('gfx-3d');
   } catch (err) {
@@ -993,6 +1033,8 @@ function simStep() {
   if (G.gfx === '3d' && G.gl && typeof syncLegacyFog === 'function') syncLegacyFog(G);
   updateHud(G, true); // per-tick: heavy scans gated to ~10 Hz real time
   updateMinimap(G);
+  updatePeace(G);
+  selectionVoice();
   const me = G.state.players[G.playerSlot];
   if (!G.endShown && (G.state.over || me.eliminated)) {
     G.endShown = true;
@@ -1078,6 +1120,8 @@ function mpSimStep() {
   if (!advanced) return false;
   updateHud(G, true); // per-tick: heavy scans gated to ~10 Hz real time
   updateMinimap(G);
+  updatePeace(G);
+  selectionVoice();
   const me = G.state.players[G.playerSlot];
   // defeat -> spectator (camera/minimap stay live, no command push) instead
   // of the end banner; the banner waits for the actual match end
@@ -1256,7 +1300,7 @@ function beginMpMatch() {
   closeLobbyUi(G);
   startMatch({
     mp: true, map: cfg.map, seed: cfg.seed, players: cfg.players,
-    delay: cfg.delay || 2, slot: Net.slot,
+    delay: cfg.delay || 2, slot: Net.slot, peace: cfg.peace,
   });
 }
 
@@ -1320,7 +1364,7 @@ function installMpUi() {
     const r = await Net.host(opts);
     if (!r.ok) return r;
     Net.my.faction = opts.faction || 'Egypt';
-    G.lobby = { map: opts.map, seed: opts.seed, delay: 2 };
+    G.lobby = { map: opts.map, seed: opts.seed, delay: 2, peace: 5 };
     Net.broadcastLobby();
     return r;
   };
@@ -1344,19 +1388,19 @@ function installMpUi() {
     if (Net.isHost) Net.broadcastLobby();
   };
   G.mpSetLobby = (patch) => {
-    if (!G.lobby) G.lobby = { map: Object.keys(G.maps)[0], seed: 1, delay: 2 };
+    if (!G.lobby) G.lobby = { map: Object.keys(G.maps)[0], seed: 1, delay: 2, peace: 5 };
     Object.assign(G.lobby, patch);
     if (Net.isHost) {
       Net.broadcastLobby();
       // keep the guests' read-only map/seed/delay view in sync pre-start
-      Net.sendCfg({ map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay });
+      Net.sendCfg({ map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay, peace: G.lobby.peace | 0 });
     }
   };
   G.mpStart = () => {
     if (!Net.isHost || !G.lobby) return;
     const slots = Net.lobbySlots();
     const players = slots.map((s) => ({ slot: s.slot, faction: s.faction, team: s.team }));
-    const cfg = { map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay, players };
+    const cfg = { map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay, peace: G.lobby.peace | 0, players };
     Net.sendCfg(cfg);
     Net.sendStart();
     beginMpMatch(); // the relay does not echo to the sender — the host starts itself

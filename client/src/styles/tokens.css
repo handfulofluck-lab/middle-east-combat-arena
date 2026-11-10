@@ -31,7 +31,7 @@
   /* text */
   --text: #eef2f6;
   --text-dim: #a8b3c0;
-  --text-mute: #6b7786;
+  --text-mute: #8b96a5;
 
   /* type */
   --font-display: 'Rajdhani', 'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
@@ -42,7 +42,7 @@
   --r-sm: 3px;
   --r-md: 6px;
   --r-lg: 10px;
-  --chamfer: 10px;
+  --chamfer: 1rem;
   --blur: 14px;
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);

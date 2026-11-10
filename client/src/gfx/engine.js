@@ -99,7 +99,7 @@ export function initGl(game, opts = {}) {
     tFocus: new THREE.Vector3(), tYaw: 0.62, tPitch: 0.78, tDist: 50,
     camLock: false,       // cinematics drive the rig directly
     shake: 0, shakeT: 0,
-    keys: new Set(), wasdPan: false, dragging: false, lastPointer: { x: 0, y: 0 },
+    keys: new Set(), wasdPan: false, edgePan: getEdgePan(), dragging: false, lastPointer: { x: 0, y: 0 },
     proxy: { x: null, y: null, zoom: 1, ready: false },
     fogTex: null, fogData: null, fogCur: null, fogTick: -1,
     stats: { fps: 60, ms: 16, calls: 0, tris: 0 },
@@ -371,7 +371,16 @@ export function fogSeenAt(gl, cx, cy) {
   const fog = st.fog && st.fog[gl.localSlot];
   if (!fog) return true;
   if (cx < 0 || cy < 0 || cx >= gl.mapW || cy >= gl.mapH) return false;
-  return fog.seen[cy * gl.mapW + cx] === 1;
+  const i = cy * gl.mapW + cx;
+  if (fog.seen[i] === 1) return true;
+  const me = st.players[gl.localSlot];
+  if (me) {
+    for (const p of st.players) {
+      if (p.slot !== gl.localSlot && p.team === me.team && st.fog[p.slot]
+        && st.fog[p.slot].seen[i] === 1) return true;
+    }
+  }
+  return false;
 }
 
 // the minimap still reads the legacy 2D fog canvas: keep it fed from the sim
@@ -465,6 +474,38 @@ export function addShake(gl, amount, x, z) {
     amount *= clamp(1.3 - d / (gl.dist * 1.6 + 30), 0, 1);
   }
   gl.shake = Math.min(1.6, gl.shake + amount);
+}
+
+// Draw the whole battlefield once, from high above its centre, without
+// showing it. Terrain chunks, prop batches and models are uploaded to the
+// GPU (and their shaders compiled) the first time they are drawn; without
+// this the match intro pays for all of that while it flies across the map.
+// The camera is put back exactly where it was.
+export function warmGl(game) {
+  const gl = game && game.gl;
+  if (!gl || !gl.ready || !gl.state) return;
+  const keep = {
+    fx: gl.tFocus.x, fz: gl.tFocus.z, d: gl.tDist, y: gl.tYaw, p: gl.tPitch,
+    lock: gl.camLock, reveal: gl.cineReveal, time: gl.time, frame: gl.frame,
+  };
+  try {
+    gl.camLock = true;
+    gl.cineReveal = true;
+    const size = Math.max(gl.halfX, gl.halfZ) * 2;
+    // straight down from far enough to hold the whole map (36° lens: the
+    // ground seen is about 0.65 × distance tall), then a slanted pass
+    for (const view of [[size * 1.9 + 120, 1.5], [size * 0.9, 0.7]]) {
+      gl.tFocus.x = 0; gl.tFocus.z = 0; gl.tDist = view[0]; gl.tYaw = keep.y; gl.tPitch = view[1];
+      updateCamera(gl, 0);
+      glFrame(game, 16);
+    }
+  } catch (e) { /* warm-up is best-effort */ }
+  gl.camLock = keep.lock; gl.cineReveal = keep.reveal;
+  gl.tFocus.x = keep.fx; gl.tFocus.z = keep.fz; gl.tDist = keep.d; gl.tYaw = keep.y; gl.tPitch = keep.p;
+  gl.time = keep.time; gl.frame = keep.frame;
+  updateCamera(gl, 0);
+  const wu = gl.post && gl.post.world && gl.post.world.material.uniforms;
+  if (wu && wu.uReveal && !gl.reveal) wu.uReveal.value = 0;
 }
 
 export function focusGl(game, wuX, wuY, dist, yaw, pitch, smooth) {
@@ -731,16 +772,43 @@ function updateControls(gl, dt) {
     gl.tFocus.x += fx / len * speed;
     gl.tFocus.z += fz / len * speed;
   }
-  if (game && game.mouse && game.mouse.inside && !game.midDrag && !gl.dragging
-    && game.state && !game.overlay && document.hasFocus && document.hasFocus()) {
-    let ex = 0, ey = 0;
+  // Screen-edge pan. It starts only after the pointer has rested on the edge
+  // for a moment and then ramps up, so a pointer crossing the gutter on its
+  // way to a HUD panel does not slide the view; and never while a button is
+  // held, so a selection box keeps the ground it was drawn on.
+  let ex = 0, ey = 0;
+  if (gl.edgePan !== false && game && game.mouse && game.mouse.inside && !game.midDrag && !gl.dragging
+    && !game.drag && !game.dragMove && game.state && !game.overlay
+    && document.hasFocus && document.hasFocus()) {
     const m = game.mouse;
-    if (m.sx < 10) ex -= 1;
-    if (m.sx > gl.canvas.clientWidth - 10) ex += 1;
-    if (m.sy < 10) ey -= 1;
-    if (m.sy > gl.canvas.clientHeight - 10) ey += 1;
-    if (ex || ey) panGlBy(game, ex * 900 * dt, ey * 900 * dt);
+    if (m.sx < EDGE_PX) ex -= 1;
+    if (m.sx > gl.canvas.clientWidth - EDGE_PX) ex += 1;
+    if (m.sy < EDGE_PX) ey -= 1;
+    if (m.sy > gl.canvas.clientHeight - EDGE_PX) ey += 1;
   }
+  if (ex || ey) {
+    // wall-clock dwell: a slow frame rate must not stretch the wait
+    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    if (!gl.edgeSince) gl.edgeSince = now;
+    const k = clamp(((now - gl.edgeSince) / 1000 - EDGE_DWELL) / EDGE_RAMP, 0, 1);
+    if (k > 0) panGlBy(game, ex * 900 * k * dt, ey * 900 * k * dt);
+  } else {
+    gl.edgeSince = 0;
+  }
+}
+
+const EDGE_PX = 8;        // how close to the canvas edge the pointer must be
+const EDGE_DWELL = 0.22;  // seconds on the edge before the view starts to move
+const EDGE_RAMP = 0.3;    // seconds from first movement to full pan speed
+
+// player preference (Settings): screen-edge scrolling on/off
+export function setEdgePan(game, on) {
+  const gl = game && game.gl;
+  if (gl) gl.edgePan = !!on;
+  try { localStorage.setItem('mca.edgePan', on ? '1' : '0'); } catch (e) { /* private mode */ }
+}
+export function getEdgePan() {
+  try { return localStorage.getItem('mca.edgePan') !== '0'; } catch (e) { return true; }
 }
 
 // ---------------------------------------------------------------------------
@@ -784,10 +852,18 @@ export function glFrame(game, dtMs) {
     gl.stats.calls = gl.renderer.info.render.calls;
     gl.stats.tris = gl.renderer.info.render.triangles;
     gl.fpsAcc = 0; gl.fpsN = 0;
-    if (!gl.noAutoScale && gl.time > 4) {
+    // Resolution follows sustained load only: three slow seconds in a row to
+    // step down, five fast ones to step back up, and never during a
+    // cinematic (a resize there reallocates every render target mid-shot).
+    const cine = !!(gl.game && gl.game.cinema && gl.game.cinema.active);
+    if (!gl.noAutoScale && gl.time > 6 && !cine) {
       const scale = gl.resScale || 1;
-      if (ms > 30 && scale > 0.6) { gl.resScale = Math.max(0.6, scale - 0.1); resizeGl(gl); }
-      else if (ms < 14 && scale < 1) { gl.resScale = Math.min(1, scale + 0.05); resizeGl(gl); }
+      gl.slowSecs = ms > 30 ? (gl.slowSecs || 0) + 1 : 0;
+      gl.fastSecs = ms < 14 ? (gl.fastSecs || 0) + 1 : 0;
+      if (gl.slowSecs >= 3 && scale > 0.6) { gl.slowSecs = 0; gl.resScale = Math.max(0.6, scale - 0.1); resizeGl(gl); }
+      else if (gl.fastSecs >= 5 && scale < 1) { gl.fastSecs = 0; gl.resScale = Math.min(1, scale + 0.1); resizeGl(gl); }
+    } else {
+      gl.slowSecs = 0; gl.fastSecs = 0;
     }
   }
 }

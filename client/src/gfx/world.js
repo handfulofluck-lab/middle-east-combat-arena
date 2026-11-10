@@ -135,15 +135,22 @@ export function buildTerrain(hf, look, quality) {
         float slope = 1.0 - wn.y;
         vec3 sand = mix(uSandA, uSandB, smoothstep(0.32, 0.68, n1.r));
         sand = mix(sand, uSandC, smoothstep(0.5, 0.82, n2.g) * 0.5);
-        float rip = sin((wp.x * 0.9 + wp.y * 0.38) * 7.5 + n2.r * 10.0 + n1.g * 6.0) * 0.5 + 0.5;
+        // Analytic stripes (sand ripples here, rock strata below) have no mip
+        // chain: seen from far away or at a grazing angle they alias into
+        // crawling moire as the camera moves. Fade each one out as its phase
+        // advances towards half a cycle per pixel.
+        float ripPh = (wp.x * 0.9 + wp.y * 0.38) * 7.5 + n2.r * 10.0 + n1.g * 6.0;
+        float rip = mix(0.5, sin(ripPh) * 0.5 + 0.5, 1.0 - smoothstep(0.9, 2.4, fwidth(ripPh)));
         float ripAmt = (1.0 - smoothstep(0.02, 0.2, slope)) * smoothstep(0.35, 0.6, n1.b);
         sand *= 0.93 + 0.1 * rip * ripAmt;
         sand *= 0.9 + 0.2 * n3.b;
         // cracked salt pan
         float crack = smoothstep(0.9, 0.97, texture2D(uNoise, wp * 0.09 + n1.rg * 0.6).a) * uSalt;
         sand = mix(sand, sand * 0.8, crack * 0.6);
-        float strata = sin(vWPos.y * 4.2 + n2.r * 7.0 + n1.g * 11.0 + n3.g * 1.5) * 0.5 + 0.5;
+        float strPh = vWPos.y * 4.2 + n2.r * 7.0 + n1.g * 11.0 + n3.g * 1.5;
+        float strata = sin(strPh) * 0.5 + 0.5;
         strata = mix(strata, smoothstep(0.3, 0.7, strata), 0.5);
+        strata = mix(0.5, strata, 1.0 - smoothstep(0.9, 2.4, fwidth(strPh)));
         // bands read on cliff faces, fade out on gentle slopes
         float strataAmt = 0.1 + 0.26 * smoothstep(0.08, 0.4, slope);
         vec3 rock = mix(uRockA, uRockB, smoothstep(0.25, 0.75, n2.a * 0.6 + n1.b * 0.4));
@@ -173,7 +180,7 @@ export function buildTerrain(hf, look, quality) {
         normal = mcaPerturb(-vViewPosition, normal, dH * bumpFade, faceDirection);
       `);
   };
-  mat.customProgramCacheKey = () => 'mca-terrain-v1';
+  mat.customProgramCacheKey = () => 'mca-terrain-v2';
 
   // chunked meshes for frustum culling
   const CHUNK = 48 * HR; // quads per chunk side
@@ -442,18 +449,48 @@ export function buildLights(look, quality) {
 
 // fit the shadow frustum around the visible ground, snapped to texels
 const _v = new THREE.Vector3();
+// Covered radius moves in steps, with hysteresis. A radius that follows the
+// camera continuously changes the size of a shadow texel every frame, so
+// while the view zooms or tilts (the match intro does both for eight
+// seconds) every shadow edge in the scene is re-sampled each frame and the
+// whole picture shimmers.
+const SHADOW_STEPS = [26, 34, 44, 58, 76, 100, 125, 150];
+function shadowRadius(lights, want) {
+  const w = clamp(want, SHADOW_STEPS[0], SHADOW_STEPS[SHADOW_STEPS.length - 1]);
+  const cur = lights._shadowR || 0;
+  if (cur >= w && cur <= w * 1.75) return cur;
+  let r = SHADOW_STEPS[SHADOW_STEPS.length - 1];
+  for (const s of SHADOW_STEPS) { if (s >= w * 1.12) { r = s; break; } }
+  lights._shadowR = r;
+  return r;
+}
+
 export function updateSunShadow(lights, look, focus, radius) {
   const sun = lights.sun;
-  const r = clamp(radius, 26, 150);
-  const dir = _v.set(look.sunDir[0], look.sunDir[1], look.sunDir[2]);
+  const r = shadowRadius(lights, radius);
+  const dir = _v.set(look.sunDir[0], look.sunDir[1], look.sunDir[2]).normalize();
   const cam = sun.shadow.camera;
   const texel = (r * 2) / sun.shadow.mapSize.x;
-  // snap the focus in light space to avoid shimmering while panning
-  const fx = Math.round(focus.x / texel) * texel;
-  const fz = Math.round(focus.z / texel) * texel;
-  sun.target.position.set(fx, 0, fz);
-  sun.position.set(fx + dir.x * 260, dir.y * 260, fz + dir.z * 260);
+  // Snap the target to whole shadow texels along the light camera's own
+  // right / up axes (it looks down `dir` with world up), so panning moves
+  // the map by whole texels and edges hold still.
+  let rx = dir.z, rz = -dir.x;                 // right = up × dir, up = (0,1,0)
+  const rl = Math.hypot(rx, rz) || 1;
+  rx /= rl; rz /= rl;
+  const ux = dir.y * rz, uy = dir.z * rx - dir.x * rz, uz = -dir.y * rx; // up' = dir × right
+  const a = focus.x * rx + focus.z * rz;
+  const b = focus.x * ux + focus.z * uz;
+  const da = Math.round(a / texel) * texel - a;
+  const db = Math.round(b / texel) * texel - b;
+  const fx = focus.x + rx * da + ux * db;
+  const fy = uy * db;
+  const fz = focus.z + rz * da + uz * db;
+  sun.target.position.set(fx, fy, fz);
+  sun.position.set(fx + dir.x * 260, fy + dir.y * 260, fz + dir.z * 260);
   if (cam.right !== r) {
+    // a wider map has coarser texels: push the surface offset out with them,
+    // or slopes facing away from the sun break up into acne
+    sun.shadow.normalBias = Math.max(0.06, texel * 1.4);
     cam.left = -r; cam.right = r; cam.top = r; cam.bottom = -r;
     cam.near = 20; cam.far = 620;
     cam.updateProjectionMatrix();

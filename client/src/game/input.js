@@ -10,6 +10,7 @@ import { rallyCommand } from './rally.js';
 import { flashAtCursor, skipTutorial } from './hud.js';
 import { unitRadius } from './sprites.js';
 import { playSfx, setMuted, isMuted } from './audio.js';
+import { teamFog } from './teamfog.js';
 
 const EDGE_PX = 12;      // screen-edge pan margin
 const PAN_SPEED = 600;   // screen px / s (at 1x zoom; panCameraBy scales by zoom)
@@ -331,6 +332,13 @@ function handleLeftUp(game, e) {
   }
   // superweapon / faction ability targeting
   if (game.targeting) {
+    // the opening ceasefire rejects strikes; say so instead of failing silently
+    if (game.state.tick < (game.state.peaceUntil | 0)) {
+      flashAtCursor(game, 'Ceasefire in effect');
+      sfx(game, 'error');
+      game.targeting = null;
+      return;
+    }
     pushCmd(game, {
       type: game.targeting.kind === 'sw' ? 'useSuperweapon' : 'useFactionAbility',
       x: Math.round(w.x), y: Math.round(w.y),
@@ -527,7 +535,8 @@ function fogVisibleAt(game, wx, wy) {
   const st = game.state;
   const cx = cellOf(wx), cy = cellOf(wy);
   if (cx < 0 || cy < 0 || cx >= st.map.w || cy >= st.map.h) return false;
-  return st.fog[game.playerSlot].visible[cy * st.map.w + cx] === 1;
+  const fog = teamFog(game, st); // allies share sight
+  return !!fog && fog.visible[cy * st.map.w + cx] === 1;
 }
 
 export function pickOwnAt(game, wx, wy) {
