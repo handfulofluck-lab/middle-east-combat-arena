@@ -287,7 +287,8 @@ function wireGfx() {
     const dist = Math.min(1, d / (gl.dist * 1.7 + 30));
     // pan from the camera's right vector
     const pan = Math.max(-1, Math.min(1, (dx * Math.cos(gl.yaw) - dz * Math.sin(gl.yaw)) / (gl.dist * 0.9 + 10)));
-    try { AudioApi.playSfxAt(G, name, pan, dist, (gain || 1) * (gl.attract ? 0.32 : 1)); } catch (e) { /* optional */ }
+    // the battle behind the menus is set dressing: keep it well under the score
+    try { AudioApi.playSfxAt(G, name, pan, dist, (gain || 1) * (gl.attract ? 0.1 : 1)); } catch (e) { /* optional */ }
     heat = Math.min(1.5, heat + (1 - dist) * 0.06);
   };
   gl.audio = {
@@ -520,6 +521,18 @@ export async function boot() {
   initHud(G);
   initMinimap(G);
   installMpUi();
+  // A tab in the background goes silent (several open tabs otherwise play
+  // on top of each other). The exception is a live multiplayer match, where
+  // the simulation keeps running and its alerts should still be heard.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    const syncAudioHold = () => {
+      try {
+        if (typeof AudioApi.setBackgroundHold === 'function') AudioApi.setBackgroundHold(!!document.hidden && !isMp());
+      } catch (e) { /* optional */ }
+    };
+    document.addEventListener('visibilitychange', syncAudioHold);
+    syncAudioHold();
+  }
   // supporter store / licence keys (inert unless the server enables it)
   try { initStore(G); } catch (e) { /* the game never depends on the store */ }
   syncGfxUi();

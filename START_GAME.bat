@@ -6,6 +6,14 @@ cd /d "%~dp0"
 REM One-click launcher: installs dependencies on first run, builds the game,
 REM starts the local server and opens it in your default browser.
 
+REM Already running (started earlier, window still open)? Just open the game.
+netstat -ano | findstr /R /C:":8790 .*LISTENING" >nul 2>nul
+if not errorlevel 1 (
+  echo MCA is already running - opening it in your browser.
+  start "" "http://localhost:8790/"
+  exit /b 0
+)
+
 where node >nul 2>nul
 if errorlevel 1 (
   echo Node.js was not found.

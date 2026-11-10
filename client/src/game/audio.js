@@ -41,6 +41,7 @@ let __track = null;      // requested music track (remembered while audio is loc
 let __intensity = 0;     // requested adaptive intensity 0..1
 let __ambWanted = false; // ambience bed should run (set by initAudio)
 let __suspendTimer = null;
+let __bgHeld = false;      // tab hidden: mix suspended without touching the mute preference
 
 const VOLUME_DEFAULTS = { master: 0.9, music: 0.55, sfx: 0.8, voice: 0.9 };
 const __vol = { master: 0.9, music: 0.55, sfx: 0.8, voice: 0.9 };
@@ -418,7 +419,7 @@ function applyMuteState() {
 
 function resumeContext() {
   try {
-    if (__ctx && __ctx.state !== 'running' && !__muted && typeof __ctx.resume === 'function') {
+    if (__ctx && __ctx.state !== 'running' && !__muted && !__bgHeld && typeof __ctx.resume === 'function') {
       const p = __ctx.resume();
       if (p && typeof p.catch === 'function') p.catch(() => {});
     }
@@ -748,6 +749,27 @@ export function setMuted(game, muted) {
 
 export function isMuted(game) {
   return __muted;
+}
+
+// Silence the whole mix while the page is in the background, and bring it
+// back when it returns. Unlike setMuted this is not a preference: nothing is
+// stored, and the mute button's state is untouched. Without it every open
+// tab keeps playing its score (and the menu's live battle) on top of the
+// others.
+export function setBackgroundHold(on) {
+  try {
+    __bgHeld = !!on;
+    if (!__ctx) return;
+    if (__bgHeld) {
+      if (__ctx.state === 'running' && typeof __ctx.suspend === 'function') {
+        const p = __ctx.suspend();
+        if (p && typeof p.catch === 'function') p.catch(() => {});
+      }
+      try { if (typeof speechSynthesis !== 'undefined' && speechSynthesis.cancel) speechSynthesis.cancel(); } catch (e) { /* ok */ }
+    } else {
+      resumeContext();
+    }
+  } catch (e) { /* never throws */ }
 }
 
 // public match-exit hook: drop the ambience bed and don't restart it until
