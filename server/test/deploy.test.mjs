@@ -156,18 +156,18 @@ describe('deployment files', () => {
     }
   });
 
-  test('CI workflow: push + pull_request, Node 22 with npm cache, ci -> build -> test -> server tests', () => {
+  test('CI workflow: push + pull_request, Node 22 with npm cache, ci -> build -> sim -> maps -> server tests', () => {
     const ci = read('.github/workflows/ci.yml');
     assert.match(ci, /^on:\n  push:\n  pull_request:\n/m);
     assert.match(ci, /uses: actions\/checkout@v4/);
     assert.match(ci, /uses: actions\/setup-node@v4\n\s+with:\n\s+node-version: 22\n\s+cache: npm/);
     const runs = [...ci.matchAll(/^\s+run: (.+)$/gm)].map((m) => m[1]);
-    assert.deepEqual(runs, ['npm ci', 'npm run build', 'npm test', 'node --test server/test/']);
+    assert.deepEqual(runs, ['npm ci', 'npm run build', 'npm run test:sim', 'node tools/mapgen/validate.mjs --ci', 'npm run test:server']);
     assert.match(ci, /timeout-minutes: \d+/);
     assert.match(ci, /^permissions:\n  contents: read$/m);
     assert.ok(!/secrets\./.test(ci), 'CI needs no secrets');
     const pkg = JSON.parse(read('package.json'));
-    for (const script of ['build', 'test', 'start']) assert.ok(pkg.scripts[script], 'package.json script "' + script + '" used by CI / Docker');
+    for (const script of ['build', 'test', 'test:sim', 'test:server', 'start']) assert.ok(pkg.scripts[script], 'package.json script "' + script + '" used by CI / Docker');
     assert.equal(pkg.scripts.start, 'node server/index.js');
     assert.ok(fs.existsSync(path.join(REPO, 'server', 'test', 'index.js')), 'entry for `node --test server/test/`');
   });
