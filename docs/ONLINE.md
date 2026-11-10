@@ -90,7 +90,12 @@ Notes: the Blueprint requests the `starter` plan because a persistent disk
 needs a paid instance; `LICENSE_SECRET` and `ADMIN_TOKEN` are generated once by
 Render (`generateValue`). A service with a disk restarts with a short
 interruption on every deploy — running matches are closed (players are told
-"the server is restarting").
+"the server is restarting"). The Blueprint also sets `RUNTIME_USER=root`, a
+*build argument* of the Dockerfile (not a server setting): the container
+starts as root just long enough to make the disk writable for the unprivileged
+`node` user, then drops privileges. After the first deploy check the log: a
+`license.ledger.loaded` line means the disk is writable; `license.disabled …
+EACCES` means it is not (see Troubleshooting).
 
 ### Fly.io
 
@@ -263,7 +268,7 @@ port 8790 with payments switched off.
 | `HEARTBEAT_MS` | `20000` | Ping interval; a socket that misses a ping is dropped at the next one. |
 | `ROOM_IDLE_MS` | `1800000` | A room with no traffic for this long is closed. |
 | `UNJOINED_TIMEOUT_MS` | `30000` | A connection that never creates/joins a room is closed after this long. |
-| `JOIN_FAILS_PER_MIN` | `20` | Wrong room codes allowed per address per minute (code guessing). |
+| `JOIN_FAILS_PER_MIN` | `20` | Wrong room codes — and, with a paywall, forged license keys — allowed per address per minute before the connection is dropped. |
 | `MAX_CONNS_PER_LICENSE` | `3` | Paywall only: concurrent sessions per license key (`0` = unlimited). |
 
 For scale: a lockstep client sends about 11 messages per second (one per
@@ -485,7 +490,7 @@ real-time pace under default limits). Tests listen on `127.0.0.1:8800–8899`.
 | Players get `too-many-connections` | `TRUST_PROXY` is not set behind a proxy (look for the `proxy.untrusted` warning in the logs), or many players really share one address — raise `MAX_CONNS_PER_IP`. |
 | `Relay error: license-required` | `MCA_PAYWALL` is on and the player has no key stored. They open **Support / Founder's Pass** and buy or redeem. |
 | Store says "Purchases are not available in this build" | The server has no complete Stripe configuration. The boot log lists exactly what is missing (`feature.off`). |
-| `license.disabled … EACCES` in the logs | `DATA_DIR` is not writable by the `node` user (volume mounted as root). Build with `--build-arg RUNTIME_USER=root`. |
+| `license.disabled … EACCES` in the logs | `DATA_DIR` is not writable by the `node` user (volume mounted as root). Build the image with `--build-arg RUNTIME_USER=root` (`fly.toml` and `render.yaml` already ask for this; if your platform ignores it, run the container as root — the entrypoint drops to `node` by itself). |
 | Server exits at start with "invalid configuration" | Read the list it prints. Typical: `MCA_PAYWALL` set without `LICENSE_SECRET`. |
 | A custom relay address typed into the menu does not connect | Blocked by the page's Content-Security-Policy. Add it with `CSP_EXTRA="connect-src wss://that.host"`. |
 | Blank page, console shows CSP errors | Something in the client needs a source the policy does not allow. Run with `CSP_REPORT_ONLY=1` to confirm, then extend with `CSP_EXTRA`. |

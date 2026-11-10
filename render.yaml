@@ -21,6 +21,11 @@ services:
       sizeGB: 1
 
     envVars:
+      # Docker build argument (Render hands environment variables to the image
+      # build): start as root only to make the disk writable for the
+      # unprivileged "node" user, then drop privileges. See the Dockerfile.
+      - key: RUNTIME_USER
+        value: root
       - key: PORT
         value: "8790"
       - key: DATA_DIR

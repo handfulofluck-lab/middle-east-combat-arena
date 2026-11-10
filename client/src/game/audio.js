@@ -753,6 +753,11 @@ export function audioStats() {
       fired: s.fired, dropped: s.dropped, stolen: s.stolen, nodes: s.nodes,
       tickMs: s.tickMs, ticks: s.ticks, maxTickMs: s.maxTickMs, musicEvents: s.musicEvents,
       assets: __eng.assets.built, assetMs: __eng.assets.genMs, worker: !!__eng.assets.worker,
+      baked: __eng.baker.count, live: s.live,
+      // longest synchronous main-thread slices (ms): engine construction, one
+      // scheduler tick, one playSfx call, one bake set-up, one asset hand-over
+      initMs: s.initMs, maxFireMs: s.maxFireMs, maxBakeMs: __eng.baker.maxSliceMs,
+      maxStoreMs: __eng.assets.maxStoreMs,
     };
   } catch (e) { /* never throws */ }
   return { ready: false, state: 'error' };

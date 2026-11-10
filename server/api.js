@@ -22,7 +22,7 @@ const CORS_PATHS = new Set([
 
 export function createApi({ config, log, relay, licenses, stripe, features }) {
   const limiters = {
-    general: new KeyedLimiter({ ratePerSec: 2, burst: 60 }),
+    general: new KeyedLimiter({ ratePerSec: 10, burst: 100 }),
     checkout: new KeyedLimiter({ ratePerSec: 0.1, burst: 6 }),
     claim: new KeyedLimiter({ ratePerSec: 0.5, burst: 20 }),
     verify: new KeyedLimiter({ ratePerSec: 0.5, burst: 20 }),

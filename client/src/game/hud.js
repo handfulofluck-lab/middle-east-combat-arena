@@ -732,8 +732,35 @@ export function initHud(game) {
     hudRoot.__sfxBound = true;
     hudRoot.addEventListener('click', (e) => {
       const b = e.target && e.target.closest ? e.target.closest('button') : null;
-      if (!b || b.dataset.sfx === 'none' || b.classList.contains('bb-tile') || b.classList.contains('ap-btn')) return;
+      if (!b) return;
+      // a mouse click must not leave the button focused: Space / Enter are
+      // battlefield hotkeys and would re-press it (keyboard clicks have detail 0)
+      if (e.detail > 0 && b.blur) b.blur();
+      if (b.dataset.sfx === 'none' || b.classList.contains('bb-tile') || b.classList.contains('ap-btn')) return;
       sfx(game, b.classList.contains('disabled') || b.getAttribute('aria-disabled') === 'true' ? 'ui_deny' : 'ui_click');
+    });
+    // no browser context menu over HUD panels (right-click is cancel / order)
+    hudRoot.addEventListener('contextmenu', (e) => {
+      const tag = e.target && e.target.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA') e.preventDefault();
+    });
+  }
+  // A drag that starts on the battlefield and is released over a HUD panel
+  // never reaches the canvas: hand the release back so box-selects and
+  // drag-moves always complete (input.js finishes them at the last map point).
+  if (typeof window !== 'undefined' && window.addEventListener && !game._hudDragRelay) {
+    game._hudDragRelay = true;
+    window.addEventListener('mouseup', (e) => {
+      const cv = game.inputCanvas;
+      if (!game.state || !cv || e.target === cv) return;
+      const pending = (e.button === 0 && (game.drag || game.dragMove)) || (e.button === 1 && game.midDrag);
+      if (!pending) return;
+      try {
+        cv.dispatchEvent(new MouseEvent('mouseup', {
+          button: e.button, shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey,
+          clientX: e.clientX, clientY: e.clientY, bubbles: false,
+        }));
+      } catch (err) { game.drag = null; game.dragMove = null; game.midDrag = null; }
     });
   }
 

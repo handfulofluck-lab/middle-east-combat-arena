@@ -313,12 +313,16 @@ export class Relay {
     }
     if (type !== 'create' && type !== 'join') return;
 
-    if (type === 'join' && !this.joinFails.peek(conn.key, 1, t)) {
+    // One budget per address for wrong room codes and forged license keys:
+    // neither can be brute-forced or used to burn CPU on signature checks.
+    const gated = this.config.paywall !== 'off';
+    if ((type === 'join' || gated) && !this.joinFails.peek(conn.key, 1, t)) {
       this.kick(conn, 'too-many-attempts', 1008);
       return;
     }
     const lic = this.checkLicense(msg);
     if (lic.error) {
+      if (lic.error === 'license-invalid') this.joinFails.take(conn.key, 1, t);
       this.sendError(conn, lic.error);
       return;
     }

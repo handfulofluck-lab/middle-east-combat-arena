@@ -65,6 +65,13 @@ function offlineClass() {
   return globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext || null;
 }
 
+// run `fn` when the main thread has a moment (never inside a caller's frame)
+function whenIdle(fn) {
+  if (typeof requestIdleCallback === 'function') requestIdleCallback(() => fn(), { timeout: 400 });
+  else if (typeof setTimeout === 'function') setTimeout(fn, 20);
+  else fn();
+}
+
 function nearest(levels, v) {
   let best = 0;
   for (let i = 1; i < levels.length; i++) if (Math.abs(levels[i] - v) < Math.abs(levels[best] - v)) best = i;
@@ -87,6 +94,7 @@ class AssetBank {
     this.nextId = 1;
     this.genMs = 0;
     this.maxGenMs = 0;
+    this.maxStoreMs = 0;
     this.built = 0;
     if (!this.sync) this.spawn();
   }
@@ -110,10 +118,13 @@ class AssetBank {
   store(key, chans) {
     let b = this.buf.get(key);
     if (!b) {
+      const t0 = perfNow();
       b = this.ctx.createBuffer(chans.length, chans[0].length, this.sr);
       for (let c = 0; c < chans.length; c++) b.getChannelData(c).set(chans[c]);
       this.buf.set(key, b);
       this.built++;
+      const ms = perfNow() - t0;
+      if (ms > this.maxStoreMs) this.maxStoreMs = ms;
     }
     const cbs = this.waiting.get(key);
     if (cbs) {
@@ -213,8 +224,15 @@ class Baker {
     this.loops = new Map();  // name -> AudioBuffer
     this.inflight = new Map();
     this.queue = [];
+    this.later = [];
     this.running = false;
     this.count = 0;
+    this.maxSliceMs = 0; // longest synchronous stretch spent setting up a bake
+  }
+
+  slice(t0) {
+    const ms = perfNow() - t0;
+    if (ms > this.maxSliceMs) this.maxSliceMs = ms;
   }
 
   can() {
@@ -224,7 +242,7 @@ class Baker {
   // the recipes draw on the coloured-noise beds; never bake before they exist
   ready() {
     const a = this.E.assets;
-    return a.has('noise:pink') && a.has('noise:brown') && a.has('crackle');
+    return a.has('noise:white') && a.has('noise:pink') && a.has('noise:brown') && a.has('crackle');
   }
 
   fake(ctx, seed) {
@@ -232,19 +250,21 @@ class Baker {
     return { ctx, rng: makeRng(seed), noise: (c) => E.noise(c), crackle: () => E.crackle(), count() {} };
   }
 
-  recipe(ctx, def, name, seed) {
+  // builds one take of a recipe at time t0 on `ctx` (dry -> left channel,
+  // reverb-only tail -> right channel); returns its length in seconds
+  recipe(ctx, def, name, seed, t0) {
     const m = ctx.createChannelMerger(2);
     m.connect(ctx.destination);
     const vin = ctx.createGain(), vwet = ctx.createGain();
     vin.connect(m, 0, 0);
     vwet.connect(m, 0, 1);
     const v = {
-      name, t: 0, end: 0, E: this.fake(ctx, seed), ctx, srcs: [], own: [], shared: {},
+      name, t: t0, end: t0, E: this.fake(ctx, seed), ctx, srcs: [], own: [], shared: {},
       dist: 0, panPos: 0, in: vin, wet: vwet, pan: null,
     };
     def.fn(v);
     for (const s of v.srcs) { try { s.stop(v.end + 0.03); } catch (e) { /* ok */ } }
-    return v.end;
+    return v.end - t0;
   }
 
   async bakeSfx(name) {
@@ -257,28 +277,49 @@ class Baker {
     let raw = memo ? memo.get(mk) : null;
     if (!raw) {
       raw = [];
-      let n = 1;
+      let t0 = perfNow();
+      // dry runs on a throw-away context give each take's exact length (same
+      // seed -> same random choices); short sounds get more takes
+      const probe = new OAC(2, 128, sr);
+      const seeds = [], lens = [], starts = [];
+      let n = 1, total = 0;
       for (let i = 0; i < n; i++) {
-        const seed = hashKey(name) + i * 7919 + 1;
-        // dry run on a throw-away context: same seed, same random choices,
-        // so the real context can be sized to the sound exactly
-        const end = this.recipe(new OAC(2, 128, sr), def, name, seed);
-        if (i === 0) n = end < 0.7 ? 3 : end < 1.8 ? 2 : 1;
-        const ctx = new OAC(2, Math.ceil((end + 0.03) * sr), sr);
-        this.recipe(ctx, def, name, seed);
-        const buf = await ctx.startRendering();
-        const dry = trimTail(buf.getChannelData(0), sr);
-        if (!dry) continue;
-        raw.push({ dry, wet: trimTail(buf.getChannelData(1), sr) });
+        seeds.push(hashKey(name) + i * 7919 + 1);
+        lens.push(this.recipe(probe, def, name, seeds[i], 0));
+        if (i === 0) n = lens[0] < 0.7 ? 3 : lens[0] < 1.8 ? 2 : 1;
+        starts.push(total);
+        total += lens[i] + 0.08;
       }
+      if (!E.offline) {
+        // two short slices instead of one long one
+        this.slice(t0);
+        await new Promise((r) => whenIdle(r));
+        t0 = perfNow();
+      }
+      // all takes laid end to end in one offline context: one render per sound
+      const ctx = new OAC(2, Math.ceil(total * sr), sr);
+      for (let i = 0; i < n; i++) this.recipe(ctx, def, name, seeds[i], starts[i]);
+      const pending = ctx.startRendering();
+      this.slice(t0);
+      const buf = await pending;
+      const t2 = perfNow();
+      const L = buf.getChannelData(0), R = buf.getChannelData(1);
+      for (let i = 0; i < n; i++) {
+        const a = Math.floor(starts[i] * sr), b = Math.min(L.length, Math.floor((starts[i] + lens[i] + 0.04) * sr));
+        const dry = trimTail(L.subarray(a, b), sr);
+        if (dry) raw.push({ dry, wet: trimTail(R.subarray(a, b), sr) });
+      }
+      this.slice(t2);
       if (memo) memo.set(mk, raw);
     }
+    const t1 = perfNow();
     const mkBuf = (x) => { const b = E.ctx.createBuffer(1, x.length, sr); b.getChannelData(0).set(x); return b; };
     const vars = raw.map((r) => ({
       dry: mkBuf(r.dry), wet: r.wet ? mkBuf(r.wet) : null,
       len: Math.max(r.dry.length, r.wet ? r.wet.length : 0) / sr,
     }));
     if (vars.length) { this.sfx.set(name, vars); this.count++; }
+    this.slice(t1);
   }
 
   async bakeLoop(name) {
@@ -290,12 +331,16 @@ class Baker {
     let out = memo ? memo.get(mk) : null;
     if (!out) {
       const len = LOOP_LEN[name], X = 0.5;
+      let t0 = perfNow();
       const ctx = new OAC(1, Math.ceil((len + X) * sr), sr);
       const L = { name, E: this.fake(ctx, hashKey('loop:' + name)), ctx, t: 0, srcs: [], shared: {}, rates: [] };
       L.mix = ctx.createGain();
       L.mix.connect(ctx.destination);
       LOOPS[name](L);
-      const d = (await ctx.startRendering()).getChannelData(0);
+      const pending = ctx.startRendering();
+      this.slice(t0);
+      const d = (await pending).getChannelData(0);
+      t0 = perfNow();
       // seamless: the extra half second is cross-faded into the head
       const n = Math.floor(len * sr), xf = Math.floor(X * sr);
       out = d.slice(0, n);
@@ -303,12 +348,15 @@ class Baker {
         const w = i / xf;
         out[i] = d[i] * Math.sqrt(w) + d[n + i] * Math.sqrt(1 - w);
       }
+      this.slice(t0);
       if (memo) memo.set(mk, out);
     }
+    const t1 = perfNow();
     const b = E.ctx.createBuffer(1, out.length, sr);
     b.getChannelData(0).set(out);
     this.loops.set(name, b);
     this.count++;
+    this.slice(t1);
   }
 
   // background bake (real time): one at a time, never before the noise is in
@@ -322,18 +370,40 @@ class Baker {
     this.pump();
   }
 
+  // everything else, in the background, one sound every ~150 ms: after the
+  // first half minute no shot ever needs live synthesis again
+  wantAll() {
+    for (const name in SFX) {
+      const b = SFX[name].alias || name;
+      if (!this.sfx.has(b) && !this.inflight.has('sfx:' + b) && this.later.indexOf(b) < 0) this.later.push(b);
+    }
+    this.pump();
+  }
+
   pump() {
-    if (this.running || !this.queue.length || !this.ready()) return;
+    if (this.running || !this.ready()) return;
+    if (!this.queue.length) {
+      const next = this.later.shift();
+      if (next === undefined) return;
+      if (this.sfx.has(next) || this.inflight.has('sfx:' + next)) { this.pump(); return; }
+      this.inflight.set('sfx:' + next, []);
+      this.queue.push({ kind: 'sfx', name: next, key: 'sfx:' + next, slow: true });
+    }
     this.running = true;
     const job = this.queue.shift();
     const done = () => {
-      this.running = false;
       const cbs = this.inflight.get(job.key) || [];
       this.inflight.delete(job.key);
       for (const cb of cbs) { try { cb(); } catch (e) { /* ok */ } }
-      this.pump();
+      const next = () => { this.running = false; this.pump(); };
+      if (job.slow && !this.queue.length && typeof setTimeout === 'function') setTimeout(next, 150);
+      else next();
     };
-    (job.kind === 'loop' ? this.bakeLoop(job.name) : this.bakeSfx(job.name)).then(done, done);
+    // the set-up of a bake (building the recipe graph on a fresh offline
+    // context) costs a few ms of main thread: do it in idle time
+    whenIdle(() => {
+      (job.kind === 'loop' ? this.bakeLoop(job.name) : this.bakeSfx(job.name)).then(done, done);
+    });
   }
 }
 
@@ -362,8 +432,9 @@ export class AudioEngine {
     this.duckState = { gain: 1, until: -1 };
     this.stats = {
       fired: 0, dropped: 0, stolen: 0, peakVoices: 0, nodes: 0, tickMs: 0, ticks: 0,
-      maxTickMs: 0, musicEvents: 0, live: 0,
+      maxTickMs: 0, musicEvents: 0, live: 0, maxFireMs: 0, initMs: 0,
     };
+    const born = perfNow();
     this.lvl = { rms: 0, low: 0, mid: 0, high: 0, peak: 0 };
     this.lvlAt = -1;
     this.lookahead = 0.2;
@@ -371,7 +442,17 @@ export class AudioEngine {
     this.bed = null;
     this.rumbleAt = Infinity;
     this.assets = new AssetBank(ctx, this.offline);
-    this.assets.genNow('noise:white'); // every recipe may need it immediately
+    if (this.offline) {
+      this.assets.genNow('noise:white');
+    } else {
+      // every recipe may need noise immediately: a 93 ms stand-in is built on
+      // the spot, the real beds arrive from the worker a moment later
+      const ph = ctx.createBuffer(1, 4096, this.sr);
+      const d = ph.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * 0.7;
+      this.placeholder = ph;
+      this.assets.get('noise:white');
+    }
     this.baker = new Baker(this);
     this.wire(o);
     this.music = new MusicDirector(this, o);
@@ -382,21 +463,23 @@ export class AudioEngine {
       for (const n of ['ui_click', 'ui_hover', 'select_unit', 'order_move', 'rifle', 'explosion_small']) {
         this.baker.want('sfx', n);
       }
+      this.baker.wantAll();
     } else {
       this.assets.get('noise:pink'); this.assets.get('noise:brown'); this.assets.get('crackle');
       this.desertConv.buffer = this.assets.get('ir:desert');
     }
+    this.stats.initMs = perfNow() - born;
   }
 
   count(n) { this.stats.nodes += n; }
 
   // noise bed of a given colour; white stands in until the worker delivers
   noise(color) {
-    return this.assets.get('noise:' + color) || this.assets.buf.get('noise:white');
+    return this.assets.get('noise:' + color) || this.assets.buf.get('noise:white') || this.placeholder;
   }
 
   crackle() {
-    return this.assets.get('crackle') || this.assets.buf.get('noise:white');
+    return this.assets.get('crackle') || this.assets.buf.get('noise:white') || this.placeholder;
   }
 
   panner(pan) {
@@ -446,7 +529,7 @@ export class AudioEngine {
     if (typeof ctx.createAnalyser === 'function') {
       const an = ctx.createAnalyser();
       an.fftSize = 2048; an.smoothingTimeConstant = 0.55;
-      an.minDecibels = -85; an.maxDecibels = -18;
+      an.minDecibels = -72; an.maxDecibels = -12;
       bus.master.connect(an);
       this.analyser = an;
       this.td = new Float32Array(an.fftSize);
@@ -571,6 +654,14 @@ export class AudioEngine {
   // gain 0..2, when = context time (default: now). Returns the voice or null
   // (unknown name, throttled, or no voice free at this priority).
   fire(name, pan, dist, gain, when) {
+    const t0 = perfNow();
+    const v = this.voice(name, pan, dist, gain, when);
+    const ms = perfNow() - t0;
+    if (ms > this.stats.maxFireMs) this.stats.maxFireMs = ms;
+    return v;
+  }
+
+  voice(name, pan, dist, gain, when) {
     const def = SFX[name];
     if (!def) return null;
     const ctx = this.ctx;
@@ -814,7 +905,7 @@ export class AudioEngine {
       const a = Math.max(1, Math.floor(f0 / hz)), b = Math.min(fd.length - 1, Math.ceil(f1 / hz));
       let s = 0;
       for (let i = a; i <= b; i++) s += fd[i];
-      return clamp01(s / ((b - a + 1) * 255) * 1.25);
+      return clamp01(s / ((b - a + 1) * 255));
     };
     L.low = band(30, 250);
     L.mid = band(250, 2500);
@@ -839,7 +930,7 @@ export class AudioEngine {
       this.music.advance(now);
       this.retire(this.voices, now);
       this.retire(this.uiVoices, now);
-      if (this.baker.queue.length) this.baker.pump();
+      if (this.baker.queue.length || this.baker.later.length) this.baker.pump();
       if (now >= this.rumbleAt && this.bed) {
         this.rumbleAt = now + 20 + this.rng() * 25;
         this.fire('amb_rumble', this.rng() * 1.6 - 0.8, 0.85, 1);

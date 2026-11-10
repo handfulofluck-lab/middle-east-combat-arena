@@ -126,6 +126,7 @@ export function readBody(req, limit) {
     });
     req.on('end', () => finish(null, Buffer.concat(chunks)));
     req.on('aborted', () => finish(new HttpError(400, 'aborted', 'Request aborted.')));
+    req.on('close', () => finish(new HttpError(400, 'aborted', 'Request aborted.'))); // no-op after 'end'
     req.on('error', () => finish(new HttpError(400, 'bad-request', 'Request failed.')));
   });
 }

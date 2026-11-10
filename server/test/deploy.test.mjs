@@ -124,7 +124,9 @@ describe('deployment files', () => {
     assert.match(render, /numInstances: 1\b/);
     assert.match(render, /mountPath: \/data/);
     const renderEnv = Object.fromEntries([...render.matchAll(/- key: ([A-Z_]+)\n\s+(value|sync|generateValue): ?("?)([^"\n#]*)\3/g)].map((m) => [m[1], { kind: m[2], value: m[4].trim() }]));
-    for (const key of Object.keys(renderEnv)) assert.ok(known.has(key), 'render.yaml sets an unknown variable ' + key);
+    const buildArgs = new Set([...read('Dockerfile').matchAll(/^ARG ([A-Z_]+)/gm)].map((m) => m[1]));
+    for (const key of Object.keys(renderEnv)) assert.ok(known.has(key) || buildArgs.has(key), 'render.yaml sets an unknown variable ' + key);
+    assert.equal(renderEnv.RUNTIME_USER.value, 'root');
     assert.equal(renderEnv.PORT.value, '8790');
     assert.equal(renderEnv.DATA_DIR.value, '/data');
     assert.equal(renderEnv.TRUST_PROXY.value, '1');

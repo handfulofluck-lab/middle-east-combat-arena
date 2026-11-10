@@ -468,6 +468,32 @@ describe('paywall enforcement on the relay', () => {
     }
   });
 
+  test('forged keys are throttled per address like wrong room codes', async (t) => {
+    const srv = await startServer({ MCA_PAYWALL: 'multiplayer', LICENSE_SECRET: TEST_SECRETS.LICENSE_SECRET, ADMIN_TOKEN: TEST_SECRETS.ADMIN_TOKEN, JOIN_FAILS_PER_MIN: '3' });
+    t.after(() => srv.close());
+    const good = (await admin(srv, { action: 'mint' })).json.licenses[0].token;
+    const c = await Client.open(srv.wsUrl);
+    for (let i = 0; i < 3; i++) {
+      c.send({ t: 'create', name: 'x', license: good.slice(0, -6) + 'AAAAA' + i });
+      assert.equal((await c.next('error')).reason, 'license-invalid');
+    }
+    c.send({ t: 'create', name: 'x', license: good }); // even the right key has to wait now
+    assert.equal((await c.next('error')).reason, 'too-many-attempts');
+    assert.equal((await c.waitClose()).code, 1008);
+    // merely lacking a key is not an "attempt": the buy/redeem flow is never locked out
+    const srv2 = await startServer({ MCA_PAYWALL: 'multiplayer', LICENSE_SECRET: TEST_SECRETS.LICENSE_SECRET, ADMIN_TOKEN: TEST_SECRETS.ADMIN_TOKEN, JOIN_FAILS_PER_MIN: '3' });
+    t.after(() => srv2.close());
+    const key2 = (await admin(srv2, { action: 'mint' })).json.licenses[0].token;
+    const d = await Client.open(srv2.wsUrl);
+    for (let i = 0; i < 6; i++) {
+      d.send({ t: 'create', name: 'x' });
+      assert.equal((await d.next('error')).reason, 'license-required');
+    }
+    d.send({ t: 'create', name: 'x', license: key2 });
+    assert.equal((await d.next('room')).slot, 0);
+    d.terminate();
+  });
+
   test('one key cannot be shared without limit (MAX_CONNS_PER_LICENSE)', async (t) => {
     const srv = await startServer({ MCA_PAYWALL: 'multiplayer', LICENSE_SECRET: TEST_SECRETS.LICENSE_SECRET, ADMIN_TOKEN: TEST_SECRETS.ADMIN_TOKEN, MAX_CONNS_PER_LICENSE: '2' });
     t.after(() => srv.close());

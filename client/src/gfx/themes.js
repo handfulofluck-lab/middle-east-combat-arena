@@ -30,7 +30,7 @@ const BIOMES = {
     props: { rocks: 0.5, shrubs: 1.0, palms: 0.0, trees: 0.25 }, veg: 0.5,
   },
   saltflat: {
-    sandA: 0xe2d9c6, sandB: 0xcfc3ab, sandC: 0xf3eee2, rockA: 0x8d8073, rockB: 0x675d54,
+    sandA: 0xcdc3ae, sandB: 0xbcae95, sandC: 0xe0d8c6, rockA: 0x8d8073, rockB: 0x675d54,
     scrub: 0x8a8a66, wet: 0xb4a78e, duneAmp: 0.18, duneScale: 2.0, rockStyle: 'crag',
     props: { rocks: 0.4, shrubs: 0.15, palms: 0.0, trees: 0.0 }, veg: 0.04,
   },
@@ -77,7 +77,7 @@ const TODS = {
 
 const WEATHER = {
   clear: { fogMul: 0.8, haze: 0.0, dust: 0.0, clouds: 0.16 },
-  haze: { fogMul: 1.5, haze: 0.5, dust: 0.15, clouds: 0.4 },
+  haze: { fogMul: 1.3, haze: 0.5, dust: 0.12, clouds: 0.4 },
   dust: { fogMul: 2.1, haze: 0.8, dust: 1.0, clouds: 0.15 },
 };
 

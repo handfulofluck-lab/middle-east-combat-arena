@@ -20,8 +20,10 @@
 .panel {
   position: relative;
   background: var(--glass);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(1.25);
-  backdrop-filter: blur(var(--blur)) saturate(1.25);
+  /* brightness() pulls a daylight scene down so text contrast never depends
+     on what the battle happens to be doing behind the panel */
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(1.2) brightness(0.72);
+  backdrop-filter: blur(var(--blur)) saturate(1.2) brightness(0.72);
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
 }

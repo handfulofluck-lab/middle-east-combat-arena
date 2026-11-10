@@ -459,6 +459,13 @@ async function rtStress(seconds) {
   const ev = stressEvents(secs, rng);
   const t0 = performance.now();
   const s0 = audioStats();
+  // main-thread tasks over 50 ms during the test (whoever caused them)
+  const longTasks = [];
+  let po = null;
+  try {
+    po = new PerformanceObserver((l) => { for (const e of l.getEntries()) longTasks.push(e.duration); });
+    po.observe({ entryTypes: ['longtask'] });
+  } catch (e) { po = null; }
   let idx = 0, maxVoices = 0, peak = 0, rmsSum = 0, n = 0, maxFrame = 0, lastFrame = performance.now();
   let raf = 0;
   const frame = () => {
@@ -488,7 +495,11 @@ async function rtStress(seconds) {
   const s1 = audioStats();
   const dt = (performance.now() - t0) / 1000;
   setMusicIntensity(0);
+  if (po) po.disconnect();
   return {
+    longTasks: longTasks.length, longestTaskMs: r1(longTasks.reduce((a, c) => Math.max(a, c), 0)),
+    initMs: r2(s1.initMs), maxFireMs: r2(s1.maxFireMs), maxBakeMs: r2(s1.maxBakeMs), maxStoreMs: r2(s1.maxStoreMs),
+    baked: s1.baked, liveSynth: s1.live - s0.live,
     seconds: r1(dt), state: s1.state, events: ev.length, fired: s1.fired - s0.fired,
     dropped: s1.dropped - s0.dropped, stolen: s1.stolen - s0.stolen, maxVoices,
     peakDb: r1(toDb(peak)), meanRms: r2(rmsSum / Math.max(1, n)),
@@ -689,6 +700,8 @@ const api = {
     stats: () => audioStats(),
     internals: () => audioInternals(),
     stress: rtStress,
+    mute: (on) => { setMuted(null, on); return isMuted(); },
+    volume: (k, v) => { if (v !== undefined) setVolume(k, v); return getVolume(k); },
   },
 };
 if (typeof window !== 'undefined') {
