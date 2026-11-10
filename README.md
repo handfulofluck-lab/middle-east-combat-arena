@@ -14,6 +14,10 @@ Screenshots are captured from the running game in headless Chromium with softwar
 
 ## Play
 
+**Windows:** double-click `START_GAME.bat`. It installs dependencies on the first run, builds the game, starts the local server and opens `http://localhost:8790/` in your browser. It needs [Node.js](https://nodejs.org) 20 or newer.
+
+**Any platform, for development:**
+
 ```bash
 npm install
 npm run dev
