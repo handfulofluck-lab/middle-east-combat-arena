@@ -54,8 +54,8 @@ const TODS = {
     shadow: 0.62, water: 0x2f6f8a, waterDeep: 0x123c56, tint: [1.03, 0.99, 0.96], stars: 0,
   },
   day: {
-    sunEl: 52, sunAz: 140, sun: 0xfff3dc, sunI: 3.6, sky: 0x4f8fd8, horizon: 0xcfe0ee,
-    ground: 0x9a8468, hemiI: 0.85, fog: 0xcfd9e2, fogDensity: 0.0036, exposure: 0.95,
+    sunEl: 46, sunAz: 140, sun: 0xfff1d6, sunI: 3.9, sky: 0x3f84d8, horizon: 0xc6dcee,
+    ground: 0x9a8468, hemiI: 0.7, fog: 0xcfd9e2, fogDensity: 0.0036, exposure: 0.88,
     shadow: 0.55, water: 0x1f86a6, waterDeep: 0x0b3f63, tint: [1.0, 1.0, 1.0], stars: 0,
   },
   golden: {

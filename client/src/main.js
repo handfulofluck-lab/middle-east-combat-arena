@@ -8,7 +8,7 @@ import { createCamera, centerCameraOn, clampCameraToMap, worldToScreen } from '.
 import { initInput, handleInputFrame } from './game/input.js';
 import { initRenderer, renderFrame } from './game/render.js';
 import { initGl, glFrame, focusGl, setGlVisible, syncLegacyFog,
-  glWorldToScreen, setQuality, getQuality } from './game/gl.js';
+  glWorldToScreen, glViewQuad, setQuality, getQuality } from './game/gl.js';
 import { initCinematics, updateCinematics, startMenuCinematic,
   stopMenuCinematic, playIntro, playOutro, playTitle, skipCinematic,
   cancelCinematics, isCinematicActive } from './game/cinematics.js';
@@ -395,13 +395,16 @@ export async function boot() {
     if (G.overlay) return; // an overlay is already up — ignore
     if (G.state && !G.state.over && !G.endShown) {
       // live match -> pause overlay (resume restores the pre-overlay pause state)
-      G.pausedBeforeMenu = G.paused;
-      G.paused = true;
       const mpOn = !!(G.net && G.net.active);
+      G.pausedBeforeMenu = G.paused;
+      // Offline the menu pauses the match. Online it must not: one player
+      // opening a menu would stall every other player's simulation (the
+      // shared pause is the host's Pause button, which tells the room).
+      if (!mpOn) G.paused = true;
       showPauseMenu(G, {
         onResume: () => {
           G.overlay = null;
-          G.paused = G.pausedBeforeMenu;
+          if (!mpOn) G.paused = G.pausedBeforeMenu;
           if (G.hudSyncSpeed) G.hudSyncSpeed();
         },
         // v0.10.0: an MP match cannot be restarted locally (the peers share
@@ -469,6 +472,8 @@ export async function boot() {
     onPause: (on, from) => {
       if (!G.state || G.state.over) return;
       G.paused = on;
+      // a pause silences the whole room; it must not count as anyone's absence
+      if (!on && G.ls && G.ls.resume) { G.ls.resume(); G.mpStallSince = 0; G.mpStallSlots = ''; }
       G.mpPauseName = mpNameOf(from);
       if (G.hudSyncSpeed) G.hudSyncSpeed();
       showHint(G, on ? 'Paused by ' + G.mpPauseName : 'Resumed');
@@ -628,7 +633,11 @@ export async function boot() {
             try { AudioApi.setMusicIntensity(G.gl.musicHeat()); } catch (e) { /* optional */ }
           }
           glFrame(G, dt);
-          if (G.state) draw3dOverlays(G);
+          if (G.state) {
+            draw3dOverlays(G);
+            // the minimap draws the camera's true ground footprint
+            G.minimapView = glViewQuad(G);
+          }
         } else if (G.state) {
           renderFrame(G);
           if (G.dragMove) drawDragMoveLine(G); // 2D drag-move order line
@@ -1103,6 +1112,12 @@ function stopBgPump() {
 // Host-side: a peer the gate has been waiting on for > DROP_AFTER_MS is
 // declared dropped (AI takeover). Until then the match waits for it.
 function hostDropWatch(now) {
+  // nobody ticks while the room is paused (or while this peer's own intro
+  // or load holds its sim): silence then says nothing about a peer's health
+  if (G.paused || G.worldPending > 0 || (G.cinema && G.cinema.holdSim)) {
+    G.mpStallSince = 0; G.mpStallSlots = ''; G.mpWaitNote = null;
+    return;
+  }
   // everyone else: say who the room is waiting for (once per wait)
   if (G.ls && !G.state.over && G.ls.isWaiting()) {
     const key = G.ls.waitingOn().join(',');

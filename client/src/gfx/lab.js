@@ -23,7 +23,7 @@ async function main() {
   const n = Math.min(Number(q.get('players') || 2), map.spawns.length);
   const players = [];
   for (let i = 0; i < n; i++) {
-    players.push({ slot: i, faction: q.get('f' + i) || factions[(i * 5) % factions.length], team: i % 2, ai: { personality: 'Front', difficulty: 'elite' } });
+    players.push({ slot: i, faction: q.get('f' + i) || factions[(i * 5) % factions.length], team: i % 2, ai: { personality: q.get('ai') || 'Front', difficulty: 'elite' } });
   }
   const seed = Number(q.get('seed') || 7);
   const state = Sim.createMatch({ data, map, players, seed });

@@ -84,6 +84,12 @@
   transition: opacity 1400ms var(--ease-out), transform 2600ms var(--ease-out);
 }
 .cine-title.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+/* a soft pool of shade keeps the wordmark legible over a bright desert */
+.cine-title::before {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 170%; height: 190%;
+  transform: translate(-50%, -50%); z-index: -1; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(5, 7, 10, 0.62), rgba(5, 7, 10, 0.34) 55%, transparent 100%);
+}
 .cine-title:not(.on) { transition: opacity 500ms var(--ease-in-out), transform 500ms var(--ease-in-out); }
 .cine-logo {
   font-weight: 700; font-size: clamp(90px, 17vw, 260px); line-height: 0.86;

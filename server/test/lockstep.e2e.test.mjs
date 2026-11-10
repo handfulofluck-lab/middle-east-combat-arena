@@ -4,10 +4,14 @@
 // client/src/net/net.js (on Node's built-in browser-compatible WebSocket),
 // client/src/net/lockstep.js and the real simulation (client/src/sim) --
 // talking to the real server over real sockets. The lobby handshake, cfg/start
-// and the match itself follow the same sequence main.js runs in the browser,
-// and the parts of main.js that cannot be imported headlessly (the frame loop,
-// the host's drop rules, the AI takeover) are emulated below; a guard test at
-// the end of this file fails when main.js stops matching that emulation.
+// and the match itself follow the same sequence main.js runs in the browser.
+// main.js itself cannot be imported headlessly, so:
+//   * its drop logic -- hostDropWatch() and processPendingDrops() -- is lifted
+//     out of the source text and RUN AS IT IS for every peer (whatever those
+//     functions do today is what these tests exercise);
+//   * its frame loop and its small inline hooks (onBye, onPeerDrop) are
+//     re-stated below, and a guard test at the end of this file fails when
+//     main.js stops matching them.
 //
 // The matches must stay bit-identical on every peer: per-tick state checksums
 // are compared directly AND through the csum messages the peers exchange via
@@ -22,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import * as Sim from '../../client/src/sim/index.js';
-import { createLockstep, CSUM_EVERY, MP_STEP_CAP, STALL_TIMEOUT_MS } from '../../client/src/net/lockstep.js';
+import { createLockstep, CSUM_EVERY, KEEPALIVE_MS, MP_STEP_CAP, STALL_TIMEOUT_MS } from '../../client/src/net/lockstep.js';
 import { http, sleep, startServer } from './helpers/harness.mjs';
 
 const CLIENT = path.resolve(import.meta.dirname, '..', '..', 'client');
@@ -56,6 +60,58 @@ const TAKEOVER_DELAY_TICKS = mainConst('TAKEOVER_DELAY_TICKS'); // drop line = s
 const SEED = 20260917;
 const clock = { t: 1 }; // virtual milliseconds (never 0: main.js treats a 0 timestamp as "not waiting")
 
+// The source of a top-level function of main.js, or null.
+function mainFunction(name) {
+  const m = new RegExp('^function ' + name + '\\([^)]*\\) \\{[\\s\\S]*?^\\}', 'm').exec(MAIN_SRC);
+  return m ? m[0] : null;
+}
+const REAL_SOURCE = {
+  hostDropWatch: mainFunction('hostDropWatch'),
+  processPendingDrops: mainFunction('processPendingDrops'),
+};
+
+// Give a peer its own copies of those functions, closed over a `G` that maps
+// main.js's game object onto the peer, the peer's Net, and the virtual clock.
+function bindMainJs(peer) {
+  const G = {
+    get ls() { return peer.ls; },
+    get state() { return peer.state; },
+    get ai() { return peer.ai; },
+    get playerSlot() { return peer.slot; },
+    get paused() { return peer.paused; },
+    worldPending: 0, cinema: null,
+    mpDropped: {}, mpStallSince: 0, mpStallSlots: '', mpWaitNote: null, mpPendingDrops: [],
+  };
+  const scope = {
+    G, Net: peer.Net, Sim, DROP_AFTER_MS, LOAD_GRACE_MS, TAKEOVER_DELAY_TICKS,
+    showHint: () => {}, mpNameOf: (slot) => 'P' + (slot + 1),
+    performance: { now: () => clock.t },
+  };
+  const compile = (name) => {
+    if (!REAL_SOURCE[name]) return null;
+    const fn = new Function(...Object.keys(scope), REAL_SOURCE[name] + '\nreturn ' + name + ';')(...Object.values(scope));
+    return (...args) => {
+      try { return fn(...args); } catch (e) {
+        if (e instanceof ReferenceError) {
+          throw new Error('main.js ' + name + '() now uses something this harness does not provide (' + e.message
+            + '): extend bindMainJs() in server/test/lockstep.e2e.test.mjs');
+        }
+        throw e;
+      }
+    };
+  };
+  peer.G = G;
+  peer.real = { hostDropWatch: compile('hostDropWatch'), processPendingDrops: compile('processPendingDrops') };
+
+  // observe (and, for rule-level tests, steer) what the host declares
+  const sendDrop = peer.Net.sendDrop.bind(peer.Net);
+  peer.Net.sendDrop = (slot, at) => {
+    if (peer.opts.dropAt) at = peer.opts.dropAt(peer, slot);
+    peer.declared.push({ slot, at, why: peer.declaring, tick: peer.state.tick, clock: clock.t });
+    sendDrop(slot, at);
+  };
+}
+
 let peerSeq = 0;
 let syncSeq = 0;
 
@@ -84,17 +140,27 @@ async function makePeer(tag, rngSeed, opts = {}) {
     desync: null, sent: [], sums: new Map(), trace: [], chat: [], byes: [], errors: [],
     hostLeft: null, closed: false, lobbies: 0, lost: 0, issued: 0, orders: [],
     // drops: what this peer was told / decided
-    drops: [], pendingDrops: [], takeovers: [], declared: [], selfDropped: false,
-    mpDropped: {}, stallSince: 0, stallSlots: '',
+    drops: [], takeovers: [], declared: [], declaring: '', selfDropped: false,
+    G: null, real: null, // main.js's game object and its real drop functions (bindMainJs)
     // test controls
     gone: false,          // left the match (disconnected, or dropped by the host)
     frozen: false,        // its frame loop is not running
     inboundHeld: false,   // network input is queued instead of processed (frozen JS / a lagging link)
-    inboundQueue: [], inboundCount: 0, pongWaiters: new Map(), acc: 0,
+    paused: false,        // G.paused: frames keep running, the sim is not stepped
+    latencyMs: 0,         // one-way network latency towards this peer, in virtual ms
+    lose: null,           // (msg) => true to lose that incoming game message on the way
+    lostMessages: [],
+    inTransit: [], inboundQueue: [], inboundCount: 0, pongWaiters: new Map(), acc: 0,
   };
-  // what arrives from the network is processed now, or queued while "held"
-  const fromNetwork = (fn) => (...args) => {
+  // What arrives from the network spends `latencyMs` in transit (delivered by
+  // the driver when the virtual clock gets there), then is processed -- or
+  // queued while the peer's input is "held".
+  const land = (fn, args) => {
     if (peer.inboundHeld) peer.inboundQueue.push(() => fn(...args)); else fn(...args);
+  };
+  const fromNetwork = (fn) => (...args) => {
+    if (peer.latencyMs > 0) peer.inTransit.push({ at: clock.t + peer.latencyMs, run: () => land(fn, args) });
+    else land(fn, args);
   };
   const deliver = (m) => {
     if (!peer.ls) { peer.lost++; return; }
@@ -112,27 +178,26 @@ async function makePeer(tag, rngSeed, opts = {}) {
       // Net.sendDrop echoes the host's own declaration into this hook: that is a
       // local call, not network input, and takes effect at once
       if (m && m.t === 'drop' && Net.isHost && m.from === Net.slot) deliver(m);
+      else if (peer.lose && peer.lose(m)) peer.lostMessages.push(m);
       else fromNetwork(deliver)(m);
     },
-    // main.js onBye: the host turns a disconnect into a drop declaration
+    // main.js onBye: the host turns a disconnect into a drop declaration whose
+    // line no peer can have reached -- ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS
     onBye: fromNetwork((slot, reason) => {
       peer.byes.push({ slot, reason });
-      if (peer.state && !peer.state.over && Net.isHost && peer.ls && !peer.mpDropped[slot]) declareDrop(peer, slot, 'bye');
+      const G = peer.G;
+      if (G.state && !G.state.over && Net.isHost && G.ls && !G.mpDropped[slot]) {
+        G.mpDropped[slot] = true;
+        peer.declaring = 'bye';
+        Net.sendDrop(slot, G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
+      }
     }),
     onHostLeft: fromNetwork((m) => { peer.hostLeft = m; }),
     onError: (reason) => peer.errors.push(reason),
     onClose: () => { peer.closed = true; },
   });
+  bindMainJs(peer);
   return peer;
-}
-
-// main.js (onBye and hostDropWatch): the drop takes effect at a tick no peer
-// can have reached yet -- ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS.
-function declareDrop(peer, slot, why) {
-  const at = peer.opts.dropAt ? peer.opts.dropAt(peer, slot) : peer.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS;
-  peer.mpDropped[slot] = true;
-  peer.declared.push({ slot, at, why, tick: peer.state.tick, clock: clock.t });
-  peer.Net.sendDrop(slot, at);
 }
 
 // 'start' from the host: every peer builds the identical match from the
@@ -167,42 +232,41 @@ function beginMatch(peer) {
         setTimeout(() => { if (peer.ls) peer.Net.leave(); }, 0);
         return;
       }
-      peer.pendingDrops.push({ slot: m.slot, at: m.at !== undefined ? m.at : state.tick + TAKEOVER_DELAY_TICKS });
+      peer.G.mpPendingDrops.push({ slot: m.slot, at: m.at !== undefined ? m.at : state.tick + TAKEOVER_DELAY_TICKS });
     },
   });
   peer.sums.set(0, Sim.checksum(state));
 }
 
-// main.js hostDropWatch: a peer the host's gate has waited on for DROP_AFTER_MS
-// is declared dropped (LOAD_GRACE_MS for one that has not sent anything yet).
-function hostDropWatch(peer, now) {
-  const { Net, ls } = peer;
+// Stand-ins, used ONLY if main.js no longer has functions of these names (the
+// guard test then fails and says so): the rules as they were when this file
+// was last touched.
+function fallbackHostDropWatch(peer, now) {
+  const { Net, ls, G } = peer;
   if (!Net.isHost || !ls || peer.state.over) return;
-  if (!ls.isWaiting()) { peer.stallSince = 0; peer.stallSlots = ''; return; }
+  if (!ls.isWaiting()) { G.mpStallSince = 0; G.mpStallSlots = ''; return; }
   const key = ls.waitingOn().join(',');
-  if (key !== peer.stallSlots) {
-    peer.stallSlots = key;
-    peer.stallSince = now;
+  if (key !== G.mpStallSlots || !G.mpStallSince) {
+    G.mpStallSlots = key;
+    G.mpStallSince = now;
     return;
   }
-  if (!peer.stallSince || now - peer.stallSince < DROP_AFTER_MS) return;
   const heard = ls.debugState().lastHeard;
-  let dropped = false;
   for (const slot of ls.waitingOn()) {
-    if (peer.mpDropped[slot] || slot === Net.slot) continue;
-    if (heard[slot] === undefined && now - peer.stallSince < LOAD_GRACE_MS) continue; // still loading
-    dropped = true;
-    declareDrop(peer, slot, 'timeout');
+    if (G.mpDropped[slot] || slot === Net.slot) continue;
+    const silentFor = heard[slot] === undefined ? -1 : now - heard[slot];
+    const loading = heard[slot] === undefined && now - G.mpStallSince < LOAD_GRACE_MS;
+    if (loading || (silentFor >= 0 && silentFor < DROP_AFTER_MS)) continue;
+    G.mpDropped[slot] = true;
+    Net.sendDrop(slot, ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS);
   }
-  if (dropped) peer.stallSince = 0;
 }
 
-// main.js processPendingDrops: a declared drop installs a takeover brain whose
-// first think is an absolute tick, so every peer's AI acts on the same tick.
-function processPendingDrops(peer) {
-  if (!peer.pendingDrops.length) return;
+function fallbackProcessPendingDrops(peer) {
+  const G = peer.G;
+  if (!G.mpPendingDrops.length) return;
   const remaining = [];
-  for (const d of peer.pendingDrops) {
+  for (const d of G.mpPendingDrops) {
     if (peer.state.tick < d.at) { remaining.push(d); continue; }
     const p = peer.state.players[d.slot];
     if (p && !p.aiTakeover) {
@@ -211,10 +275,9 @@ function processPendingDrops(peer) {
       const brain = Sim.makeBrain({ slot: d.slot, faction: p.faction, team: p.team, ai: p.ai }, peer.state.seed, d.slot);
       brain.nextThink = d.at + brain.interval;
       peer.ai.brains.push(brain);
-      peer.takeovers.push({ slot: d.slot, at: d.at, firstThink: brain.nextThink });
     }
   }
-  peer.pendingDrops = remaining;
+  G.mpPendingDrops = remaining;
 }
 
 // ---- scripted input -----------------------------------------------------------
@@ -295,18 +358,26 @@ function runScript(peer) {
 // mpSimStep: hand pending input to the scheduler, then run one tick if the
 // gate is open. Records the checksum of every tick this peer executed.
 function stepPeer(peer) {
-  if (peer.gone || peer.frozen || peer.state.over) return false;
+  if (peer.gone || peer.frozen || peer.paused || peer.state.over) return false; // (main.js steps only while !G.paused)
   runScript(peer);
   if (!peer.ls.advance()) return false;
   peer.sums.set(peer.state.tick, Sim.checksum(peer.state));
   return true;
 }
 
-// what the frame loop does after stepping
+// what main.js's frame loop does after stepping: hostDropWatch(now), then
+// processPendingDrops() -- the real functions, on the virtual clock
 function afterFrame(peer) {
   if (peer.gone || peer.frozen) return;
-  hostDropWatch(peer, clock.t);
-  processPendingDrops(peer);
+  peer.declaring = 'timeout';
+  if (peer.real.hostDropWatch) peer.real.hostDropWatch(clock.t); else fallbackHostDropWatch(peer, clock.t);
+  const pending = peer.G.mpPendingDrops.slice();
+  const brains = peer.ai.brains.length;
+  if (peer.real.processPendingDrops) peer.real.processPendingDrops(); else fallbackProcessPendingDrops(peer);
+  for (const brain of peer.ai.brains.slice(brains)) { // an AI just took a slot over
+    const d = pending.find((x) => x.slot === brain.slot);
+    peer.takeovers.push({ slot: brain.slot, at: d ? d.at : -1, firstThink: brain.nextThink });
+  }
 }
 
 // one frame: step while the gate is open (capped like MP_STEP_CAP)
@@ -321,10 +392,14 @@ function frame(peer, maxSteps = MP_STEP_CAP) {
 //   default      flat out: every turn of the loop is a frame and 1 virtual ms
 //   paced        like the browser: a tick is due every TICK_MS of virtual time;
 //                a closed gate holds the accumulator (main.js frame loop)
-async function drive(peers, done, { timeoutMs = 60000, maxSteps = MP_STEP_CAP, paceMs = 0, clockStep = 1, paced = false, each } = {}) {
+//   instant      the relay hop itself takes no virtual time: everything sent in
+//                a frame has reached its recipients' sockets before the clock
+//                moves on (their `latencyMs` then decides when it is processed)
+async function drive(peers, done, { timeoutMs = 30000, maxSteps = MP_STEP_CAP, paceMs = 0, clockStep = 1, paced = false, instant = false, each } = {}) {
   const started = performance.now();
   for (;;) {
     clock.t += clockStep;
+    for (const p of peers) arrive(p);
     for (const p of peers) {
       if (p.gone || p.frozen) continue;
       if (!paced) { frame(p, maxSteps); continue; }
@@ -342,10 +417,18 @@ async function drive(peers, done, { timeoutMs = 60000, maxSteps = MP_STEP_CAP, p
     if (performance.now() - started > timeoutMs) {
       throw new Error('match stalled: ' + peers.map((p) => p.tag + '@' + p.state.tick
         + (p.gone ? '(gone)' : p.frozen ? '(frozen)' : ' waiting on [' + p.ls.waitingOn() + ']')
-        + (p.desync ? ' DESYNC ' + JSON.stringify(p.desync) : '')).join(' | '));
+        + (p.desync ? ' DESYNC ' + JSON.stringify(p.desync) : '')
+        + (p.declared.length ? ' declared ' + JSON.stringify(p.declared) : '')).join(' | '));
     }
-    if (paceMs) await sleep(paceMs); else await new Promise((resolve) => setImmediate(resolve));
+    if (instant) await settle(peers);
+    else if (paceMs) await sleep(paceMs);
+    else await new Promise((resolve) => setImmediate(resolve));
   }
+}
+
+// hand a peer everything whose time in transit is over
+function arrive(peer) {
+  while (peer.inTransit.length && peer.inTransit[0].at <= clock.t) peer.inTransit.shift().run();
 }
 
 async function until(cond, what, timeoutMs = 15000) {
@@ -608,7 +691,7 @@ describe('headless lockstep matches through the Node relay', () => {
     assert.ok((counts.structs[2] || 0) >= 1, 'the AI slot built: ' + JSON.stringify(counts));
     assert.ok(host.issued >= 5 && guest.issued >= 5, `scripted commands issued: ${host.issued}/${guest.issued}`);
     assert.ok(host.sent.filter((m) => m.t === 'cmd').length === host.issued);
-    assert.ok(host.sent.some((m) => m.t === 'stall'));
+    assert.ok(host.sent.some((m) => m.t === 'eoi'), 'end-of-input markers flow');
     assert.notEqual(host.sums.get(0), host.sums.get(TARGET), 'the world actually changed');
 
     // --- side channels through the same relay --------------------------------
@@ -762,424 +845,3 @@ describe('headless lockstep matches through the Node relay', () => {
   });
 });
 
-// ---------------------------------------------------------------------------------
-// The v1.0 scheduler rules: the gate ALWAYS waits for a missing peer, and a
-// drop takes effect on a host-chosen tick that no machine has reached.
-// ---------------------------------------------------------------------------------
-
-// Shared choreography for "Carol's machine freezes for 4 s, then she comes
-// back and the first thing her frame does is issue an order".
-async function freezeAndReturn(t, peerOpts) {
-  const { peers } = await threeHumans(t, peerOpts);
-  const [host, bob, carol] = peers;
-  freeze(carol);
-  await stepUntilHeld([host, bob], peers); // the others use up whatever input of hers they already hold
-  const S = carol.state.tick;
-  const rest = { host: host.state.tick, bob: bob.state.tick };
-  assert.ok(rest.host <= S + 1 && rest.bob <= S + 1, 'nobody can get past the first tick Carol sent nothing for');
-
-  // 4 s pass: far beyond the old 1.5 s "force the tick" rule, well short of the host's drop timeout
-  const FREEZE_MS = 4000;
-  assert.ok(FREEZE_MS > 2 * STALL_TIMEOUT_MS && FREEZE_MS < DROP_AFTER_MS);
-  const thawAt = clock.t + FREEZE_MS;
-  await drive([host, bob], () => clock.t >= thawAt, { paced: true, clockStep: 10 });
-  const during = { host: host.state.tick, bob: bob.state.tick, forced: forcedTicks(host) + forcedTicks(bob) };
-
-  // she is back: her frame hands her order to the scheduler before anything else happens
-  const cmd = mcvMove(carol, 1);
-  const stamped = issue(carol, cmd);
-  thaw(carol);
-  return { peers, host, bob, carol, S, rest, during, cmd, stamped };
-}
-
-describe('lockstep v1.0 rules: waiting and tick-aligned drops', () => {
-  test('A. a frozen peer comes back and issues a command while catching up: everyone waited, nobody desyncs', async (t) => {
-    const { peers, host, bob, carol, S, rest, during, cmd, stamped } = await freezeAndReturn(t, {});
-
-    // while she was gone the others HELD: no tick ran, nothing was forced, nobody was dropped
-    assert.deepEqual({ host: during.host, bob: during.bob }, rest, 'ticks did not advance during the freeze');
-    assert.equal(during.forced, 0);
-    for (const p of [host, bob]) {
-      assert.equal(p.ls.stats.forcedSteps, 0);
-      assert.ok(p.trace.some((e) => e.gate === 'hold' && e.missing.includes(2)), p.tag + ' was holding for Carol');
-    }
-    assert.deepEqual(host.declared, [], 'a 4 s freeze is not a drop');
-    assert.equal(stamped, S + carol.ls.getDelay(), 'her order is stamped from the tick she froze on');
-    assert.ok(stamped > rest.host && stamped > rest.bob, 'which nobody has run yet, because they waited');
-
-    for (const p of peers) p.script.quiet = false; // from here on a normal scripted match
-    const TARGET = S + 260;
-    await drive(peers, () => peers.every((p) => p.state.tick >= TARGET));
-
-    for (const p of peers) {
-      assert.equal(p.desync, null, p.tag + ' reported a desync');
-      assert.deepEqual(p.ls.stats, { stallWaits: 0, forcedSteps: 0, desyncs: 0 });
-      assert.deepEqual(appliedTicks(p, cmd), [stamped], p.tag + ' applied her order on its stamped tick');
-      assert.deepEqual(p.drops, []);
-    }
-    const ab = assertSameHistory(host, bob, TARGET);
-    const ac = assertSameHistory(host, carol, TARGET - 5);
-    assert.deepEqual(entityCounts(host.state), entityCounts(carol.state));
-    t.diagnostic(`Carol froze at tick ${S} for 4000 virtual ms; others held at ${rest.host}/${rest.bob}; her order ran on tick ${stamped} everywhere; `
-      + `${ab}+${ac} checksums compared up to tick ${TARGET}`);
-  });
-
-  test('A (old rule). the same scenario with forceOnSilence DOES desync -- the fix is what keeps test A green', async (t) => {
-    const { peers, host, bob, carol, S, rest, during, cmd, stamped } = await freezeAndReturn(t, { forceOnSilence: true });
-
-    // under the old rule the others forced ticks without her after 1.5 s of silence...
-    assert.ok(during.forced > 0, 'ticks were forced');
-    assert.ok(during.host >= rest.host + 15 && during.bob >= rest.bob + 15, `host/bob ran ahead: ${during.host}/${during.bob} from ${rest.host}/${rest.bob}`);
-    assert.ok(stamped < during.host && stamped < during.bob, 'so her order is stamped for a tick they have already left behind');
-
-    await drive(peers, () => peers.some((p) => p.desync) || peers.every((p) => p.state.tick >= S + 150));
-
-    // ...she applied her own order, they threw it away as stale, and the checksums caught it
-    assert.deepEqual(appliedTicks(carol, cmd), [stamped]);
-    assert.deepEqual(appliedTicks(host, cmd), []);
-    assert.deepEqual(appliedTicks(bob, cmd), []);
-    const info = peers.map((p) => p.desync).find(Boolean);
-    assert.ok(info, 'the divergence was detected');
-    assert.equal(info.tick % CSUM_EVERY, 0);
-    assert.ok(info.tick > stamped);
-    assert.equal(firstDivergence(host, carol), stamped + 1, 'Carol and the host part ways on the tick her order ran');
-    assert.equal(firstDivergence(host, bob), -1, 'host and Bob (who forced together) still agree with each other');
-    t.diagnostic(`old rule: host/bob forced ${during.forced} ticks to ${during.host}/${during.bob}; Carol's order for tick ${stamped} was stale for them; `
-      + `desync reported at checksum tick ${info.tick}`);
-  });
-
-  // Carol gives an order on every tick, each for a different spot, so that at
-  // any moment she has orders "in flight" for the next ticks.
-  function orderEveryTick(carol) {
-    carol.script.eachTick = (p) => {
-      if (p.script.lastOrderTick === p.state.tick) return;
-      p.script.lastOrderTick = p.state.tick;
-      issue(p, mcvMove(p, p.state.tick % 6));
-    };
-  }
-
-  // Bring the room to: Bob one tick behind (his link lags: he has announced
-  // tick T but not run it), host and Carol on T+1, Carol's orders for T+1,
-  // T+2 and T+3 delivered to everyone and run by no one -- then Carol's
-  // connection dies.
-  async function dropWithOrdersInFlight(t, peerOpts) {
-    const { peers } = await threeHumans(t, peerOpts);
-    const [host, bob, carol] = peers;
-    orderEveryTick(carol);
-    await drive(peers, () => peers.every((p) => p.state.tick >= 50));
-    await settle(peers);
-
-    bob.inboundHeld = true; // from now on what the relay sends Bob reaches him late
-    await stepUntilHeld(peers);
-    const T = bob.state.tick;
-    assert.equal(host.state.tick, T + 1);
-    assert.equal(carol.state.tick, T + 1);
-    const inFlight = carol.orders.filter((o) => o.tick > T);
-    assert.deepEqual(inFlight.map((o) => o.tick), [T + 1, T + 2, T + 3]);
-    assert.equal(new Set(inFlight.map((o) => o.key)).size, 3, 'three distinguishable orders');
-    for (const p of [host, bob]) for (const o of inFlight) assert.deepEqual(appliedTicks(p, o.key).filter((tk) => tk > T), [], 'not run yet');
-
-    carol.gone = true;
-    carol.Net.ws.close(); // abrupt: no leave message, her last orders are all the room will ever get
-    await until(() => host.byes.length > 0, 'the host to learn Carol is gone');
-    await settle([host, bob]);
-
-    // the host declared the drop on tick T+1; Bob will learn of it on tick T
-    assert.equal(host.declared.length, 1);
-    assert.equal(host.declared[0].why, 'bye');
-    assert.equal(host.declared[0].tick, T + 1);
-    assert.equal(host.state.tick, T + 1);
-    assert.equal(bob.state.tick, T);
-    assert.equal(bob.ls.isDropped(2), false, 'the declaration has not reached Bob yet');
-    releaseInbound(bob);
-    assert.deepEqual(bob.drops.map((d) => [d.slot, d.at, d.tick]), [[2, host.declared[0].at, T]]);
-    assert.deepEqual(host.drops.map((d) => [d.slot, d.at, d.tick]), [[2, host.declared[0].at, T + 1]]);
-
-    for (const p of [host, bob]) p.script.quiet = false;
-    const at = host.declared[0].at;
-    const TARGET = Math.max(at, T + 3) + 160;
-    await drive([host, bob], () => host.state.tick >= TARGET && bob.state.tick >= TARGET);
-    return { host, bob, carol, T, at, inFlight, TARGET };
-  }
-
-  test('B. a dropped player had commands in flight while the others were on DIFFERENT ticks: applied identically, takeover in sync', async (t) => {
-    const { host, bob, carol, T, at, inFlight, TARGET } = await dropWithOrdersInFlight(t, {});
-
-    // main.js rule: the line is beyond everything Carol ever sent input for
-    assert.equal(at, T + 3 + 1 + TAKEOVER_DELAY_TICKS, 'safeDropTick = her highest stamped tick + 1');
-    assert.ok(Math.max(...carol.orders.map((o) => o.tick)) < at, 'so none of her orders can sit at or beyond the line');
-    // every in-flight order ran on its stamped tick on BOTH machines
-    for (const o of inFlight) {
-      for (const p of [host, bob]) assert.ok(appliedTicks(p, o.key).includes(o.tick), `${p.tag} ran Carol's order for tick ${o.tick}`);
-    }
-    // and nothing of hers ran from the line on (the AI's orders are different commands)
-    const hers = new Set(carol.orders.map((o) => o.key));
-    for (const p of [host, bob]) {
-      assert.deepEqual(p.trace.filter((e) => e.cmds && e.tick >= at && e.cmds.some((c) => hers.has(c))), []);
-    }
-    assert.deepEqual(host.takeovers, bob.takeovers);
-    assert.deepEqual(host.takeovers.map((x) => [x.slot, x.at, x.firstThink > at]), [[2, at, true]]);
-    for (const p of [host, bob]) {
-      assert.equal(p.desync, null);
-      assert.deepEqual(p.ls.stats, { stallWaits: 0, forcedSteps: 0, desyncs: 0 });
-      assert.equal(p.state.players[2].aiTakeover, true);
-    }
-    const compared = assertSameHistory(host, bob, TARGET);
-    assert.deepEqual(entityCounts(host.state), entityCounts(bob.state));
-    t.diagnostic(`Carol died with orders for ticks ${T + 1},${T + 2},${T + 3} in flight; host declared on tick ${T + 1}, Bob heard on tick ${T}; `
-      + `line ${at}; all three orders ran on both; ${compared} checksums compared to tick ${TARGET}`);
-  });
-
-  test('B (rule level). a drop line that cuts THROUGH the in-flight commands: below it applied on both, at or above it on neither', async (t) => {
-    // Not reachable through main.js (safeDropTick always puts the line past the
-    // last order): the host is made to declare `its tick + 1` to exercise the
-    // scheduler's "apply below the line, ignore from the line on" rule itself.
-    const { host, bob, T, at, inFlight, TARGET } = await dropWithOrdersInFlight(t, { dropAt: (peer) => peer.state.tick + 1 });
-    assert.equal(at, T + 2);
-    const [below, onLine, above] = inFlight; // stamped T+1, T+2, T+3
-    for (const p of [host, bob]) {
-      assert.deepEqual(appliedTicks(p, below.key).filter((tk) => tk > T), [T + 1], `${p.tag}: the order below the line ran`);
-      assert.deepEqual(appliedTicks(p, onLine.key).filter((tk) => tk > T), [], `${p.tag}: the order ON the line was ignored`);
-      assert.deepEqual(appliedTicks(p, above.key).filter((tk) => tk > T), [], `${p.tag}: the order above the line was ignored`);
-      assert.equal(p.desync, null);
-      assert.equal(p.ls.stats.forcedSteps, 0);
-    }
-    assert.deepEqual(host.takeovers, bob.takeovers);
-    assertSameHistory(host, bob, TARGET);
-  });
-
-  test('C. a peer freezes for good while still connected: the others hold, the host times it out, the AI takes over on one tick', async (t) => {
-    const { peers } = await threeHumans(t, {});
-    const [host, bob, carol] = peers;
-
-    // one last order from Carol, delivered to everyone, then her machine locks up
-    const cmd = mcvMove(carol, 2);
-    const stamped = issue(carol, cmd);
-    await settle(peers);
-    const t0 = clock.t;
-    freeze(carol);
-    await stepUntilHeld([host, bob], peers);
-    const rest = { host: host.state.tick, bob: bob.state.tick };
-    assert.ok(stamped > rest.host && stamped > rest.bob, 'her last order is still in flight');
-
-    // almost the whole timeout: still waiting, nothing forced, nobody dropped
-    await drive([host, bob], () => clock.t >= t0 + DROP_AFTER_MS - 500, { paced: true, clockStep: 20 });
-    assert.deepEqual({ host: host.state.tick, bob: bob.state.tick }, rest);
-    assert.deepEqual(host.declared, []);
-    assert.equal(forcedTicks(host) + forcedTicks(bob), 0);
-    assert.deepEqual(host.ls.waitingOn(), [2]);
-
-    // then the host gives up on her
-    await drive([host, bob], () => host.declared.length > 0, { paced: true, clockStep: 20, timeoutMs: 20000 });
-    const decl = host.declared[0];
-    assert.equal(decl.why, 'timeout');
-    assert.equal(decl.slot, 2);
-    const waited = decl.clock - t0;
-    assert.ok(waited >= DROP_AFTER_MS && waited <= DROP_AFTER_MS + 300, `declared after ${waited} virtual ms`);
-    assert.equal(decl.tick, rest.host, 'no tick ran while waiting');
-    assert.equal(decl.at, Math.max(rest.host, stamped + 1) + TAKEOVER_DELAY_TICKS, 'line = safe tick (past her last order) + takeover delay');
-    await settle(peers);
-    assert.deepEqual(bob.drops.map((d) => [d.slot, d.at]), [[2, decl.at]]);
-
-    for (const p of [host, bob]) p.script.quiet = false;
-    const TARGET = decl.at + 220;
-    await drive([host, bob], () => host.state.tick >= TARGET && bob.state.tick >= TARGET);
-
-    for (const p of [host, bob]) {
-      assert.deepEqual(appliedTicks(p, cmd), [stamped], p.tag + ' still ran the order she gave before freezing (it is below the line)');
-      assert.equal(p.desync, null);
-      assert.deepEqual(p.ls.stats, { stallWaits: 0, forcedSteps: 0, desyncs: 0 });
-      assert.equal(p.state.players[2].aiTakeover, true);
-    }
-    assert.deepEqual(host.takeovers, bob.takeovers, 'same takeover tick, same first AI think');
-    assert.deepEqual(host.takeovers.map((x) => [x.slot, x.at]), [[2, decl.at]]);
-    const compared = assertSameHistory(host, bob, TARGET);
-    assert.deepEqual(entityCounts(host.state), entityCounts(bob.state));
-    const aiActed = host.trace.some((e) => e.cmds && e.tick >= decl.at && e.cmds.some((c) => c.includes('"player":2')));
-    assert.ok(aiActed, 'the takeover AI really commands slot 2 afterwards');
-
-    // much later her machine wakes up: she learns she was dropped and stops taking part
-    const carolTick = carol.state.tick;
-    thaw(carol);
-    assert.equal(carol.selfDropped, true);
-    assert.equal(carol.gone, true);
-    await until(() => !carol.Net.active, 'Carol to leave');
-    await until(() => host.byes.length > 0, 'her departure to reach the host');
-    await settle([host, bob]);
-    assert.equal(host.declared.length, 1, 'her leaving does not produce a second declaration');
-    await drive([host, bob], () => host.state.tick >= TARGET + 30 && bob.state.tick >= TARGET + 30);
-    assert.equal(carol.state.tick, carolTick, 'she ran no further tick');
-    assertSameHistory(host, bob, TARGET + 30);
-    assert.equal(host.desync, null);
-    t.diagnostic(`Carol froze at tick ${carolTick}; host waited ${waited} virtual ms, declared line ${decl.at} on tick ${decl.tick}; `
-      + `${compared} checksums compared to tick ${TARGET}`);
-  });
-
-  test('D. timed-out peer wakes up inside the host\'s network round trip and issues a command', async (t) => {
-    // The one ordering the v1.0 rules do not cover (see the subtest below).
-    // Carol has been frozen for almost DROP_AFTER_MS. She wakes up and issues
-    // an order a moment before the host's timeout fires; the order reaches the
-    // relay -- and Bob -- BEFORE the host's declaration does, but reaches the
-    // host only AFTER it has declared (any real link has that latency).
-    const { peers } = await threeHumans(t, {});
-    const [host, bob, carol] = peers;
-    freeze(carol);
-    await stepUntilHeld([host, bob], peers);
-    const S = carol.state.tick;
-    await drive([host, bob], () => host.stallSince > 0 && clock.t - host.stallSince >= DROP_AFTER_MS - 20, { paced: true, clockStep: 10 });
-    assert.deepEqual(host.declared, []);
-    assert.equal(host.state.tick, S + 1);
-    assert.equal(bob.state.tick, S + 1);
-
-    host.inboundHeld = true;           // the host's downlink: what the relay sends now arrives a moment later
-    const cmd = mcvMove(carol, 1);
-    const stamped = issue(carol, cmd); // Carol's first frame after waking up
-    thaw(carol);
-    await settle(peers);               // her order is at the relay, has reached Bob, is in transit to the host
-    assert.equal(host.declared.length, 0);
-
-    await drive([host], () => host.declared.length > 0, { paced: true, clockStep: 10, timeoutMs: 20000 });
-    const decl = host.declared[0];     // the timeout fires on the host
-    assert.equal(decl.why, 'timeout');
-    await settle(peers);               // the declaration reaches Bob (after her order) and Carol
-    releaseInbound(host);              // her order finally reaches the host, which has already dropped her
-    assert.equal(carol.selfDropped, true);
-
-    // the facts of the scenario, independent of how the scheduler resolves it
-    assert.equal(decl.at, S + 1 + TAKEOVER_DELAY_TICKS, 'the host drew the line without knowing about her new order');
-    assert.ok(stamped < decl.at, `her order (tick ${stamped}) sits BELOW the line (${decl.at})`);
-    assert.deepEqual(bob.drops.map((d) => d.at), [decl.at]);
-
-    for (const p of [host, bob]) p.script.quiet = false;
-    await drive([host, bob], () => !!(host.desync || bob.desync) || (host.state.tick >= decl.at + 80 && bob.state.tick >= decl.at + 80));
-    const onHost = appliedTicks(host, cmd);
-    const onBob = appliedTicks(bob, cmd);
-    const split = firstDivergence(host, bob);
-    t.diagnostic(`Carol frozen at tick ${S}; her order stamped ${stamped}; host line ${decl.at}; `
-      + `order ran on host at [${onHost}] and on Bob at [${onBob}]; first differing checksum at tick ${split}; `
-      + `desync reported: ${JSON.stringify(host.desync || bob.desync)}`);
-
-    await t.test('host and the remaining peer treat that order the same way and stay in sync', {
-      todo: 'known race in the v1.0 drop rule: the host discards a dropped slot\'s messages on receipt, the other peers '
-        + 'keep the ones they received before the declaration (below the line). Needs a cut-off every peer agrees on, '
-        + 'e.g. the host\'s last-seen seq for that slot carried in the drop message.',
-    }, () => {
-      assert.deepEqual(onHost, onBob, 'the order must run on both or on neither');
-      assert.equal(split, -1, 'checksums diverged at tick ' + split);
-      assert.equal(host.desync, null);
-      assert.equal(bob.desync, null);
-    });
-  });
-
-  // ---- "the first command for a tick lets it run" -----------------------------
-  // ready(t) treats ONE command from a peer for tick t as that peer's complete
-  // input for t. But a peer can keep issuing commands for tick t for as long
-  // as it sits on tick t - delay (main.js issues pending input on every frame,
-  // also while its gate is closed). A peer that is running on a backlog (its
-  // accumulator is never shed in multiplayer, so any earlier wait leaves one)
-  // executes tick t the moment that first command arrives -- and discards
-  // every later command for t as stale. This predates v1.0; "always wait"
-  // makes backlogs routine.
-  async function clickerAndBackloggedPeer(t) {
-    const srv = await startServer({ RATE_MSGS_PER_SEC: '20000', RATE_BURST: '20000' });
-    t.after(() => srv.close());
-    const peers = await lobby(srv, [
-      { name: 'Rita', faction: 'Egypt' },
-      { name: 'Carl', faction: 'Algeria' },
-    ], { map: pickMap(2, 'duel') });
-    t.after(() => { for (const p of peers) p.Net.leave(); });
-    const [rita, carl] = peers;
-    for (const p of peers) p.script.quiet = true;
-    orderEveryTick(carl); // Carl is clicking: one order per tick, each stamped tick + delay
-    await drive(peers, () => peers.every((p) => p.state.tick >= 40));
-    await settle(peers);
-    return { peers, rita, carl };
-  }
-
-  async function reportStaleCommand(t, { peers, rita, carl, late, X }) {
-    carl.script.eachTick = null;
-    await drive(peers, () => peers.some((p) => p.desync) || peers.every((p) => p.state.tick >= X + 60));
-    const onCarl = appliedTicks(carl, late);
-    const onRita = appliedTicks(rita, late);
-    const split = firstDivergence(rita, carl);
-    assert.deepEqual(onCarl, [X], 'Carl ran his own order on its stamped tick');
-    t.diagnostic(`Carl's extra order for tick ${X} ran on Carl at [${onCarl}] and on Rita at [${onRita}]; `
-      + `first differing checksum at tick ${split}; desync reported: ${JSON.stringify(rita.desync || carl.desync)}`);
-    await t.test('both peers run that order on the same tick and stay in sync', {
-      todo: 'known hazard (older than v1.0): one command for tick t is taken as the sender\'s complete input for t, '
-        + 'so a backlogged peer runs t and then drops the sender\'s later commands for t as stale. Needs an explicit '
-        + 'per-tick end-of-input marker (sent when the sender leaves tick t - delay) that the gate waits for.',
-    }, () => {
-      assert.deepEqual(onRita, onCarl, 'the order must run on both');
-      assert.equal(split, -1, 'checksums diverged at tick ' + split);
-      assert.equal(rita.desync, null);
-      assert.equal(carl.desync, null);
-    });
-  }
-
-  test('E. a second command for the same tick, issued one frame later while the other peer\'s answer is in transit', async (t) => {
-    const { peers, rita, carl } = await clickerAndBackloggedPeer(t);
-    carl.inboundHeld = true;     // Carl's downlink: what Rita sends reaches him a moment later
-    await stepUntilHeld(peers);  // both run as far as their inputs allow (a backlog: up to MP_STEP_CAP ticks per frame)
-    const c = carl.state.tick;   // Carl waits here for Rita's input, which is in transit
-    const X = c + carl.ls.getDelay();
-    assert.deepEqual(carl.orders.filter((o) => o.tick > c).map((o) => o.tick), [c + 1, X], 'he has one order out for each of the next ticks');
-    assert.equal(rita.state.tick, X + 1, 'Rita has already RUN tick X: his first order for it was all her gate asked for');
-
-    const late = mcvMove(carl, 2, 5);
-    assert.equal(issue(carl, late), X, 'his next frame, still on the same tick: another order, also stamped X');
-    await settle(peers);         // it reaches Rita, who is past X
-    releaseInbound(carl);
-    await reportStaleCommand(t, { peers, rita, carl, late, X });
-  });
-
-  test('E2. two commands for one tick issued in the SAME frame, when the receiver\'s frame falls between the two messages', async (t) => {
-    const { peers, rita, carl } = await clickerAndBackloggedPeer(t);
-    rita.inboundHeld = true;     // look at Rita's incoming messages one at a time
-    await stepUntilHeld(peers);
-    assert.equal(rita.inboundQueue.length, 0);
-    const c = carl.state.tick;
-    const X = c + carl.ls.getDelay();
-    // one frame on Carl: two orders, back to back, both stamped X
-    const first = mcvMove(carl, 1, 5);
-    const late = mcvMove(carl, 2, 5);
-    carl.script.eachTick = null;
-    assert.equal(issue(carl, first), X);
-    assert.equal(issue(carl, late), X);
-    await settle(peers);
-    assert.ok(rita.inboundQueue.length >= 2, 'both messages are waiting at Rita');
-    const before = rita.state.tick;
-    while (rita.inboundQueue.length && appliedTicks(rita, first).length === 0) {
-      rita.inboundQueue.shift()(); // one message is processed...
-      frame(rita);                 // ...and a frame runs before the next one
-    }
-    assert.ok(before <= X && rita.state.tick === X + 1, 'Rita ran tick X as soon as the first of the two orders was in');
-    releaseInbound(rita);
-    await reportStaleCommand(t, { peers, rita, carl, late, X });
-  });
-});
-
-describe('the harness mirrors the real client', () => {
-  test('main.js still uses the rules emulated above (update this file when it changes)', () => {
-    for (const [name, value] of Object.entries({ TICK_MS, DROP_AFTER_MS, LOAD_GRACE_MS, TAKEOVER_DELAY_TICKS })) {
-      assert.ok(Number.isInteger(value) && value > 0, 'main.js no longer defines "const ' + name + ' = <number>;"');
-    }
-    assert.equal(TICK_MS, 100);
-    assert.ok(DROP_AFTER_MS > 2 * STALL_TIMEOUT_MS, 'the freeze tests assume a drop timeout well above the old force timeout');
-    // both declaration sites draw the line at safeDropTick + TAKEOVER_DELAY_TICKS
-    const sites = MAIN_SRC.match(/Net\.sendDrop\(\s*slot\s*,\s*G\.ls\.safeDropTick\(slot\)\s*\+\s*TAKEOVER_DELAY_TICKS\s*\)/g) || [];
-    assert.equal(sites.length, 2, 'expected the drop line rule in onBye and in hostDropWatch');
-    assert.equal((MAIN_SRC.match(/Net\.sendDrop\(/g) || []).length, 2, 'a new drop declaration site appeared in main.js');
-    assert.match(MAIN_SRC, /onBye:[\s\S]{0,200}Net\.isHost[\s\S]{0,80}!G\.mpDropped\[slot\]/, 'onBye: host only, once per slot');
-    assert.match(MAIN_SRC, /now - G\.mpStallSince < DROP_AFTER_MS/, 'hostDropWatch timeout');
-    assert.match(MAIN_SRC, /heard\[slot\] === undefined && now - G\.mpStallSince < LOAD_GRACE_MS/, 'hostDropWatch loading grace');
-    assert.match(MAIN_SRC, /if \(m\.slot === G\.playerSlot\) \{[\s\S]{0,400}leaveMpToMenu\(\)/, 'a peer dropped by the host leaves');
-    assert.match(MAIN_SRC, /brain\.nextThink = d\.at \+ brain\.interval/, 'takeover brain aligned on the drop tick');
-    assert.ok(!/forceOnSilence/.test(MAIN_SRC), 'live play must not enable forceOnSilence');
-    // the scheduler API the harness relies on
-    for (const name of ['safeDropTick', 'isWaiting', 'waitingOn', 'debugState', 'isDropped', 'getDelay']) {
-      assert.match(LOCKSTEP_SRC, new RegExp('\\b' + name + '\\b'), 'lockstep.js no longer exposes ' + name);
-    }
-    assert.match(LOCKSTEP_SRC, /const forceOnSilence = !!opts\.forceOnSilence/);
-  });
-});
