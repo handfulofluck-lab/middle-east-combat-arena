@@ -1,33 +1,41 @@
-// Modern flat HUD: slim top bar (credits / power / clock / speed / menu),
-// SC2-style bottom-center build bar (icon grid, hotkeys Q W E R T F,
-// tooltips, queue badges, production sweep), bottom-left minimap + selection
-// panel, fading hint banners top-center.
+// In-match HUD.
+//
+//   top-left     resources: faction crest, credits (animated) + income, power meter
+//   top-centre   mission clock; below it: tutorial card, hint banners, badges
+//   top-right    system cluster: net status, zoom, speed, pause, audio, menu
+//   right        command panel: production tabs, 3x2 cameo grid (Q W E / R T F),
+//                research kits, queue strip — with ability + superweapon
+//                widgets docked above it
+//   bottom-left  army panel (branch fractions + control groups) over the minimap
+//   bottom-mid   selection panel: portraits, health, veterancy, stances, orders
 //
 // The button enable/disable logic stays pure (trainButtonState /
 // structureButtonState / buildGridItems / hotkeyMapFor / tooltipLines) so it
-// can be exercised headlessly. DOM grids rebuild only when a signature of
-// their meaningful state changes; per-tick updates touch style/text only.
+// can be exercised headlessly. DOM is rebuilt only when a structural
+// signature changes; per-tick updates touch classes / text / widths only, so
+// hover states and tooltips survive production ticks.
 import {
   CELL, validateCommand, requiredProducer, trainCost, buildCost,
   standingStructs, structCenter, ABILITY_STRUCT,
   mapHasWater, isHostile, isInfantryCls, CAPTURE_TICKS,
 } from '../sim/index.js';
 import { screenToWorld, centerCameraOn, clampCameraToMap, zoomCameraAt } from './camera.js';
-import { shapeForUnit, shapeForStructure, initialsFor, factionColorOf } from './sprites.js';
+import { glScreenToWorld } from './gl.js';
+import { factionColorOf, initialsFor } from './sprites.js';
 import { addPing } from './minimap.js';
-import {
-  initAudio, unlockAudio, playSfx, playMusicTrack, setMusicOn, playVoice,
-  resetAudioThrottles,
-} from './audio.js';
-// keep unlockAudio reachable through this module for existing callers
-export { unlockAudio } from './audio.js';
+import * as Audio from './audio.js';
+import { h, el, icon, clear, fmtInt, fmtClock, fmtSecs, titleCase, legible } from '../ui/dom.js';
+import { crest } from '../ui/brand.js';
+import { makeCameo, refreshCameos, hasIconArt } from '../ui/cameo.js';
+import { abilityInfo, superweaponInfo } from '../ui/lore.js';
+import * as Settings from '../ui/settings.js';
 
 const TABS = [
-  { id: 'structures', label: 'Structures', prod: null },   // needs ConYard (SH-01)
-  { id: 'infantry', label: 'Infantry', prod: 'SH-04' },
-  { id: 'vehicles', label: 'Vehicles', prod: 'SH-05' },
-  { id: 'air', label: 'Air', prod: 'SH-06' },
-  { id: 'naval', label: 'Naval', prod: 'SH-07' },
+  { id: 'structures', label: 'Structures', short: 'Build', prod: null },   // needs ConYard (SH-01)
+  { id: 'infantry', label: 'Infantry', short: 'Inf', prod: 'SH-04' },
+  { id: 'vehicles', label: 'Vehicles', short: 'Veh', prod: 'SH-05' },
+  { id: 'air', label: 'Air', short: 'Air', prod: 'SH-06' },
+  { id: 'naval', label: 'Naval', short: 'Navy', prod: 'SH-07' },
 ];
 const PASSIVE_ABILITIES = ['edge_network', 'integrated_sky', 'siha_mesh', 'iron_layer'];
 // grid hotkeys; A/S/D stay reserved as order hotkeys, G cycles unit stance
@@ -38,10 +46,14 @@ const PRODUCER_TAB = { 'SH-04': 'infantry', 'SH-05': 'vehicles', 'SH-06': 'air',
 export const AUTO_DEPLOY_TICKS = 200; // 20s at 10 ticks/sec
 // v0.3.6 unit stances (sim stores the int on the unit)
 export const STANCE_NAMES = ['Aggressive', 'Defensive', 'Hold ground', 'Hold fire'];
+const RANK_NAMES = ['', 'Veteran', 'Elite', 'Heroic'];
+const SW_CHARGE_TICKS = 3000;   // mirrors sim/orders.js (300s)
+const ABILITY_CD_TICKS = 900;   // mirrors sim/orders.js (90s)
 
 // heavy entity scans run at most every ~90ms real time (see updateHud) —
 // 120 Hz displays tick at ~99.96ms at 1x, so 90 keeps 1x ungated
 const HEAVY_SCAN_MS = 90;
+const SEL_TILE_MAX = 24;
 
 // ---- pure logic (unit-tested headlessly) ------------------------------------
 
@@ -113,10 +125,25 @@ export function hotkeyMapFor(items) {
   return m;
 }
 
+// the producer whose queue a tab focuses: the selected producer wins; else
+// the first owned producer with a non-empty queue
+function focusedProducer(state, player, tab, selection) {
+  for (const id of (selection || [])) {
+    const s = state.structures[id];
+    if (s && s.owner === player.slot && s.defId === tab.prod) return { prod: s, focused: true };
+  }
+  for (const id in state.structures) {
+    const s = state.structures[id];
+    if (s.owner === player.slot && s.defId === tab.prod && s.queue && s.queue.length) {
+      return { prod: s, focused: false };
+    }
+  }
+  return { prod: null, focused: true };
+}
+
 // v0.3.7 build queue strip (DeepSeek T7): first 3 queue entries, oldest
-// first, of the focused producer for a tab. The selected producer wins; else
-// the first owned producer with a non-empty queue. The structures tab reads
-// the player-level build queue (producerId 0 = cancel via structId).
+// first, of the focused producer for a tab. The structures tab reads the
+// player-level build queue (producerId 0 = cancel via structId).
 export function queueStripModel(state, player, tabId, selection) {
   const out = [];
   if (!state || !player) return out;
@@ -131,20 +158,7 @@ export function queueStripModel(state, player, tabId, selection) {
   }
   const tab = TABS.find((t) => t.id === tabId);
   if (!tab || !tab.prod) return out;
-  let prod = null;
-  for (const id of (selection || [])) {
-    const s = state.structures[id];
-    if (s && s.owner === player.slot && s.defId === tab.prod) { prod = s; break; }
-  }
-  if (!prod) {
-    for (const id in state.structures) {
-      const s = state.structures[id];
-      if (s.owner === player.slot && s.defId === tab.prod && s.queue && s.queue.length) {
-        prod = s;
-        break;
-      }
-    }
-  }
+  const prod = focusedProducer(state, player, tab, selection).prod;
   if (!prod || !prod.queue) return out;
   for (let i = 0; i < prod.queue.length && out.length < 3; i++) {
     const q = prod.queue[i];
@@ -152,6 +166,15 @@ export function queueStripModel(state, player, tabId, selection) {
       progress: q.progress, total: q.total });
   }
   return out;
+}
+
+// full length of the queue the strip is showing (for the "+N" overflow chip)
+function queueTotal(state, player, tabId, selection) {
+  if (tabId === 'structures') return (player.buildQueue || []).length;
+  const tab = TABS.find((t) => t.id === tabId);
+  if (!tab || !tab.prod) return 0;
+  const prod = focusedProducer(state, player, tab, selection).prod;
+  return prod && prod.queue ? prod.queue.length : 0;
 }
 
 // v0.3.7 research kits (Grok slice 3): the kits a producer structure offers
@@ -174,9 +197,9 @@ export function researchKitsFor(state, player, producerDefId) {
 // pure helpers (headless-testable); selection itself is UI-side only — the
 // panel never issues commands or touches sim state
 const ARMY_BRANCHES = [
-  { id: 'air', label: 'Air force' },
-  { id: 'armor', label: 'Armor' },
-  { id: 'inf', label: 'Infantry' },
+  { id: 'air', label: 'Air', ico: 'air' },
+  { id: 'armor', label: 'Armor', ico: 'vehicles' },
+  { id: 'inf', label: 'Infantry', ico: 'infantry' },
 ];
 
 function armyBranchTest(state, u, branchId) {
@@ -208,6 +231,7 @@ export function armyPick(state, slot, branchId, pct) {
 }
 
 // tooltip content lines: name, cost/time/HP, role/counter or power/unlocks
+// (the plain-text model; the on-screen card is richer, see buildItemTip)
 export function tooltipLines(state, player, kind, defId) {
   if (kind === 'struct') {
     const def = state.structDefs[defId];
@@ -227,39 +251,10 @@ export function tooltipLines(state, player, kind, defId) {
   return lines;
 }
 
-// ---- DOM --------------------------------------------------------------------
+// ---- small helpers ------------------------------------------------------------
 
-function h(tag, cls, text) {
-  const el = document.createElement(tag);
-  if (cls) el.className = cls;
-  if (text !== undefined) el.textContent = text;
-  return el;
-}
-
-// pass-3 painted cameo plates (game.iconArt: defId -> 128px data-URI). One
-// img element per URI per consumer (build grid / selection panel), reused
-// across rebuilds so each plate decodes once; the CSS glyph stays underneath
-// as the decode-failure fallback (a broken img hides itself on error).
-// Headless stubs never fire the decode events, so this is all inert there.
-const __cameoImgs = { grid: {}, sel: {} };
-function iconArtUri(game, defId) {
-  const art = game && game.iconArt;
-  const uri = art ? art[defId] : null;
-  return (typeof uri === 'string' && uri) ? uri : null;
-}
-function cameoImg(kind, uri) {
-  const cache = __cameoImgs[kind];
-  let img = cache[uri];
-  if (!img) {
-    img = document.createElement('img');
-    img.className = 'bb-cameo' + (kind === 'sel' ? ' sel-cameo' : '');
-    img.draggable = false;
-    img.alt = '';
-    img.addEventListener('error', () => { img.style.display = 'none'; });
-    img.src = uri;
-    cache[uri] = img;
-  }
-  return img;
+function nowMs() {
+  return (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
 }
 
 function hudPushCmd(game, cmd) {
@@ -267,39 +262,128 @@ function hudPushCmd(game, cmd) {
   game.pendingCmds.push(cmd);
 }
 
-// audio.js ships concurrently (v0.3.7); headless harnesses strip the import,
-// so every call site is guarded — audio is always best-effort
+// audio.js ships independently; every call is feature-tested and guarded —
+// audio is always best-effort and never blocks a frame
 function sfx(game, name) {
-  try { if (typeof playSfx === 'function') playSfx(game, name); } catch (e) { /* no-op */ }
+  try { if (typeof Audio.playSfx === 'function') Audio.playSfx(game, name); } catch (e) { /* no-op */ }
 }
 function music(game, track) {
-  try { if (typeof playMusicTrack === 'function') playMusicTrack(game, track); } catch (e) { /* no-op */ }
+  try { if (typeof Audio.playMusicTrack === 'function') Audio.playMusicTrack(game, track); } catch (e) { /* no-op */ }
 }
 function voice(game, faction, key, detail) {
-  try { if (typeof playVoice === 'function') playVoice(game, faction, key, detail); } catch (e) { /* no-op */ }
+  try { if (typeof Audio.playVoice === 'function') Audio.playVoice(game, faction, key, detail); } catch (e) { /* no-op */ }
 }
-function tryUnlockAudio() {
-  try { if (typeof unlockAudio === 'function') unlockAudio(); } catch (e) { /* no-op */ }
+// keep unlockAudio reachable through this module for existing callers
+export function unlockAudio() {
+  try { if (typeof Audio.unlockAudio === 'function') Audio.unlockAudio(); } catch (e) { /* no-op */ }
 }
 
+// master volume (legacy names; the Settings screen owns the full mixer)
+export function getSfxVolume() { return Settings.getMasterVolume(); }
+export function setSfxVolume(v) { Settings.setMasterVolume(v); }
+
+let __shotAt = -Infinity;
+let __boomAt = -Infinity;
+let __clickAt = -Infinity;
+// weapon crack for a fresh on-screen tracer, throttled to one per 120ms
+function playShot(game) {
+  const now = nowMs();
+  if (now - __shotAt < 120) return;
+  __shotAt = now;
+  sfx(game, 'shot');
+}
+// explosion thump when the entity count drops; one per 250ms
+function playBoom(game) {
+  const now = nowMs();
+  if (now - __boomAt < 250) return;
+  __boomAt = now;
+  sfx(game, 'boom');
+}
+// UI click blip
+export function playClick() {
+  const now = nowMs();
+  if (now - __clickAt < 40) return;
+  __clickAt = now;
+  sfx(null, 'ui_click');
+}
+
+function worldUnderCursor(game) {
+  if (game.gfx === '3d' && game.gl) {
+    try { return glScreenToWorld(game, game.mouse.sx, game.mouse.sy); } catch (e) { /* fall through */ }
+  }
+  return screenToWorld(game.camera, game.mouse.sx, game.mouse.sy);
+}
+
+function iconBtn(ico, label, cls) {
+  const b = el('button', { class: 'tb-btn tb-ico-btn' + (cls ? ' ' + cls : ''), type: 'button', 'aria-label': label });
+  b.appendChild(icon(ico));
+  return b;
+}
+
+// ---- init -----------------------------------------------------------------------
+
 export function initHud(game) {
-  // top bar
+  Settings.applyGlassBlur();
+
+  // ── top bar ──────────────────────────────────────────────────────────────
   const top = document.getElementById('topbar');
-  top.innerHTML = '';
-  const creditsEl = h('span', 'tb-credits', '0');
+  clear(top);
+
+  // left: resources
+  const left = h('div', 'tb-cluster tb-left panel');
+  const crestSlot = h('span', 'tb-crest');
+  left.appendChild(crestSlot);
+  const credWrap = h('div', 'tb-stat tb-credits-wrap');
+  credWrap.appendChild(icon('credit'));
+  const credCol = h('div', 'tb-col');
+  credCol.appendChild(h('span', 'tb-label', 'Credits'));
+  const creditsEl = h('span', 'tb-credits num', '0');
+  credCol.appendChild(creditsEl);
+  credWrap.appendChild(credCol);
+  const incomeEl = h('span', 'tb-income num', '');
+  credWrap.appendChild(incomeEl);
+  left.appendChild(credWrap);
+  left.appendChild(h('span', 'tb-sep'));
+  const pw = h('div', 'tb-stat tb-power');
+  pw.appendChild(icon('bolt'));
+  const pwCol = h('div', 'tb-col');
+  const pwTop = h('div', 'tb-power-top');
+  pwTop.appendChild(h('span', 'tb-label', 'Power'));
   const powerDot = h('span', 'tb-power-dot ok');
-  const powerEl = h('span', 'tb-val', '0 / 0');
-  const clockEl = h('span', 'tb-val', '0:00');
-  top.appendChild(h('span', 'tb-label', 'Credits'));
-  top.appendChild(creditsEl);
-  top.appendChild(h('span', 'tb-label', 'Power'));
-  const pw = h('span', 'tb-power');
-  pw.appendChild(powerDot);
-  pw.appendChild(powerEl);
-  top.appendChild(pw);
-  top.appendChild(h('span', 'tb-label', 'Time'));
-  top.appendChild(clockEl);
-  top.appendChild(h('span', 'tb-spacer'));
+  pwTop.appendChild(powerDot);
+  const powerEl = h('span', 'tb-val num', '0 / 0');
+  pwTop.appendChild(powerEl);
+  pwCol.appendChild(pwTop);
+  const pwMeter = h('div', 'tb-power-meter');
+  const pwFill = h('span');
+  pwMeter.appendChild(pwFill);
+  pwCol.appendChild(pwMeter);
+  pw.appendChild(pwCol);
+  const pwWarn = el('span', { class: 'tb-power-warn' }, [icon('warn'), 'Low power']);
+  pw.appendChild(pwWarn);
+  left.appendChild(pw);
+  top.appendChild(left);
+  attachTooltip(game, credWrap, () => simpleTip('Credits',
+    ['Earned by harvesters hauling oil to your depots.', 'The green figure is your income over the last 30 seconds.']), { side: 'below' });
+  attachTooltip(game, pw, () => {
+    const st = game.state;
+    const p = st ? st.players[game.playerSlot] : null;
+    const pen = st ? Math.round((st.data.knobs.LowPowerPenalty || 0) * 100) : 40;
+    return simpleTip('Power', [
+      p ? 'Using ' + p.powerUse + ' of ' + p.powerOut + ' produced.' : 'Used / produced.',
+      'When demand exceeds supply, production slows by ' + pen + '%. Build Power Plants.',
+    ]);
+  }, { side: 'below' });
+
+  // centre: mission clock
+  const mid = h('div', 'tb-cluster tb-center panel');
+  mid.appendChild(h('span', 'tb-label', 'Mission time'));
+  const clockEl = h('span', 'tb-clock num', '0:00');
+  mid.appendChild(clockEl);
+  top.appendChild(mid);
+
+  // right: system cluster
+  const right = h('div', 'tb-cluster tb-right panel');
 
   // v0.10.0 multiplayer: connection dot + worst-peer RTT in the top bar
   const netSpan = h('span', 'tb-net');
@@ -309,7 +393,7 @@ export function initHud(game) {
   netSpan.appendChild(netDot);
   netSpan.appendChild(netText);
   netSpan.style.display = 'none';
-  top.appendChild(netSpan);
+  right.appendChild(netSpan);
   function updateNetStatus() {
     const net = game.net;
     const on = !!(net && net.active && (game.state || game.overlay === 'lobby'));
@@ -326,13 +410,12 @@ export function initHud(game) {
       if (r !== undefined && (worst === undefined || r > worst)) worst = r;
     }
     if (worst !== undefined) txt += ' · ' + Math.round(worst) + 'ms';
-    netText.textContent = txt;
+    if (netText.textContent !== txt) netText.textContent = txt;
   }
 
-  // v0.6.0 zoom control: [-] slider [+] for mouse users — the wheel now pans
-  // the map; ctrl+wheel (touchpad pinch) still zooms at the cursor. The
-  // slider drives zoomCameraAt centered on the screen middle; updateHud
-  // syncs it back from camera.zoom wherever the zoom changed.
+  // v0.6.0 zoom control: [-] slider [+] for mouse users. The slider drives
+  // zoomCameraAt centered on the screen middle; updateHud syncs it back from
+  // camera.zoom wherever the zoom changed.
   const zoomAtCenter = (f) => {
     const cam = game.camera;
     if (!cam) return;
@@ -342,20 +425,26 @@ export function initHud(game) {
     }
   };
   const zoomSpan = h('span', 'tb-zoom');
-  const zoomOutBtn = h('button', 'tb-btn tb-zoom-btn', '-');
-  const zoomSlider = h('input', 'tb-zoom-slider');
+  const zoomOutBtn = iconBtn('minus', 'Zoom out', 'tb-zoom-btn');
+  const zoomSlider = h('input', 'tb-zoom-slider slider');
   zoomSlider.type = 'range';
   zoomSlider.min = '0.16'; // camera.js minZoom (v0.9.0: whole-base view)
   zoomSlider.max = '2.5';  // camera.js maxZoom
   zoomSlider.step = '0.05';
   zoomSlider.value = '1';
   zoomSlider.disabled = true; // no camera until a match starts
-  const zoomInBtn = h('button', 'tb-btn tb-zoom-btn', '+');
+  zoomSlider.setAttribute('aria-label', 'Zoom');
+  const zoomInBtn = iconBtn('plus', 'Zoom in', 'tb-zoom-btn');
+  const syncZoomFill = () => {
+    const lo = Number(zoomSlider.min), hi = Number(zoomSlider.max);
+    zoomSlider.style.setProperty('--v', Math.round(100 * (Number(zoomSlider.value) - lo) / (hi - lo)) + '%');
+  };
   zoomOutBtn.addEventListener('click', () => { if (game.camera) zoomAtCenter(1 / 1.15); });
   zoomInBtn.addEventListener('click', () => { if (game.camera) zoomAtCenter(1.15); });
   zoomSlider.addEventListener('input', () => {
     const z = Number(zoomSlider.value);
     const cam = game.camera;
+    syncZoomFill();
     if (cam && isFinite(z) && z > 0) {
       zoomCameraAt(cam, z / cam.zoom, cam.viewW / 2, cam.viewH / 2);
       if (game.state) {
@@ -366,11 +455,14 @@ export function initHud(game) {
   zoomSpan.appendChild(zoomOutBtn);
   zoomSpan.appendChild(zoomSlider);
   zoomSpan.appendChild(zoomInBtn);
-  top.appendChild(zoomSpan);
+  right.appendChild(zoomSpan);
+  attachTooltip(game, zoomSpan, () => simpleTip('Zoom', ['Also on the + and − keys.']), { side: 'below' });
+  right.appendChild(h('span', 'tb-sep'));
 
+  const speedWrap = h('div', 'tb-speed');
   const speedBtns = {};
   for (const s of [1, 2, 4]) {
-    const b = h('button', 'tb-btn' + (s === 1 ? ' active' : ''), s + 'x');
+    const b = el('button', { class: 'tb-btn tb-speed-btn' + (s === 1 ? ' active' : ''), type: 'button', 'aria-label': 'Game speed ' + s + 'x' }, [s + '×']);
     b.addEventListener('click', () => {
       if (game.overlay) return; // an overlay owns the UI right now
       if (game.net && game.net.active) return; // speed is locked to 1x in MP
@@ -378,9 +470,11 @@ export function initHud(game) {
       refreshSpeed();
     });
     speedBtns[s] = b;
-    top.appendChild(b);
+    speedWrap.appendChild(b);
   }
-  const pauseBtn = h('button', 'tb-btn', 'Pause');
+  right.appendChild(speedWrap);
+  attachTooltip(game, speedWrap, () => simpleTip('Game speed', ['Skirmish only — multiplayer always runs at 1×.']), { side: 'below' });
+  const pauseBtn = iconBtn('pause', 'Pause');
   pauseBtn.addEventListener('click', () => {
     if (game.overlay) return; // paused overlay owns the pause state
     if (game.net && game.net.active) {
@@ -397,18 +491,44 @@ export function initHud(game) {
     game.paused = !game.paused;
     refreshSpeed();
   });
-  top.appendChild(pauseBtn);
-  const menuBtn = h('button', 'tb-btn', 'Menu');
-  menuBtn.addEventListener('click', () => { if (game.openMenu) game.openMenu(); });
-  top.appendChild(menuBtn);
+  right.appendChild(pauseBtn);
+  attachTooltip(game, pauseBtn, () => simpleTip(game.paused ? 'Resume' : 'Pause', []), { side: 'below' });
+  right.appendChild(h('span', 'tb-sep'));
   // music on/off (v0.3.7): reflects game.musicOn; audio.js persists the choice
-  const musicBtn = h('button', 'tb-btn' + (game.musicOn !== false ? ' active' : ''), 'Music');
+  const musicBtn = iconBtn('music', 'Music', game.musicOn !== false ? 'active' : '');
   musicBtn.addEventListener('click', () => {
     game.musicOn = game.musicOn === false;
-    try { if (typeof setMusicOn === 'function') setMusicOn(game, game.musicOn); } catch (e) { /* no-op */ }
-    musicBtn.classList.toggle('active', game.musicOn);
+    Settings.setMusic(game, game.musicOn);
+    syncAudioBtns();
   });
-  top.appendChild(musicBtn);
+  right.appendChild(musicBtn);
+  attachTooltip(game, musicBtn, () => simpleTip('Music ' + (game.musicOn ? 'on' : 'off'), []), { side: 'below' });
+  const muteBtn = iconBtn('volume', 'Mute effects');
+  muteBtn.addEventListener('click', () => {
+    Settings.setMutedPref(game, !Settings.getMuted(game));
+    syncAudioBtns();
+  });
+  if (!Settings.muteAvailable()) muteBtn.style.display = 'none';
+  right.appendChild(muteBtn);
+  attachTooltip(game, muteBtn, () => simpleTip(Settings.getMuted(game) ? 'Unmute effects' : 'Mute effects', [], ['M']), { side: 'below' });
+  function syncAudioBtns() {
+    musicBtn.classList.toggle('active', !!game.musicOn);
+    musicBtn.setAttribute('aria-pressed', game.musicOn ? 'true' : 'false');
+    const m = Settings.getMuted(game);
+    if (muteBtn.dataset.m !== String(m)) {
+      muteBtn.dataset.m = String(m);
+      clear(muteBtn);
+      muteBtn.appendChild(icon(m ? 'mute' : 'volume'));
+      muteBtn.classList.toggle('warn', m);
+      muteBtn.setAttribute('aria-pressed', m ? 'true' : 'false');
+    }
+  }
+  const menuBtn = el('button', { class: 'tb-btn tb-menu-btn', type: 'button', 'aria-label': 'Menu' }, [icon('menu'), h('span', null, 'Menu')]);
+  menuBtn.addEventListener('click', () => { if (game.openMenu) game.openMenu(); });
+  right.appendChild(menuBtn);
+  attachTooltip(game, menuBtn, () => simpleTip('Pause menu', [], ['Esc']), { side: 'below' });
+  top.appendChild(right);
+
   function refreshSpeed() {
     // v0.10.0: in MP the speed is locked to 1x (the lockstep gate paces every
     // peer) so the 1x/2x/4x buttons disappear; pause becomes host-only
@@ -418,70 +538,103 @@ export function initHud(game) {
       speedBtns[s].classList.toggle('active', !game.paused && game.speed === s);
       speedBtns[s].style.display = mp ? 'none' : '';
     }
-    pauseBtn.classList.toggle('active', game.paused);
+    speedWrap.style.display = mp ? 'none' : '';
+    pauseBtn.classList.toggle('active', !!game.paused);
+    if (pauseBtn.dataset.p !== String(!!game.paused)) {
+      pauseBtn.dataset.p = String(!!game.paused);
+      clear(pauseBtn);
+      pauseBtn.appendChild(icon(game.paused ? 'play' : 'pause'));
+    }
     pauseBtn.style.display = (mp && !(game.net && game.net.isHost)) ? 'none' : '';
+    mid.classList.toggle('paused', !!game.paused);
     // spectating badge + 'Paused by X' banner
-    const spec = typeof document !== 'undefined' && document.getElementById
-      ? document.getElementById('spec-badge') : null;
+    const spec = document.getElementById('spec-badge');
     if (spec && spec.classList) {
       spec.classList.toggle('hidden', !(mp && game.spectating && !game.state.over));
     }
-    const pb = typeof document !== 'undefined' && document.getElementById
-      ? document.getElementById('pause-banner') : null;
+    const pb = document.getElementById('pause-banner');
     if (pb && pb.classList) {
       const show = mp && game.paused && !!game.mpPauseName;
       pb.classList.toggle('hidden', !show);
       if (show) pb.textContent = 'Paused by ' + game.mpPauseName;
     }
+    syncAudioBtns();
     updateNetStatus();
   }
   game.hudSyncSpeed = refreshSpeed; // main.js syncs after overlay-driven changes
 
-  // build bar
+  // ── command panel ────────────────────────────────────────────────────────
   const bar = document.getElementById('buildbar');
-  bar.innerHTML = '';
+  clear(bar);
+  const powers = h('div', 'cmd-powers');
+  bar.appendChild(powers);
+  const panel = h('div', 'cmd-panel panel chamfer');
+  const head = h('div', 'cmd-head');
+  head.appendChild(h('span', 'micro', 'Command'));
+  const cmdTitle = h('span', 'cmd-title', '');
+  head.appendChild(cmdTitle);
+  const pageLbl = h('span', 'bb-page num', '');
+  head.appendChild(pageLbl);
+  // the tile grid is one page of 6 (QWERTF), paged by Tab and by the ‹ ›
+  // arrows whenever a tab holds more than 6 items
+  const pagePrev = el('button', { class: 'bb-arrow bb-prev', type: 'button', 'aria-label': 'Previous build page' }, [icon('chevL')]);
+  const pageNext = el('button', { class: 'bb-arrow bb-next', type: 'button', 'aria-label': 'Next build page' }, [icon('chevR')]);
+  head.appendChild(pagePrev);
+  head.appendChild(pageNext);
+  panel.appendChild(head);
   const tabs = h('div', 'bb-tabs');
+  tabs.setAttribute('role', 'tablist');
+  panel.appendChild(tabs);
   const row = h('div', 'bb-row');
-  // v0.9.0: the tile grid is a single row of 6 (QWERTF), paged by Tab and by
-  // the flanking ‹ › arrows whenever a tab holds more than 6 items
-  const pagePrev = h('button', 'bb-arrow bb-prev', '‹');
-  const pageNext = h('button', 'bb-arrow bb-next', '›');
-  pagePrev.type = 'button';
-  pageNext.type = 'button';
-  pagePrev.title = 'Previous build page';
-  pageNext.title = 'Next build page [Tab]';
   const grid = h('div', 'bb-grid');
-  const actions = h('div', 'bb-actions');
-  row.appendChild(pagePrev);
+  const empty = h('div', 'bb-empty');
   row.appendChild(grid);
-  row.appendChild(pageNext);
-  row.appendChild(actions);
-  bar.appendChild(tabs);
-  bar.appendChild(row);
-  pagePrev.addEventListener('click', () => { if (game.hudPrevPage) game.hudPrevPage(); });
-  pageNext.addEventListener('click', () => { if (game.hudNextPage) game.hudNextPage(); });
+  row.appendChild(empty);
+  panel.appendChild(row);
+  const kitsEl = h('div', 'bb-kits');
+  panel.appendChild(kitsEl);
   // v0.3.7: compact queue strip under the tile grid (focused producer)
   const queueStrip = h('div', 'bb-queue');
   queueStrip.style.display = 'none';
-  bar.appendChild(queueStrip);
+  panel.appendChild(queueStrip);
+  bar.appendChild(panel);
+  pagePrev.addEventListener('click', () => { if (game.hudPrevPage) game.hudPrevPage(); });
+  pageNext.addEventListener('click', () => { if (game.hudNextPage) game.hudNextPage(); });
+  attachTooltip(game, pageNext, () => simpleTip('Next page', [], ['Tab']), { dock: panel });
 
-  // army control panel (v0.5.1): fraction selection per branch, docked above
-  // the minimap; counts refresh on the heavy-scan cadence (signature-guarded)
+  // ── selection panel ──────────────────────────────────────────────────────
+  const selRoot = document.getElementById('sel-panel');
+  clear(selRoot);
+  const selCard = h('div', 'sel-card panel chamfer');
+  const selInfo = h('div', 'sel-info');
+  const actions = h('div', 'sel-actions bb-actions');
+  selCard.appendChild(selInfo);
+  selCard.appendChild(actions);
+  selRoot.appendChild(selCard);
+
+  // ── army panel (v0.5.1): fraction selection per branch, docked above the
+  // minimap; counts refresh on the heavy-scan cadence (signature-guarded)
   const apRoot = document.getElementById('army-panel');
-  apRoot.innerHTML = '';
-  const apHead = h('div', 'ap-head', 'ARMY');
+  clear(apRoot);
+  apRoot.classList.add('panel');
+  const apHead = el('button', { class: 'ap-head', type: 'button', 'aria-expanded': 'true' }, [
+    h('span', 'micro', 'Army'), h('span', 'ap-total num', ''), icon('chevD'),
+  ]);
   const apBody = h('div', 'ap-body');
   apRoot.appendChild(apHead);
   apRoot.appendChild(apBody);
   const apRows = {};
   for (const br of ARMY_BRANCHES) {
-    const row = h('div', 'ap-row');
-    row.appendChild(h('span', 'ap-name', br.label));
-    const cnt = h('span', 'ap-count', '×0');
-    row.appendChild(cnt);
+    const r = h('div', 'ap-row');
+    r.appendChild(icon(br.ico));
+    r.appendChild(h('span', 'ap-name', br.label));
+    const cnt = h('span', 'ap-count num', '×0');
+    r.appendChild(cnt);
     const btns = [];
     for (const pct of [0.25, 0.5, 1]) {
       const b = h('button', 'ap-btn', Math.round(pct * 100) + '%');
+      b.type = 'button';
+      b.title = 'Select ' + Math.round(pct * 100) + '% of your ' + br.label.toLowerCase() + ' (Shift adds)';
       b.disabled = true;
       b.classList.add('disabled');
       b.addEventListener('click', (e) => {
@@ -497,18 +650,22 @@ export function initHud(game) {
         } else {
           game.selection = ids;
         }
+        game.hudDirty = true;
         sfx(game, 'select');
       });
-      row.appendChild(b);
+      r.appendChild(b);
       btns.push(b);
     }
-    apBody.appendChild(row);
+    apBody.appendChild(r);
     apRows[br.id] = { count: cnt, btns };
   }
+  // control groups (Ctrl+1..9 in input.js) surfaced as recall chips
+  const apGroups = h('div', 'ap-groups');
+  apBody.appendChild(apGroups);
 
-  // hint banners (persistent MCV hint is the first child)
+  // ── hint banners (persistent MCV hint is the first child) ────────────────
   const hintRoot = document.getElementById('hint');
-  hintRoot.innerHTML = '';
+  clear(hintRoot);
   const hintMcv = h('div', 'hint-banner mcv',
     'Select your MCV — press D or double-click it to deploy the Construction Yard');
   hintMcv.style.display = 'none';
@@ -516,62 +673,113 @@ export function initHud(game) {
 
   game.hud = {
     creditsEl, powerDot, powerEl, clockEl, tabs, grid, actions,
-    zoomSlider, // v0.6.0 top-bar zoom control (synced from camera.zoom)
-    pagePrev, pageNext, // v0.9.0 one-row grid paging arrows (‹ ›)
+    incomeEl, pwFill, pwWarn, pwWrap: pw, crestSlot, clockWrap: mid,
+    zoomSlider, syncZoomFill, // v0.6.0 top-bar zoom control (synced from camera.zoom)
+    pagePrev, pageNext, pageLbl, cmdTitle, // one-page grid paging
     speedBtns, // v0.10.0 top-bar speed buttons (hidden in MP)
+    panel, empty, kits: kitsEl, powers, selRoot, selCard, selInfo,
     activeTab: 'structures', tiles: {}, tabSig: '', gridSig: '', actSig: '',
-    selSig: '', // v0.9.1 selection-panel rebuild guard
+    selSig: '', kitSig: '', powSig: '', emptySig: '',
+    selRefs: null, powRefs: null,
     stateRef: null, knownStructs: {}, lastReadyCount: 0, lastFaction: null, hintMcv,
     page: 0, hitSeen: {}, hitPing: {}, hintMcvTxt: '',
     sirenEsc: {}, sirenAt: {}, // v0.9.0 per-location siren cadence
     idleSince: {}, idleWarnAt: -9999,   // idle-worker banner bookkeeping (v0.3.6)
     tracerSeen: {}, lastEntCount: -1,   // SFX hooks: new tracers / entity deaths
     queue: queueStrip, queueSig: '', queueEls: [], // build queue strip (v0.3.7)
-    queueLbl: null, queueLblSig: '',              // queue strip producer label (v0.4.4)
+    queueLbl: null, queueLblSig: '', queueMore: null,
     knownUnits: {}, battleTimer: null, endFired: false, // voices, battle-music timer, end stinger (v0.3.7)
     lastHeavyMs: -1e9, heavyScans: 0, // heavy-scan 10 Hz gate (v0.4.4, DeepSeek 3.2)
-    army: { root: apRoot, rows: apRows, collapsed: false, sig: '' }, // v0.5.1
+    army: { root: apRoot, rows: apRows, collapsed: false, sig: '', groups: apGroups, groupSig: '', total: apHead.querySelector('.ap-total') },
+    credShown: 0, credTarget: 0, credText: '', incSamples: [], incText: '',
+    syncAudioBtns,
   };
   apHead.addEventListener('click', () => {
     const A = game.hud.army;
     A.collapsed = !A.collapsed;
     apRoot.classList.toggle('closed', A.collapsed);
+    apHead.setAttribute('aria-expanded', A.collapsed ? 'false' : 'true');
   });
   game.hudFocusBuild = () => {
     game.hud.activeTab = 'structures';
     game.hud.tabSig = '';
     updateHud(game);
   };
-  game.hudPrevPage = () => {
+  const turnPage = (dir) => {
     const st2 = game.state;
     if (!st2) return;
     const p2 = st2.players[game.playerSlot];
     const count = buildGridItems(st2, p2, game.hud.activeTab).length;
     const pages = Math.max(1, Math.ceil(count / BUILD_HOTKEYS.length));
-    game.hud.page = (game.hud.page - 1 + pages) % pages;
+    game.hud.page = (game.hud.page + dir + pages) % pages;
     game.hud.tabSig = '';
     updateHud(game);
   };
-  game.hudNextPage = () => {
-    const st2 = game.state;
-    if (!st2) return;
-    const p2 = st2.players[game.playerSlot];
-    const count = buildGridItems(st2, p2, game.hud.activeTab).length;
-    const pages = Math.max(1, Math.ceil(count / BUILD_HOTKEYS.length));
-    game.hud.page = (game.hud.page + 1) % pages;
-    game.hud.tabSig = '';
-    updateHud(game);
-  };
+  game.hudPrevPage = () => turnPage(-1);
+  game.hudNextPage = () => turnPage(1);
   game.hudKeyPress = (key) => hudKeyPress(game, key);
   game.hint = hintRoot;
   game.hud.refreshNet = updateNetStatus; // v0.10.0: RTT refresh on the heavy cadence
+  // renderers may call this after a batch of portraits lands in game.iconArt
+  game.refreshIcons = () => refreshCameos();
+
+  // ── chat: own-line echo + a transient feed while the box is closed ───────
+  initChatFeed(game);
+
+  // HUD buttons click softly unless they already speak (build / select)
+  const hudRoot = document.getElementById('hud');
+  if (hudRoot && !hudRoot.__sfxBound) {
+    hudRoot.__sfxBound = true;
+    hudRoot.addEventListener('click', (e) => {
+      const b = e.target && e.target.closest ? e.target.closest('button') : null;
+      if (!b || b.dataset.sfx === 'none' || b.classList.contains('bb-tile') || b.classList.contains('ap-btn')) return;
+      sfx(game, b.classList.contains('disabled') || b.getAttribute('aria-disabled') === 'true' ? 'ui_deny' : 'ui_click');
+    });
+  }
 
   // audio.js boot + browser gesture gate: create/resume the shared
-  // AudioContext on the first click/keypress (stub-safe: window may lack it)
-  try { if (typeof initAudio === 'function') initAudio(game); } catch (e) { /* no-op */ }
-  if (typeof window !== 'undefined' && window.addEventListener) {
-    window.addEventListener('pointerdown', tryUnlockAudio);
-    window.addEventListener('keydown', tryUnlockAudio);
+  // AudioContext on the first click/keypress
+  try { if (typeof Audio.initAudio === 'function') Audio.initAudio(game); } catch (e) { /* no-op */ }
+  if (typeof window !== 'undefined' && window.addEventListener && !game._hudAudioGate) {
+    game._hudAudioGate = true;
+    window.addEventListener('pointerdown', unlockAudio);
+    window.addEventListener('keydown', unlockAudio);
+  }
+
+  // cosmetic frame loop: credit roll-up, instant selection feedback, cinematic fade
+  if (typeof requestAnimationFrame === 'function' && !game._hudRaf) {
+    game._hudRaf = true;
+    const frame = () => {
+      try { cosmeticFrame(game); } catch (e) { /* cosmetic only */ }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+}
+
+// per-animation-frame polish; never touches sim state
+function cosmeticFrame(game) {
+  const H = game.hud;
+  const body = document.body;
+  if (!H || !body) return;
+  // the HUD steps aside for in-engine cinematics (intro fly-in, verdict)
+  const cine = !!(game.cinema && game.cinema.active);
+  if (cine !== H._cine) { H._cine = cine; body.classList.toggle('cine-on', cine); }
+  if (!game.state) return;
+  // a match is live: the front-end backdrop must never sit over the world
+  if (body.classList.contains('fe-idle')) body.classList.remove('fe-idle');
+  // input.js flags selection changes between sim ticks
+  if (game.hudDirty) {
+    game.hudDirty = false;
+    updateHud(game, true);
+  }
+  // credits roll toward the true balance
+  if (H.credShown !== H.credTarget) {
+    const d = H.credTarget - H.credShown;
+    const step = Math.abs(d) < 3 ? d : d * 0.22;
+    H.credShown = Math.abs(d) < 0.5 ? H.credTarget : H.credShown + step;
+    const txt = fmtInt(Math.round(H.credShown));
+    if (txt !== H.credText) { H.credText = txt; H.creditsEl.textContent = txt; }
   }
 }
 
@@ -613,14 +821,20 @@ export function updateHud(game, fromTick) {
     H.lastReadyCount = 0;
     H.lastFaction = null;
     H.tabSig = ''; H.gridSig = ''; H.actSig = ''; H.queueSig = ''; H.selSig = '';
+    H.kitSig = ''; H.powSig = ''; H.emptySig = '';
     H.page = 0; H.hitSeen = {}; H.hitPing = {}; H.hintMcvTxt = '';
     H.sirenEsc = {}; H.sirenAt = {}; // v0.9.0 siren cadence is per match
     H.idleSince = {}; H.idleWarnAt = -9999;
     H.tracerSeen = {}; H.lastEntCount = -1;
+    H.incSamples = []; H.incText = '';
+    H.credShown = Math.floor(p.credits); H.credTarget = H.credShown; H.credText = '';
+    H.army.sig = ''; H.army.groupSig = '';
+    const alerts = document.getElementById('alerts');
+    if (alerts) clear(alerts);
     // new match: module-level SFX/voice throttles must not carry over — a
     // rematch seconds after the last battle still gets fresh voice lines
     __shotAt = -Infinity; __boomAt = -Infinity; __clickAt = -Infinity;
-    try { if (typeof resetAudioThrottles === 'function') resetAudioThrottles(); } catch (e) { /* no-op */ }
+    try { if (typeof Audio.resetAudioThrottles === 'function') Audio.resetAudioThrottles(); } catch (e) { /* no-op */ }
     // new-match audio: ambient track + faction 'command online' line
     music(game, 'ambient');
     voice(game, p.faction, 'online');
@@ -632,23 +846,39 @@ export function updateHud(game, fromTick) {
     sfx(game, st.over && st.winner === p.team && !p.eliminated ? 'victory' : 'defeat');
   }
 
-  // faction accent once per match
+  // faction accent + crest once per match
   if (H.lastFaction !== p.faction) {
     H.lastFaction = p.faction;
     const col = factionColorOf(st.data, p.faction);
     const doc = document.documentElement;
     if (doc && doc.style && typeof doc.style.setProperty === 'function') {
-      doc.style.setProperty('--accent', col);
+      doc.style.setProperty('--accent', legible(col));
       doc.style.setProperty('--accent-dim', col + '59');
     }
+    clear(H.crestSlot);
+    H.crestSlot.appendChild(crest(st.data, p.faction, 'crest-md'));
+    H.crestSlot.title = p.faction + ' — ' + (st.data.factions[p.faction].identity || '');
   }
 
-  // top bar
-  H.creditsEl.textContent = Math.floor(p.credits) + '';
-  const ratio = p.powerOut > 0 ? p.powerUse / p.powerOut : 0;
-  H.powerDot.className = 'tb-power-dot ' + (p.lowPower ? 'low' : ratio > 0.8 ? 'amber' : 'ok');
-  H.powerEl.textContent = p.powerUse + ' / ' + p.powerOut;
-  H.clockEl.textContent = fmtClock(st.tick);
+  // ── top bar ──
+  H.credTarget = Math.floor(p.credits);
+  if (H.credText === '') {
+    H.credShown = H.credTarget;
+    H.credText = fmtInt(H.credTarget);
+    H.creditsEl.textContent = H.credText;
+  }
+  const ratio = p.powerOut > 0 ? p.powerUse / p.powerOut : (p.powerUse > 0 ? 2 : 0);
+  const pcls = p.lowPower ? 'low' : ratio > 0.8 ? 'amber' : 'ok';
+  const psig = pcls + '|' + p.powerUse + '|' + p.powerOut;
+  if (psig !== H._psig) {
+    H._psig = psig;
+    H.powerDot.className = 'tb-power-dot ' + pcls;
+    H.powerEl.textContent = p.powerUse + ' / ' + p.powerOut;
+    H.pwFill.style.width = Math.round(Math.min(1, ratio) * 100) + '%';
+    H.pwWrap.className = 'tb-stat tb-power ' + pcls;
+  }
+  const ck = fmtClock(st.tick);
+  if (ck !== H._ck) { H._ck = ck; H.clockEl.textContent = ck; }
   if (H.refreshNet) H.refreshNet(); // v0.10.0 live RTT readout
 
   // v0.6.0 zoom control sync: the slider follows camera.zoom wherever the
@@ -663,6 +893,7 @@ export function updateHud(game, fromTick) {
       const cur = Number(H.zoomSlider.value);
       if (!sliderFocused && Math.abs(cur - cam.zoom) > 0.005) {
         H.zoomSlider.value = String(Math.round(cam.zoom * 100) / 100);
+        H.syncZoomFill();
       }
     }
   }
@@ -674,11 +905,11 @@ export function updateHud(game, fromTick) {
     document.body.classList.toggle('attackmove', !!game.attackMoveArmed);
     // capture cursor: engineer selected and hovering a hostile/neutral structure
     let capCursor = false;
-    if (game.mouse && game.mouse.inside && game.selection.some((id) => {
+    if (game.mouse && game.mouse.inside && game.camera && game.selection.some((id) => {
       const u = st.units[id];
       return u && u.owner === p.slot && st.unitDefs[u.defId].cls === 'Engineer';
     })) {
-      const w = screenToWorld(game.camera, game.mouse.sx, game.mouse.sy);
+      const w = worldUnderCursor(game);
       const cx = Math.floor(w.x / CELL), cy = Math.floor(w.y / CELL);
       capCursor = Object.values(st.structures).some((s) => isHostile(st, p.slot, s)
         && cx >= s.cx && cx < s.cx + s.fp && cy >= s.cy && cy < s.cy + s.fp);
@@ -687,16 +918,16 @@ export function updateHud(game, fromTick) {
   }
 
   // persistent deploy hint until the first ConYard exists
-  let hasCy = false, hasMcv = false;
+  let hasCy = false, hasMcvUnit = false;
   for (const id in st.structures) {
     const s = st.structures[id];
     if (s.owner === p.slot && s.defId === 'SH-01') hasCy = true;
   }
   for (const id in st.units) {
     const u = st.units[id];
-    if (u.owner === p.slot && u.defId === 'MCV') hasMcv = true;
+    if (u.owner === p.slot && u.defId === 'MCV') hasMcvUnit = true;
   }
-  H.hintMcv.style.display = (!hasCy && hasMcv && !st.over) ? 'block' : 'none';
+  H.hintMcv.style.display = (!hasCy && hasMcvUnit && !st.over) ? 'block' : 'none';
   // v0.3.5: countdown to the auto-deploy inside the persistent hint
   if (H.hintMcv.style.display === 'block') {
     const left = Math.ceil((AUTO_DEPLOY_TICKS - st.tick) / 10);
@@ -708,7 +939,7 @@ export function updateHud(game, fromTick) {
   // structure finished construction -> hint + minimap ping at the base
   if (p.ready.length > H.lastReadyCount) {
     const newId = p.ready[p.ready.length - 1];
-    showHint(game, st.structDefs[newId].name + ' ready — place it from the build bar');
+    showHint(game, st.structDefs[newId].name + ' ready — place it from the command panel');
     const core = standingStructs(st, p.slot, (s) => st.structDefs[s.defId].type === 'Core')[0];
     if (core) {
       const c = structCenter(core);
@@ -728,13 +959,38 @@ export function updateHud(game, fromTick) {
   if (heavy) {
     heavyScans(game, st, p);
     updateArmyPanel(game, st, p);
+    updateIncome(game, st, p);
   }
 
   updateTabs(game, p);
-  updateGrid(game, p);
+  updateGrid(game, p, hasCy, hasMcvUnit);
+  updateKits(game, p);
   updateQueueStrip(game, p);
+  updatePowers(game, p);
   updateActions(game, p);
   updateSelectionPanel(game, st);
+}
+
+// rolling 30s income readout (credits per minute), sampled once a second
+function updateIncome(game, st, p) {
+  const H = game.hud;
+  const S = H.incSamples;
+  const last = S.length ? S[S.length - 1] : null;
+  if (!last || st.tick - last.t >= 10) {
+    S.push({ t: st.tick, e: p.creditsEarned | 0 });
+    if (S.length > 31) S.shift();
+  }
+  let perMin = 0;
+  if (S.length >= 2) {
+    const a = S[0], b = S[S.length - 1];
+    if (b.t > a.t) perMin = Math.round((b.e - a.e) * 600 / (b.t - a.t));
+  }
+  const txt = '+' + fmtInt(perMin) + '/min';
+  if (txt !== H.incText) {
+    H.incText = txt;
+    H.incomeEl.textContent = txt;
+    H.incomeEl.classList.toggle('zero', perMin <= 0);
+  }
 }
 
 // the expensive full-entity scans, gated by updateHud to ~10 Hz real time
@@ -808,7 +1064,7 @@ function heavyScans(game, st, p) {
     const c = isUnit ? { x: ent.x, y: ent.y } : structCenter(ent);
     if (st.tick - (H.hitPing[ent.id] || -999) >= 20) {
       H.hitPing[ent.id] = st.tick;
-      addPing(game, c.x, c.y);
+      addPing(game, c.x, c.y, 'alert');
     }
     // only genuinely fresh hits raise the alarm (guards HUD re-inits)
     if (st.tick - ent.lastHitTick <= 5) underAttackAlert(game, ent, isUnit, c);
@@ -833,6 +1089,7 @@ function heavyScans(game, st, p) {
     if (idleTicks > longestIdle) longestIdle = idleTicks;
   }
   for (const id in H.idleSince) if (!seenIdle[id]) delete H.idleSince[id];
+  H.idleNow = Object.keys(seenIdle).length;
   if ((idleCount >= 2 || longestIdle > 300) && st.tick - H.idleWarnAt >= 300) {
     H.idleWarnAt = st.tick;
     showHint(game, (idleCount === 1 ? '1 idle worker' : idleCount + ' idle workers')
@@ -840,7 +1097,7 @@ function heavyScans(game, st, p) {
   }
 
   // SFX hooks (v0.3.6): weapon crack for fresh tracers visible on screen,
-  // explosion thump when the entity count drops. All no-op headless.
+  // explosion thump when the entity count drops.
   if (game.camera) {
     const cam = game.camera;
     const fog = st.fog[game.playerSlot].visible;
@@ -854,7 +1111,7 @@ function heavyScans(game, st, p) {
       if (!fog[cy * mw + cx]) continue;
       if (pr.tx < cam.x || pr.tx > cam.x + cam.viewW / cam.zoom
         || pr.ty < cam.y || pr.ty > cam.y + cam.viewH / cam.zoom) continue;
-      playShot();
+      playShot(game);
     }
     // tracerSeen only grows between matches; bound it
     let nSeen = 0;
@@ -864,7 +1121,7 @@ function heavyScans(game, st, p) {
   let entCount = 0;
   for (const id in st.units) entCount++;
   for (const id in st.structures) entCount++;
-  if (H.lastEntCount >= 0 && entCount < H.lastEntCount) playBoom();
+  if (H.lastEntCount >= 0 && entCount < H.lastEntCount) playBoom(game);
   H.lastEntCount = entCount;
 }
 
@@ -874,27 +1131,68 @@ function updateArmyPanel(game, st, p) {
   const A = game.hud.army;
   if (!A) return;
   let sig = '';
+  let total = 0;
   const counts = {};
   for (const br of ARMY_BRANCHES) {
     counts[br.id] = armyBranchUnits(st, p.slot, br.id).length;
+    total += counts[br.id];
     sig += counts[br.id] + ',';
   }
-  if (sig === A.sig) return;
-  A.sig = sig;
-  for (const br of ARMY_BRANCHES) {
-    const r = A.rows[br.id];
-    const n = counts[br.id];
-    r.count.textContent = '×' + n;
-    for (const b of r.btns) {
-      b.disabled = n === 0;
-      b.classList.toggle('disabled', n === 0);
+  if (sig !== A.sig) {
+    A.sig = sig;
+    for (const br of ARMY_BRANCHES) {
+      const r = A.rows[br.id];
+      const n = counts[br.id];
+      r.count.textContent = '×' + n;
+      r.count.classList.toggle('zero', n === 0);
+      for (const b of r.btns) {
+        b.disabled = n === 0;
+        b.classList.toggle('disabled', n === 0);
+      }
+    }
+    if (A.total) A.total.textContent = total ? String(total) : '';
+  }
+  // idle workers + control-group recall chips
+  const idle = game.hud.idleNow | 0;
+  let gsig = 'i' + idle + ';';
+  const live = [];
+  for (let d = 1; d <= 9; d++) {
+    const ids = (game.groups && game.groups[d]) || [];
+    let n = 0;
+    for (const id of ids) if (st.units[id]) n++;
+    if (n) { live.push([d, n]); gsig += d + ':' + n + ','; }
+  }
+  if (gsig !== A.groupSig) {
+    A.groupSig = gsig;
+    clear(A.groups);
+    A.groups.style.display = (live.length || idle) ? '' : 'none';
+    if (idle) {
+      const ib = el('button', { class: 'ap-group ap-idle', type: 'button', title: idle + ' idle worker' + (idle === 1 ? '' : 's') + ' — jump to the next one' }, [
+        icon('warn'), h('span', null, 'Idle'), h('span', 'num', String(idle)), h('span', 'kbd', '.'),
+      ]);
+      ib.addEventListener('click', () => {
+        // same path as the '.' hotkey (input.js owns the cycling)
+        try { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Period', key: '.', bubbles: true })); } catch (e) { /* no-op */ }
+        try { window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Period', key: '.', bubbles: true })); } catch (e) { /* no-op */ }
+      });
+      A.groups.appendChild(ib);
+    }
+    for (const [d, n] of live) {
+      const b = el('button', { class: 'ap-group', type: 'button', title: 'Control group ' + d + ' — ' + n + ' unit' + (n === 1 ? '' : 's') }, [
+        h('span', 'kbd', String(d)), h('span', 'num', String(n)),
+      ]);
+      b.addEventListener('click', () => {
+        const s2 = game.state;
+        if (!s2 || s2.over) return;
+        const grp = ((game.groups && game.groups[d]) || []).filter((id) => s2.units[id]);
+        if (!grp.length) return;
+        game.selection = grp.slice();
+        game.hudDirty = true;
+        sfx(game, 'select');
+      });
+      A.groups.appendChild(b);
     }
   }
-}
-
-function fmtClock(tick) {
-  const s = Math.floor(tick / 10);
-  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 
 function hasConyard(st, slot) {
@@ -913,41 +1211,57 @@ function hasMcv(st, slot) {
   return false;
 }
 
-// ---- build bar ---------------------------------------------------------------
+// ---- command panel: tabs --------------------------------------------------------
 
 function updateTabs(game, p) {
   const H = game.hud;
-  const avail = tabsFor(game.state, p.slot);
+  const st = game.state;
+  const avail = tabsFor(st, p.slot);
   if (!avail.some((t) => t.id === H.activeTab)) {
     H.activeTab = avail.length ? avail[0].id : 'structures';
     H.page = 0;
   }
-  const count = buildGridItems(game.state, p, H.activeTab).length;
+  const count = buildGridItems(st, p, H.activeTab).length;
   const pages = Math.max(1, Math.ceil(count / BUILD_HOTKEYS.length));
   if (H.page >= pages) H.page = pages - 1;
-  // v0.9.0: the ‹ › arrows only make sense when there is something to page
+  // the ‹ › arrows only make sense when there is something to page
   if (H.pagePrev) H.pagePrev.disabled = pages <= 1;
   if (H.pageNext) H.pageNext.disabled = pages <= 1;
+  const water = mapHasWater(st);
   const sig = avail.map((t) => t.id).join(',') + '|' + H.activeTab
-    + '|' + H.page + '|' + pages;
+    + '|' + H.page + '|' + pages + '|' + (water ? 1 : 0);
   if (sig === H.tabSig) return;
   H.tabSig = sig;
   H.gridSig = '';
-  H.tabs.innerHTML = '';
-  for (const t of avail) {
-    const b = h('button', 'bb-tab' + (t.id === H.activeTab ? ' active' : ''), t.label);
-    b.addEventListener('click', () => {
-      H.activeTab = t.id;
-      H.page = 0;
-      H.tabSig = '';
-      updateHud(game);
-    });
+  clear(H.tabs);
+  for (const t of TABS) {
+    if (t.id === 'naval' && !water) continue; // no shipyards on a landlocked map
+    const open = avail.some((a) => a.id === t.id);
+    const b = el('button', {
+      class: 'bb-tab' + (t.id === H.activeTab && open ? ' active' : '') + (open ? '' : ' locked'),
+      type: 'button', role: 'tab', 'aria-selected': t.id === H.activeTab && open ? 'true' : 'false',
+      'aria-disabled': open ? null : 'true', 'aria-label': t.label,
+    }, [icon(open ? t.id : 'lock'), h('span', null, t.short)]);
+    if (open) {
+      b.addEventListener('click', () => {
+        H.activeTab = t.id;
+        H.page = 0;
+        H.tabSig = '';
+        updateHud(game);
+      });
+    }
+    const need = t.prod ? st.structDefs[t.prod].name.split(' / ')[0] : 'Construction Yard';
+    attachTooltip(game, b, () => simpleTip(t.label, open ? [] : ['Locked — requires a ' + need + '.']), { dock: H.panel });
     H.tabs.appendChild(b);
   }
-  if (pages > 1) {
-    H.tabs.appendChild(h('span', 'bb-page', 'page ' + (H.page + 1) + '/' + pages + ' [Tab]'));
-  }
+  const cur = TABS.find((t) => t.id === H.activeTab);
+  H.cmdTitle.textContent = cur ? cur.label : '';
+  H.pageLbl.textContent = pages > 1 ? (H.page + 1) + ' / ' + pages : '';
+  H.pagePrev.style.visibility = pages > 1 ? '' : 'hidden';
+  H.pageNext.style.visibility = pages > 1 ? '' : 'hidden';
 }
+
+// ---- command panel: cameo grid ------------------------------------------------------
 
 // per-item display state, computed fresh each tick
 function gridItemMeta(game, p, it) {
@@ -1006,89 +1320,129 @@ function reasonText(m) {
   }
 }
 
-function updateGrid(game, p) {
+function updateGrid(game, p, hasCy, hasMcvUnit) {
   const H = game.hud;
   const all = buildGridItems(game.state, p, H.activeTab);
   const items = all.slice(H.page * BUILD_HOTKEYS.length,
     (H.page + 1) * BUILD_HOTKEYS.length);
   const metas = items.map((it) => gridItemMeta(game, p, it));
+  // structural signature: which tiles exist. Enabled / queued / ready / cost
+  // are patched in place below so a hovered tile (and its tooltip) survives.
   let sig = H.activeTab + '|' + H.page + '|' + p.faction;
-  for (const m of metas) {
-    sig += '|' + m.id + ':' + (m.enabled ? 1 : 0) + ':' + m.reason + ':'
-      + m.queued + ':' + (m.ready ? 1 : 0) + ':' + m.cost
-      + ':' + (iconArtUri(game, m.id) ? 1 : 0); // late-arriving iconArt rebuilds
-  }
+  for (const m of metas) sig += '|' + m.id;
   if (sig !== H.gridSig) {
     H.gridSig = sig;
     rebuildTiles(game, metas);
   }
-  // cheap per-tick updates: production sweep + placement highlight. Placement
-  // state deliberately stays OUT of the rebuild signature above — toggling
-  // the class here avoids a full rebuild (which would kill a hover tooltip)
   for (const m of metas) {
     const t = H.tiles[m.id];
     if (!t) continue;
+    const poor = !m.enabled && !m.ready && !m.queued && m.reason === 'credits';
+    const locked = !m.enabled && !m.ready && !m.queued && !poor;
+    const ssig = (m.enabled ? 1 : 0) + ':' + m.reason + ':' + m.queued + ':' + (m.ready ? 1 : 0)
+      + ':' + m.cost + ':' + (hasIconArt(game, m.id) ? 1 : 0);
+    if (ssig !== t.sig) {
+      t.sig = ssig;
+      const c = t.el.classList;
+      c.toggle('ready', m.ready);
+      c.toggle('queued', !m.ready && m.queued > 0);
+      c.toggle('disabled', !m.ready && !m.queued && !m.enabled);
+      c.toggle('poor', poor);
+      c.toggle('locked', locked);
+      c.toggle('has-cameo', hasIconArt(game, m.id));
+      t.cost.textContent = m.ready ? 'PLACE' : fmtInt(m.cost);
+      t.badge.textContent = '×' + m.queued;
+      t.badge.style.display = m.queued ? 'block' : 'none';
+      t.el.setAttribute('aria-disabled', (!m.ready && !m.queued && !m.enabled) ? 'true' : 'false');
+    }
+    // cheap per-tick updates: production sweep + placement highlight
     t.el.classList.toggle('placing', !!(game.placement && game.placement.structId === m.id));
     if (m.progress >= 0) {
       const deg = Math.floor(m.progress * 360);
-      t.prog.style.display = 'block';
-      t.prog.style.background = 'conic-gradient(rgba(140,210,255,0.30) '
-        + deg + 'deg, rgba(0,0,0,0.45) ' + deg + 'deg)';
-    } else {
+      if (t.deg !== deg) {
+        t.deg = deg;
+        t.prog.style.display = 'block';
+        t.prog.style.background = 'conic-gradient(rgba(95,227,208,0) ' + deg
+          + 'deg, rgba(4,6,9,0.74) ' + deg + 'deg)';
+        t.bar.style.display = 'block';
+        t.barFill.style.width = Math.round(m.progress * 100) + '%';
+      }
+    } else if (t.deg !== -1) {
+      t.deg = -1;
       t.prog.style.display = 'none';
+      t.bar.style.display = 'none';
+    }
+  }
+  // empty state: nothing to build from yet
+  const esig = metas.length ? '' : (hasCy ? 'cy' : hasMcvUnit ? 'mcv' : 'none') + H.activeTab;
+  if (esig !== H.emptySig) {
+    H.emptySig = esig;
+    clear(H.empty);
+    H.empty.style.display = metas.length ? 'none' : 'flex';
+    H.grid.style.display = metas.length ? '' : 'none';
+    if (!metas.length) {
+      H.empty.appendChild(icon(hasMcvUnit && !hasCy ? 'deploy' : 'lock'));
+      H.empty.appendChild(h('b', null, hasMcvUnit && !hasCy ? 'Deploy your MCV' : hasCy ? 'Nothing to build here' : 'No Construction Yard'));
+      H.empty.appendChild(h('span', null, hasMcvUnit && !hasCy
+        ? 'Select it and press D to raise a Construction Yard and unlock production.'
+        : hasCy ? 'This tab has no blueprints for your faction.'
+          : 'Production is offline until a Construction Yard stands.'));
     }
   }
 }
 
 function rebuildTiles(game, metas) {
   const H = game.hud;
-  hideTooltip(); // v0.3.2: kill any pending tooltip bound to a tile we're about to drop
-  H.grid.innerHTML = '';
+  hideTooltip(); // kill any pending tooltip bound to a tile we're about to drop
+  clear(H.grid);
   H.tiles = {};
   metas.forEach((m, i) => {
-    const tile = h('button', 'bb-tile');
+    const tile = el('button', { class: 'bb-tile', type: 'button', dataset: { id: m.id, sfx: 'none' }, 'aria-label': m.def.name });
+    tile.appendChild(makeCameo(game, m.def, m.kind, { code: false }));
+    // short designation, shown only while the portrait has not arrived
+    tile.appendChild(h('span', 'bb-code', initialsFor(m.def.name)));
     if (i < BUILD_HOTKEYS.length) tile.appendChild(h('span', 'bb-hotkey', BUILD_HOTKEYS[i]));
-    const glyph = h('span', 'bb-glyph');
-    const shape = m.kind === 'unit' ? shapeForUnit(m.def) : shapeForStructure(m.def);
-    glyph.appendChild(h('span', 'bb-shape shape-' + shape));
-    glyph.appendChild(h('span', 'bb-initials', initialsFor(m.def.name)));
-    tile.appendChild(glyph);
-    // painted cameo plate over the icon area (pass-3 iconArt); the glyph
-    // stays underneath as the decode-failure fallback, hotkey/cost get a
-    // dark chip via .has-cameo so they stay readable over the art
-    const cameoUri = iconArtUri(game, m.id);
-    if (cameoUri) {
-      tile.appendChild(cameoImg('grid', cameoUri));
-      tile.classList.add('has-cameo');
-    }
-    tile.appendChild(h('span', 'bb-cost', m.ready ? 'PLACE' : String(m.cost)));
-    const badge = h('span', 'bb-badge', '×' + m.queued);
-    badge.style.display = m.queued ? 'block' : 'none';
+    const badge = h('span', 'bb-badge num', '×0');
+    badge.style.display = 'none';
     tile.appendChild(badge);
-    const prog = h('div', 'bb-prog');
+    // state glyph: lock (requirements) or coin (credits) — never colour alone
+    const stateIco = h('span', 'bb-state');
+    stateIco.appendChild(icon('lock', 'st-lock'));
+    stateIco.appendChild(icon('credit', 'st-poor'));
+    stateIco.appendChild(icon('target', 'st-place'));
+    tile.appendChild(stateIco);
+    const prog = h('span', 'bb-prog');
     prog.style.display = 'none';
     tile.appendChild(prog);
-    if (m.ready) tile.classList.add('ready');
-    else if (m.queued) tile.classList.add('queued');
-    else if (!m.enabled) tile.classList.add('disabled');
-    if (game.placement && game.placement.structId === m.id) tile.classList.add('placing');
-    tile.addEventListener('click', () => activateItem(game, m));
+    const bar = h('span', 'bb-bar');
+    const barFill = h('i');
+    bar.appendChild(barFill);
+    bar.style.display = 'none';
+    tile.appendChild(bar);
+    const cost = h('span', 'bb-cost num', '');
+    tile.appendChild(cost);
+    tile.addEventListener('click', () => {
+      const pp = game.state.players[game.playerSlot];
+      activateItem(game, gridItemMeta(game, pp, m));
+      game.hudDirty = true;
+    });
     tile.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      cancelItem(game, m);
+      const pp = game.state.players[game.playerSlot];
+      cancelItem(game, gridItemMeta(game, pp, m));
+      game.hudDirty = true;
     });
     attachTooltip(game, tile, () => {
       const pp = game.state.players[game.playerSlot];
-      const lines = tooltipLines(game.state, pp, m.kind, m.id);
-      const mm = gridItemMeta(game, pp, m);
-      const r = reasonText(mm);
-      if (r) lines.push(r);
-      if (mm.queued) lines.push('Right-click to cancel');
-      return lines;
-    });
+      return buildItemTip(game, pp, gridItemMeta(game, pp, m), BUILD_HOTKEYS[i]);
+    }, { dock: H.panel, live: true });
     H.grid.appendChild(tile);
-    H.tiles[m.id] = { el: tile, prog, badge };
+    H.tiles[m.id] = { el: tile, prog, badge, bar, barFill, cost, sig: '', deg: -2 };
   });
+  // keep the 3x2 footprint stable on short pages
+  for (let i = metas.length; i < BUILD_HOTKEYS.length && metas.length; i++) {
+    H.grid.appendChild(h('span', 'bb-tile empty'));
+  }
 }
 
 function activateItem(game, m) {
@@ -1097,13 +1451,18 @@ function activateItem(game, m) {
       game.placement = { structId: m.id };
       game.targeting = null;
       game.attackMoveArmed = false;
+      sfx(game, 'ui_click');
     } else if (!m.queued && m.enabled) {
       hudPushCmd(game, { type: 'buildStructure', structId: m.id });
       sfx(game, 'build');
+    } else if (!m.queued) {
+      sfx(game, 'ui_deny');
     }
   } else if (m.enabled) {
     hudPushCmd(game, { type: 'trainUnit', unitId: m.id });
     sfx(game, 'build');
+  } else {
+    sfx(game, 'ui_deny');
   }
 }
 
@@ -1130,86 +1489,140 @@ function cancelItem(game, m) {
   }
 }
 
-// ---- build queue strip ----------------------------------------------------------
+// ---- command panel: research kits -------------------------------------------------
 
-// v0.4.3: populate the .bb-queue strip under the tile grid with the focused
-// producer's first 3 queue entries (queueStripModel, oldest first). The strip
-// rebuilds only when the entry identity signature changes (same guard pattern
-// as gridSig/actSig); per-tick updates touch the progress bar width only.
-// v0.4.4 (DeepSeek 3.5): label for the .bb-queue strip — the focused
-// producer's name ('Airfield queue:'); when the model fell back to the first
-// producer with a queue (nothing focused) the label is dimmed
+// research kits (v0.3.7): exactly one owned Core/Prod structure selected
+function selectedKits(game, st, p) {
+  if (game.selection.length !== 1) return null;
+  const s = st.structures[game.selection[0]];
+  if (!s || s.owner !== p.slot) return null;
+  const sType = st.structDefs[s.defId].type;
+  if (sType !== 'Prod' && sType !== 'Core') return null;
+  const offered = researchKitsFor(st, p, s.defId);
+  return offered.length ? offered : null;
+}
+
+function updateKits(game, p) {
+  const H = game.hud;
+  const st = game.state;
+  const kits = selectedKits(game, st, p);
+  const sig = kits ? kits.map((k) => k.id + ':' + (k.owned ? 1 : 0) + ':' + (k.affordable ? 1 : 0)).join(',') : '';
+  if (sig === H.kitSig) return;
+  H.kitSig = sig;
+  clear(H.kits);
+  H.kits.style.display = kits ? '' : 'none';
+  if (!kits) return;
+  H.kits.appendChild(h('span', 'micro', 'Research'));
+  for (const k of kits) {
+    const usable = !k.owned && k.affordable;
+    const b = el('button', {
+      class: 'bb-action bb-kit' + (usable ? '' : ' disabled') + (k.owned ? ' owned' : ''), type: 'button',
+      'aria-disabled': usable ? 'false' : 'true',
+    }, [
+      icon(k.owned ? 'check' : 'cube'),
+      h('span', 'bb-kit-name', k.owned ? k.label + ' — OWNED' : k.label),
+      k.owned ? null : el('span', { class: 'bb-kit-cost num' }, [icon('credit'), fmtInt(k.cost)]),
+    ]);
+    if (usable) {
+      b.addEventListener('click', () => {
+        hudPushCmd(game, { type: 'researchUpgrade', upgradeId: k.id });
+        sfx(game, 'build');
+      });
+    }
+    const up = (st.data.upgrades || []).find((g) => g.id === k.id);
+    attachTooltip(game, b, () => {
+      const lines = [];
+      if (up) {
+        const names = (up.appliesTo || []).map((id) => (st.unitDefs[id] ? st.unitDefs[id].name : id));
+        lines.push('+' + Math.round((up.hpMul - 1) * 100) + '% hit points and +' + Math.round((up.dmgMul - 1) * 100)
+          + '% damage for ' + names.join(', ') + '.');
+        lines.push('Applies to units already in the field and every one built after.');
+      }
+      const card = simpleTip(k.label, lines);
+      if (k.owned) card.appendChild(tipStatus('check', 'Researched', 'ok'));
+      else if (!k.affordable) card.appendChild(tipStatus('warn', 'Not enough credits — ' + fmtInt(k.cost) + ' needed', 'bad'));
+      return card;
+    }, { dock: H.panel });
+    H.kits.appendChild(b);
+  }
+}
+
+// ---- command panel: queue strip ------------------------------------------------------
+
+// v0.4.4 (DeepSeek 3.5): label for the queue strip — the focused producer's
+// name ('Airfield queue:'); when the model fell back to the first producer
+// with a queue (nothing focused) the label is dimmed
 function queueLabelInfo(state, player, tabId, selection) {
   if (tabId === 'structures') return { text: 'Build queue:', focused: true };
   const tab = TABS.find((t) => t.id === tabId);
   if (!tab || !tab.prod) return { text: '', focused: true };
-  const name = state.structDefs[tab.prod].name + ' queue:';
-  for (const id of (selection || [])) {
-    const s = state.structures[id];
-    if (s && s.owner === player.slot && s.defId === tab.prod) return { text: name, focused: true };
-  }
-  for (const id in state.structures) {
-    const s = state.structures[id];
-    if (s.owner === player.slot && s.defId === tab.prod && s.queue && s.queue.length) {
-      return { text: name, focused: false };
-    }
-  }
-  return { text: '', focused: true };
+  const name = state.structDefs[tab.prod].name.split(' / ')[0] + ' queue:';
+  const f = focusedProducer(state, player, tab, selection);
+  if (!f.prod) return { text: '', focused: true };
+  return { text: name, focused: f.focused };
 }
 
+// The strip shows the focused producer's first 3 queue entries, oldest first.
+// It rebuilds only when the entry identity signature changes; per-tick
+// updates touch the progress bar width only.
 function updateQueueStrip(game, p) {
   const H = game.hud;
   const strip = H.queue;
-  const model = queueStripModel(game.state, p, H.activeTab, game.selection);
+  const st = game.state;
+  const model = queueStripModel(st, p, H.activeTab, game.selection);
   if (!model.length) {
     if (H.queueSig !== '') {
       H.queueSig = '';
       H.queueEls = [];
       hideTooltip(); // chips are gone — kill any tooltip bound to one
-      strip.innerHTML = '';
+      clear(strip);
     }
     H.queueLblSig = '';
     strip.style.display = 'none';
     return;
   }
   strip.style.display = 'flex';
-  const li = queueLabelInfo(game.state, p, H.activeTab, game.selection);
+  const li = queueLabelInfo(st, p, H.activeTab, game.selection);
   if (!H.queueLbl) H.queueLbl = h('span', 'bb-queue-label');
+  if (!H.queueMore) H.queueMore = h('span', 'bb-queue-more num');
   let sig = H.activeTab;
   for (const q of model) sig += '|' + q.kind + ':' + q.id + ':' + q.producerId;
   if (sig !== H.queueSig) {
     H.queueSig = sig;
     hideTooltip();
-    strip.innerHTML = '';
+    clear(strip);
     strip.appendChild(H.queueLbl); // label stays first, before the chips
     H.queueEls = [];
-    model.forEach((q) => {
-      const def = q.kind === 'unit' ? game.state.unitDefs[q.id] : game.state.structDefs[q.id];
-      const chip = h('button', 'bb-chip');
-      chip.appendChild(h('span', 'bb-chip-code', initialsFor(def.name)));
+    model.forEach((q, i) => {
+      const def = q.kind === 'unit' ? st.unitDefs[q.id] : st.structDefs[q.id];
+      const chip = el('button', { class: 'bb-chip' + (i === 0 ? ' head' : ''), type: 'button', dataset: { sfx: 'none' }, 'aria-label': def.name + ' — right-click to cancel' });
+      chip.appendChild(makeCameo(game, def, q.kind, { code: false }));
       const bar = h('span', 'bb-chip-bar');
       chip.appendChild(bar);
       chip.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         cancelQueueEntry(game, q);
+        game.hudDirty = true;
       });
       attachTooltip(game, chip, () => {
-        const pp = game.state.players[game.playerSlot];
-        const lines = tooltipLines(game.state, pp, q.kind, q.id);
-        lines.push('Right-click to cancel');
-        return lines;
-      });
+        const card = simpleTip(def.name, [i === 0 ? 'In production.' : 'Queued — position ' + (i + 1) + '.']);
+        card.appendChild(tipHint(['Right-click'], 'cancel · full refund'));
+        return card;
+      }, { dock: H.panel });
       strip.appendChild(chip);
       H.queueEls.push({ chip, bar });
     });
+    strip.appendChild(H.queueMore);
   }
-  // cheap per-tick update: label text/dim + progress bar widths (model order
-  // == chip order, the signature above covers any reordering)
-  const lsig = li.text + '|' + (li.focused ? 1 : 0);
+  // cheap per-tick update: label text/dim + overflow count + progress widths
+  // (model order == chip order, the signature above covers any reordering)
+  const more = Math.max(0, queueTotal(st, p, H.activeTab, game.selection) - model.length);
+  const lsig = li.text + '|' + (li.focused ? 1 : 0) + '|' + more;
   if (lsig !== H.queueLblSig) {
     H.queueLblSig = lsig;
     H.queueLbl.textContent = li.text;
     H.queueLbl.classList.toggle('dim', !li.focused);
+    H.queueMore.textContent = more ? '+' + more : '';
   }
   for (let i = 0; i < model.length && i < H.queueEls.length; i++) {
     const q = model[i];
@@ -1239,194 +1652,239 @@ function hudKeyPress(game, key) {
   if (!id) return false;
   const it = items.find((x) => x.id === id);
   activateItem(game, gridItemMeta(game, p, it));
+  // keyboard feedback on the cameo itself
+  const t = game.hud.tiles[id];
+  if (t && t.el.classList) {
+    t.el.classList.remove('tap');
+    void t.el.offsetWidth;
+    t.el.classList.add('tap');
+  }
+  game.hudDirty = true;
   return true;
 }
 
-// ---- tooltip ------------------------------------------------------------------
+// ---- tooltip cards --------------------------------------------------------------------
 
-function attachTooltip(game, el, linesFn) {
+let __tipOwner = null;
+function attachTooltip(game, anchor, buildFn, opts) {
   let timer = null;
-  el.addEventListener('mouseenter', () => {
-    if (typeof setTimeout !== 'function') { return; }
-    timer = setTimeout(() => showTooltip(game, linesFn(), el), 200);
+  const show = () => {
+    let card;
+    try { card = buildFn(); } catch (e) { card = null; }
+    if (!card) return;
+    __tipOwner = anchor;
+    showTooltip(card, anchor, opts);
+  };
+  anchor.addEventListener('mouseenter', () => {
+    if (typeof setTimeout !== 'function') return;
+    timer = setTimeout(show, 160);
   });
-  el.addEventListener('mouseleave', () => {
+  anchor.addEventListener('mouseleave', () => {
     if (timer !== null && typeof clearTimeout === 'function') clearTimeout(timer);
     timer = null;
-    hideTooltip();
+    if (__tipOwner === anchor) hideTooltip();
   });
+  if (opts && opts.live) {
+    // a click changes the card's facts (queued, credits): refresh in place
+    anchor.addEventListener('click', () => {
+      if (__tipOwner !== anchor) return;
+      setTimeout(() => { if (__tipOwner === anchor && anchor.isConnected) show(); }, 140);
+    });
+  }
 }
 
-function showTooltip(game, lines, anchor) {
-  const el = document.getElementById('tooltip');
-  if (!el) return;
-  el.innerHTML = '';
-  lines.forEach((ln, i) => el.appendChild(h('div', i === 0 ? 'tt-name' : 'tt-line', ln)));
+function showTooltip(card, anchor, opts) {
+  const tip = document.getElementById('tooltip');
+  if (!tip) return;
+  clear(tip);
+  tip.appendChild(card);
+  tip.style.display = 'block';
+  tip.style.left = '0px';
+  tip.style.top = '0px';
+  tip.style.bottom = 'auto';
   const r = anchor.getBoundingClientRect();
-  // canvas.height is in device px (scaled by dpr); CSS layout uses CSS px
-  const dpr = (game && game.dpr) || 1;
-  const vh = game.canvas ? game.canvas.height / dpr : 800;
-  el.style.left = Math.max(4, r.left) + 'px';
-  el.style.bottom = (vh - r.top + 8) + 'px';
-  el.style.display = 'block';
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const gap = 10;
+  let x, y;
+  if (opts && opts.dock && opts.dock.getBoundingClientRect) {
+    // sit beside the docked panel, level with the hovered control
+    const d = opts.dock.getBoundingClientRect();
+    x = d.left - tw - gap;
+    if (x < 8) x = d.right + gap;
+    y = r.top + r.height / 2 - th / 2;
+  } else if (opts && opts.side === 'below') {
+    x = r.left + r.width / 2 - tw / 2;
+    y = r.bottom + gap;
+  } else {
+    x = r.left + r.width / 2 - tw / 2;
+    y = r.top - th - gap;
+    if (y < 8) y = r.bottom + gap;
+  }
+  x = Math.max(8, Math.min(vw - tw - 8, x));
+  y = Math.max(8, Math.min(vh - th - 8, y));
+  if (opts && opts.dock) {
+    // never cover the selection card's orders: ride above it when they'd collide
+    const card = document.querySelector('#sel-panel.show .sel-card');
+    if (card) {
+      const c = card.getBoundingClientRect();
+      if (x < c.right && x + tw > c.left && y + th > c.top - 8) y = Math.max(8, c.top - th - 8);
+    }
+  }
+  tip.style.left = Math.round(x) + 'px';
+  tip.style.top = Math.round(y) + 'px';
 }
 
 function hideTooltip() {
-  const el = document.getElementById('tooltip');
-  if (el) el.style.display = 'none';
+  __tipOwner = null;
+  const tip = document.getElementById('tooltip');
+  if (tip) tip.style.display = 'none';
+}
+
+function simpleTip(title, lines, keys) {
+  const card = h('div', 'tt-card tt-simple');
+  const head = h('div', 'tt-head');
+  head.appendChild(h('span', 'tt-name', title));
+  if (keys && keys.length) {
+    const k = h('span', 'tt-keys');
+    for (const key of keys) k.appendChild(h('span', 'kbd', key));
+    head.appendChild(k);
+  }
+  card.appendChild(head);
+  for (const ln of lines || []) if (ln) card.appendChild(h('div', 'tt-line', ln));
+  return card;
+}
+
+function tipStatus(ico, text, kind) {
+  return el('div', { class: 'tt-status ' + (kind || '') }, [icon(ico), h('span', null, text)]);
+}
+
+function tipHint(keys, text) {
+  const row = h('div', 'tt-hint');
+  for (const k of keys) row.appendChild(h('span', 'kbd', k));
+  row.appendChild(h('span', null, text));
+  return row;
+}
+
+const TIP_DMG = [['inf', 'INF'], ['light', 'LIGHT'], ['armor', 'ARMOR'], ['air', 'AIR'], ['bldg', 'BLDG']];
+let __dmgMax = 0;
+function dmgMax(st) {
+  if (__dmgMax) return __dmgMax;
+  let m = 1;
+  for (const u of st.data.units) for (const k in u.dmg) m = Math.max(m, u.dmg[k]);
+  for (const s of st.data.structures) if (s.dmg) for (const k in s.dmg) m = Math.max(m, s.dmg[k]);
+  __dmgMax = m;
+  return m;
+}
+
+function dmgBars(st, dmg) {
+  const box = h('div', 'tt-dmg');
+  const mx = dmgMax(st);
+  for (const [k, label] of TIP_DMG) {
+    const v = dmg[k] || 0;
+    const col = h('div', 'tt-dmg-col' + (v > 0 ? '' : ' nil'));
+    const track = h('span', 'tt-dmg-track');
+    const fill = h('i');
+    fill.style.height = Math.max(v > 0 ? 8 : 0, Math.round(100 * Math.sqrt(v / mx))) + '%';
+    track.appendChild(fill);
+    col.appendChild(track);
+    col.appendChild(h('span', 'tt-dmg-val num', v > 0 ? String(v) : '–'));
+    col.appendChild(h('span', 'tt-dmg-label', label));
+    box.appendChild(col);
+  }
+  return box;
+}
+
+// the rich build-grid card: identity, price, stats, damage profile, counters,
+// current state and what the mouse buttons do
+function buildItemTip(game, p, m, hotkey) {
+  const st = game.state;
+  const def = m.def;
+  const card = h('div', 'tt-card');
+  const head = h('div', 'tt-head');
+  const port = h('span', 'tt-portrait');
+  port.appendChild(makeCameo(game, def, m.kind, { code: false }));
+  head.appendChild(port);
+  const ht = h('div', 'tt-title');
+  ht.appendChild(h('span', 'tt-name', def.name));
+  ht.appendChild(h('span', 'tt-class', m.kind === 'unit'
+    ? def.cls + (def.role ? ' · ' + def.role : '')
+    : def.type + ' structure'));
+  head.appendChild(ht);
+  if (hotkey) head.appendChild(el('span', { class: 'tt-keys' }, [h('span', 'kbd', hotkey)]));
+  card.appendChild(head);
+
+  const stats = h('div', 'tt-stats');
+  const stat = (ico, value, label, cls) => {
+    const s = h('span', 'tt-stat' + (cls ? ' ' + cls : ''));
+    s.appendChild(icon(ico));
+    s.appendChild(h('b', 'num', value));
+    s.appendChild(h('i', null, label));
+    stats.appendChild(s);
+  };
+  stat('credit', fmtInt(m.cost), 'cost', p.credits < m.cost ? 'bad' : '');
+  stat('clock', def.build_s + 's', 'build');
+  stat('hp', fmtInt(def.hp), 'hp');
+  if (m.kind === 'struct') {
+    if (def.power_out > 0) stat('bolt', '+' + def.power_out, 'power', 'ok');
+    else if (def.power_use > 0) stat('bolt', '−' + def.power_use, 'power', p.powerUse + def.power_use > p.powerOut ? 'bad' : '');
+  } else if (def.range > 0) {
+    stat('range', String(def.range), 'range');
+  }
+  card.appendChild(stats);
+
+  if (def.dmg && Object.keys(def.dmg).some((k) => def.dmg[k] > 0)) {
+    const sec = h('div', 'tt-sec');
+    sec.appendChild(h('span', 'tt-sec-label', 'Damage vs' + (def.rof_s ? ' · every ' + def.rof_s + 's' : '')));
+    sec.appendChild(dmgBars(st, def.dmg));
+    card.appendChild(sec);
+  }
+  if (m.kind === 'struct') {
+    if (def.unlocks) card.appendChild(h('div', 'tt-line', def.unlocks));
+    if (def.type === 'SW') {
+      const sw = superweaponInfo(st.data, def.faction);
+      if (sw) card.appendChild(h('div', 'tt-line', sw.text));
+    }
+    if (m.id === 'SH-03') card.appendChild(h('div', 'tt-line', 'Must be placed on an oil field. Each depot fields one harvester.'));
+  } else {
+    if (def.ability && def.ability !== '—') card.appendChild(h('div', 'tt-line', def.ability));
+    if (def.hardCounter) card.appendChild(el('div', { class: 'tt-counter hard' }, [icon('warn'), h('b', null, 'Beaten by'), h('span', null, def.hardCounter)]));
+    if (def.softCounter) card.appendChild(el('div', { class: 'tt-counter soft' }, [icon('info'), h('b', null, 'Threatened by'), h('span', null, def.softCounter)]));
+    if (def.cls === 'Engineer') card.appendChild(h('div', 'tt-line', 'Captures enemy structures — order it to attack one.'));
+    if (def.cls === 'APC' || def.cls === 'IFV') card.appendChild(h('div', 'tt-line', 'Carries infantry — right-click it with infantry selected.'));
+  }
+
+  const r = reasonText(m);
+  if (m.ready) card.appendChild(tipStatus('target', r, 'ok'));
+  else if (r) card.appendChild(tipStatus(m.reason === 'credits' ? 'credit' : 'lock', r, 'bad'));
+  else if (m.queued) card.appendChild(tipStatus('clock', m.progress >= 0
+    ? 'Building — ' + Math.round(m.progress * 100) + '%' + (m.queued > 1 ? ' · ' + (m.queued - 1) + ' more queued' : '')
+    : m.queued + ' queued', 'info'));
+  if (m.queued) card.appendChild(tipHint(['Right-click'], 'cancel · full refund'));
+  else if (m.enabled && !m.ready) card.appendChild(tipHint(['Click'], m.kind === 'unit' ? 'train · click again to queue more' : 'start construction'));
+  return card;
 }
 
 // ---- under-attack alarm: siren + clickable alert stack -----------------------
 
-let __audioCtx = null;    // shared, created lazily on the first user gesture
-let __sfxVol = 1;          // master volume 0..1 (menu slider, localStorage)
-try {
-  const lv = globalThis.localStorage && globalThis.localStorage.getItem('mca_vol');
-  if (lv !== null && lv !== undefined && lv !== '') {
-    __sfxVol = Math.max(0, Math.min(1, Number(lv) || 0));
-  }
-} catch (e) { /* headless / privacy mode: keep default */ }
-
-export function getSfxVolume() { return __sfxVol; }
-export function setSfxVolume(v) {
-  __sfxVol = Math.max(0, Math.min(1, v));
-  try {
-    if (globalThis.localStorage) globalThis.localStorage.setItem('mca_vol', String(__sfxVol));
-  } catch (e) { /* best-effort */ }
-}
-
-function ensureAudio() {
-  if (__audioCtx) return __audioCtx;
-  const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
-  if (!AC) return null; // headless test stub: no audio, no throw
-  try { __audioCtx = new AC(); } catch (e) { __audioCtx = null; }
-  return __audioCtx;
-}
-
-function nowMs() {
-  return (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
-}
-
-let __noiseBuf = null;
-function noiseBuffer(ctx) {
-  if (__noiseBuf) return __noiseBuf;
-  const len = Math.floor(ctx.sampleRate * 0.5);
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  __noiseBuf = buf;
-  return buf;
-}
-
-// two-tone square siren, ~0.4s at low gain. The fire cadence lives in
-// underAttackAlert (per-location escalation, v0.9.0) — this just makes noise.
-function playSiren() {
-  if (__sfxVol <= 0) return;
-  const ctx = ensureAudio();
-  if (!ctx || ctx.state === 'suspended') return; // inaudible pre-gesture anyway
-  try {
-    const t0 = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(660, t0);
-    osc.frequency.setValueAtTime(880, t0 + 0.2);
-    gain.gain.setValueAtTime(0.08 * __sfxVol, t0);
-    gain.gain.linearRampToValueAtTime(0.0001, t0 + 0.4);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(t0);
-    osc.stop(t0 + 0.4);
-  } catch (e) { /* audio is best-effort */ }
-}
-
-// v0.3.6 procedural SFX (no assets; every path guarded for headless stubs)
-
-let __shotAt = -Infinity;
-// weapon crack: short noise burst, throttled to one per 120ms
-function playShot() {
-  const now = nowMs();
-  if (now - __shotAt < 120 || __sfxVol <= 0) return;
-  const ctx = ensureAudio();
-  if (!ctx || ctx.state === 'suspended') return;
-  __shotAt = now;
-  try {
-    const t0 = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx);
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.05 * __sfxVol, t0);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.09);
-    src.connect(gain);
-    gain.connect(ctx.destination);
-    src.start(t0);
-    src.stop(t0 + 0.1);
-  } catch (e) { /* best-effort */ }
-}
-
-let __boomAt = -Infinity;
-// explosion thump: noise through a lowpass, ~0.45s decay; one per 250ms
-function playBoom() {
-  const now = nowMs();
-  if (now - __boomAt < 250 || __sfxVol <= 0) return;
-  const ctx = ensureAudio();
-  if (!ctx || ctx.state === 'suspended') return;
-  __boomAt = now;
-  try {
-    const t0 = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(ctx);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(320, t0);
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.12 * __sfxVol, t0);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.45);
-    src.connect(lp);
-    lp.connect(gain);
-    gain.connect(ctx.destination);
-    src.start(t0);
-    src.stop(t0 + 0.5);
-  } catch (e) { /* best-effort */ }
-}
-
-let __clickAt = -Infinity;
-// UI click: short square blip on button presses
-export function playClick() {
-  const now = nowMs();
-  if (now - __clickAt < 40 || __sfxVol <= 0) return;
-  const ctx = ensureAudio();
-  if (!ctx || ctx.state === 'suspended') return;
-  __clickAt = now;
-  try {
-    const t0 = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(880, t0);
-    gain.gain.setValueAtTime(0.03 * __sfxVol, t0);
-    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.035);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(t0);
-    osc.stop(t0 + 0.04);
-  } catch (e) { /* best-effort */ }
-}
-
-// top-right alert banner (max 4 stacked, auto-expires after 8s); clicking it
+// top-right alert card (max 4 stacked, auto-expires after 8s); clicking it
 // zooms in, jumps the camera to the battle and pings the minimap
-function pushAlert(game, text, wx, wy) {
+function pushAlert(game, text, wx, wy, title) {
   const root = document.getElementById('alerts');
   if (!root) return;
   while (root.children.length >= 4) root.removeChild(root.children[0]);
-  const b = h('div', 'alert-banner', text);
+  const b = el('button', { class: 'alert-banner', type: 'button', dataset: { sfx: 'none' } }, [
+    icon('warn'),
+    el('span', { class: 'alert-text' }, [h('b', null, title || 'Under attack'), h('span', null, text)]),
+    h('span', 'alert-go', 'Jump'),
+    h('i', 'alert-timer'),
+  ]);
   let removed = false;
   const drop = () => {
     if (removed) return;
     removed = true;
     // the 4-card cap may have already evicted this banner; only remove if attached
     if (b.parentNode) b.parentNode.removeChild(b);
-    else if (root.children.indexOf(b) >= 0) root.removeChild(b);
   };
   b.addEventListener('click', () => {
     if (game.state && game.camera) {
@@ -1434,7 +1892,7 @@ function pushAlert(game, text, wx, wy) {
       cam.zoom = Math.min(1.35, cam.maxZoom || 2.5);
       centerCameraOn(cam, wx, wy);
       clampCameraToMap(cam, game.state.map.w * CELL, game.state.map.h * CELL);
-      addPing(game, wx, wy);
+      addPing(game, wx, wy, 'alert');
     }
     drop();
   });
@@ -1463,10 +1921,11 @@ function underAttackAlert(game, ent, isUnit, c) {
     if (lastAt === undefined || nowMs() - lastAt >= gap) {
       H.sirenEsc[key] = esc + 1;
       H.sirenAt[key] = nowMs();
-      playSiren();
+      sfx(game, 'siren');
     }
   }
-  pushAlert(game, 'Under attack: ' + attacker + ' — ' + def.name, c.x, c.y);
+  pushAlert(game, 'Under attack: ' + attacker + ' — ' + def.name, c.x, c.y,
+    isUnit ? 'Unit under fire' : 'Base under attack');
   const p = st.players[game.playerSlot];
   voice(game, p.faction, 'attack');
   // battle music for 30s, then back to ambient; a fresh alert inside the
@@ -1490,7 +1949,23 @@ function underAttackAlert(game, ent, isUnit, c) {
 // ---- hint banners + cursor flash ----------------------------------------------
 
 export function showHint(game, text) {
-  const root = game.hint || document.getElementById('hint');
+  // while a menu owns the screen the HUD is hidden: surface the hint as a toast
+  const inMenu = typeof document !== 'undefined' && document.body
+    && document.body.classList && document.body.classList.contains('in-menu');
+  if (inMenu) {
+    const troot = document.getElementById('toasts');
+    if (troot) {
+      while (troot.children.length >= 3) troot.removeChild(troot.children[0]);
+      const t = el('div', { class: 'toast' }, [icon('info'), h('span', null, text)]);
+      troot.appendChild(t);
+      if (typeof setTimeout === 'function') {
+        setTimeout(() => t.classList.add('fade'), 4200);
+        setTimeout(() => { if (t.parentNode) t.parentNode.removeChild(t); }, 4800);
+      }
+      return;
+    }
+  }
+  const root = (game && game.hint) || document.getElementById('hint');
   if (!root) return;
   // cap concurrent banners at 3 (drop the oldest); child 0 is the persistent
   // MCV hint and is never dropped
@@ -1515,38 +1990,144 @@ export function showHint(game, text) {
 
 // red reason label flashing at the cursor (failed placement)
 export function flashAtCursor(game, text) {
-  const el = document.getElementById('cursor-label');
-  if (!el) return;
-  el.textContent = text;
-  el.style.left = (game.mouse.sx + 14) + 'px';
-  el.style.top = (game.mouse.sy - 12) + 'px';
-  el.classList.remove('flash');
-  void el.offsetWidth; // restart the CSS animation
-  el.classList.add('flash');
+  const node = document.getElementById('cursor-label');
+  if (!node) return;
+  node.textContent = text;
+  node.style.left = (game.mouse.sx + 16) + 'px';
+  node.style.top = (game.mouse.sy - 14) + 'px';
+  node.classList.remove('flash');
+  void node.offsetWidth; // restart the CSS animation
+  node.classList.add('flash');
 }
 
-// ---- actions (deploy / ability / superweapon) -----------------------------------
+// ---- ability + superweapon widgets ---------------------------------------------------
+
+function powerWidget(kind, ico) {
+  const b = el('button', { class: 'pw pw-' + kind, type: 'button' });
+  const ring = h('span', 'pw-ring');
+  ring.appendChild(icon(ico));
+  b.appendChild(ring);
+  const txt = h('span', 'pw-text');
+  const name = h('span', 'pw-name', '');
+  const status = h('span', 'pw-status num', '');
+  txt.appendChild(name);
+  txt.appendChild(status);
+  b.appendChild(txt);
+  return { el: b, ring, name, status };
+}
+
+function updatePowers(game, p) {
+  const st = game.state;
+  const H = game.hud;
+  const ability = st.data.factions[p.faction].ability;
+  const passive = !!ability && PASSIVE_ABILITIES.includes(ability);
+  const showAb = !!ability && !passive;
+  // gate actives on their Unique/SW structure (mirrors validateCommand), so the
+  // widget never says READY when the sim would reject with 'no-unique'
+  const abGateId = showAb ? ABILITY_STRUCT[ability] : null;
+  const abGateOk = !abGateId
+    || standingStructs(st, p.slot, (s) => s.defId === abGateId).length > 0;
+  let hasSw = false;
+  for (const id in st.structures) {
+    const s = st.structures[id];
+    if (s.owner === p.slot && st.structDefs[s.defId].type === 'SW') { hasSw = true; break; }
+  }
+  const sig = [ability || '', passive ? 1 : 0, abGateOk ? 1 : 0, hasSw ? 1 : 0].join('|');
+  if (sig !== H.powSig) {
+    H.powSig = sig;
+    hideTooltip();
+    clear(H.powers);
+    const R = H.powRefs = { ab: null, sw: null };
+    const info = ability ? abilityInfo(st.data, p.faction) : null;
+    if (hasSw) {
+      const swi = superweaponInfo(st.data, p.faction);
+      const w = powerWidget('sw', 'warhead');
+      w.name.textContent = swi ? swi.name : 'Superweapon';
+      w.el.addEventListener('click', () => {
+        const pp = game.state.players[game.playerSlot];
+        if (pp.swChargeTicks === 0) { game.targeting = { kind: 'sw' }; game.placement = null; game.hudDirty = true; }
+      });
+      attachTooltip(game, w.el, () => {
+        const pp = game.state.players[game.playerSlot];
+        const card = simpleTip(swi ? swi.name : 'Superweapon', swi ? [swi.payloadName, swi.text] : []);
+        if (pp.swChargeTicks === 0) card.appendChild(tipHint(['Click'], 'then click the target'));
+        else card.appendChild(tipStatus('clock', 'Charging — ' + fmtSecs(Math.max(0, pp.swChargeTicks) / 10), 'info'));
+        return card;
+      }, { dock: H.powers });
+      H.powers.appendChild(w.el);
+      R.sw = w;
+    }
+    if (showAb) {
+      const w = powerWidget('ab', 'bolt');
+      w.name.textContent = info ? info.name : titleCase(ability);
+      w.el.addEventListener('click', () => {
+        const s2 = game.state;
+        const pp = s2.players[game.playerSlot];
+        const gid = ABILITY_STRUCT[ability];
+        const ok = (!gid || standingStructs(s2, pp.slot, (s) => s.defId === gid).length > 0)
+          && Math.max(0, pp.abilityCdUntil - s2.tick) === 0;
+        if (ok) { game.targeting = { kind: 'ability' }; game.placement = null; game.hudDirty = true; }
+      });
+      attachTooltip(game, w.el, () => {
+        const card = simpleTip(info ? info.name : titleCase(ability), info ? [info.text, '90 second cooldown.'] : []);
+        if (!abGateOk && info && info.gateName) card.appendChild(tipStatus('lock', 'Requires ' + info.gateName, 'bad'));
+        else card.appendChild(tipHint(['Click'], 'then click the target'));
+        return card;
+      }, { dock: H.powers });
+      H.powers.appendChild(w.el);
+      R.ab = w;
+    } else if (passive) {
+      const chip = el('div', { class: 'pw pw-passive' }, [
+        el('span', { class: 'pw-ring' }, [icon('shield')]),
+        el('span', { class: 'pw-text' }, [h('span', 'pw-name', info ? info.name : titleCase(ability)), h('span', 'pw-status', 'Passive')]),
+      ]);
+      attachTooltip(game, chip, () => simpleTip(info ? info.name : titleCase(ability), info ? [info.text] : []), { dock: H.powers });
+      H.powers.appendChild(chip);
+    }
+  }
+  const R = H.powRefs;
+  if (!R) return;
+  if (R.sw) {
+    const ready = p.swChargeTicks === 0;
+    const armed = !!(game.targeting && game.targeting.kind === 'sw');
+    const frac = ready ? 1 : 1 - Math.max(0, Math.min(1, p.swChargeTicks / SW_CHARGE_TICKS));
+    const txt = armed ? 'Select target' : ready ? 'READY' : fmtSecs(Math.max(0, p.swChargeTicks) / 10);
+    patchPower(R.sw, frac, ready, armed, txt, !ready);
+  }
+  if (R.ab) {
+    const cd = Math.max(0, p.abilityCdUntil - st.tick);
+    const ready = cd === 0 && abGateOk;
+    const armed = !!(game.targeting && game.targeting.kind === 'ability');
+    const frac = !abGateOk ? 0 : 1 - Math.min(1, cd / ABILITY_CD_TICKS);
+    const gateName = abGateId ? st.structDefs[abGateId].name : '';
+    const txt = armed ? 'Select target' : !abGateOk ? 'NEEDS ' + gateName.toUpperCase()
+      : cd > 0 ? Math.ceil(cd / 10) + 's' : 'READY';
+    patchPower(R.ab, frac, ready, armed, txt, !ready);
+    R.ab.el.classList.toggle('gated', !abGateOk);
+  }
+}
+
+function patchPower(w, frac, ready, armed, txt, disabled) {
+  const f = Math.round(frac * 1000);
+  if (w._f !== f) { w._f = f; w.ring.style.setProperty('--p', (frac * 100).toFixed(1) + '%'); }
+  if (w._t !== txt) { w._t = txt; w.status.textContent = txt; }
+  const s = (ready ? 1 : 0) + ':' + (armed ? 1 : 0) + ':' + (disabled ? 1 : 0);
+  if (w._s !== s) {
+    w._s = s;
+    w.el.classList.toggle('ready', ready);
+    w.el.classList.toggle('placing', armed);
+    w.el.classList.toggle('disabled', disabled);
+    w.el.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+  }
+}
+
+// ---- selection actions (deploy / unload / stances) -----------------------------------
 
 function updateActions(game, p) {
   const st = game.state;
   const H = game.hud;
   const mcvSel = game.selection.map((id) => st.units[id])
     .find((u) => u && u.owner === p.slot && u.defId === 'MCV');
-  const ability = st.data.factions[p.faction].ability;
-  const showAb = ability && !PASSIVE_ABILITIES.includes(ability);
-  const abCd = showAb ? Math.ceil(Math.max(0, p.abilityCdUntil - st.tick) / 10) : -1;
-  // gate actives on their Unique/SW structure (mirrors validateCommand), so the
-  // button never says READY when the sim would reject with 'no-unique'
-  const abGateId = showAb ? ABILITY_STRUCT[ability] : null;
-  const abGateName = abGateId ? st.structDefs[abGateId].name : null;
-  const abGateOk = !abGateId
-    || standingStructs(st, p.slot, (s) => s.defId === abGateId).length > 0;
-  let hasSw = false;
-  for (const id in st.structures) {
-    const s = st.structures[id];
-    if (s.owner === p.slot && st.structDefs[s.defId].type === 'SW') hasSw = true;
-  }
-  const swSec = hasSw ? Math.ceil(Math.max(0, p.swChargeTicks) / 10) : -1;
 
   // stance buttons (v0.3.7): shown whenever the selection holds own units
   const selUnitIds = [];
@@ -1555,204 +2136,289 @@ function updateActions(game, p) {
     if (u && u.owner === p.slot) selUnitIds.push(id);
   }
   const firstSelUnit = selUnitIds.length ? st.units[selUnitIds[0]] : null;
-
-  // research kits (v0.3.7): exactly one owned Core/Prod structure selected
-  let kits = null;
-  if (game.selection.length === 1) {
-    const s = st.structures[game.selection[0]];
-    if (s && s.owner === p.slot) {
-      const sType = st.structDefs[s.defId].type;
-      if (sType === 'Prod' || sType === 'Core') {
-        const offered = researchKitsFor(st, p, s.defId);
-        if (offered.length) kits = offered;
-      }
-    }
+  let mixed = false;
+  if (firstSelUnit) {
+    const s0 = firstSelUnit.stance | 0;
+    for (const id of selUnitIds) if ((st.units[id].stance | 0) !== s0) { mixed = true; break; }
   }
-
-  const sig = [mcvSel ? mcvSel.id : 0, showAb ? abCd : 'x', showAb ? abGateOk : 'x', hasSw ? swSec : 'x',
-    game.targeting ? game.targeting.kind : '',
-    selUnitIds.join(','), firstSelUnit ? firstSelUnit.stance | 0 : 'x',
-    kits ? kits.map((k) => k.id + ':' + (k.owned ? 1 : 0) + ':' + (k.affordable ? 1 : 0)).join(',')
-      : 'x'].join('|');
-  if (sig === H.actSig) return;
-  H.actSig = sig;
-  H.actions.innerHTML = '';
-
-  if (mcvSel) {
-    const b = h('button', 'bb-action bb-deploy', 'DEPLOY [D]');
-    b.addEventListener('click', () => hudPushCmd(game, { type: 'deployMCV', unitId: mcvSel.id }));
-    H.actions.appendChild(b);
-  }
-
   // v0.9.0 transports: a lone selected carrier with cargo gets an UNLOAD
   // button (right-clicking the carrier itself also unloads — input.js)
+  let carrier = null;
   if (selUnitIds.length === 1) {
     const only = st.units[selUnitIds[0]];
     const onlyDef = only && st.unitDefs[only.defId];
     if (onlyDef && (onlyDef.cls === 'APC' || onlyDef.cls === 'IFV')
-        && only.cargo && only.cargo.length) {
-      const b = h('button', 'bb-action bb-unload ready',
-        'UNLOAD ×' + only.cargo.length);
-      b.title = 'Disembark the carried infantry';
-      b.addEventListener('click', () => hudPushCmd(game, { type: 'unload', carrierId: only.id }));
-      H.actions.appendChild(b);
-    }
+        && only.cargo && only.cargo.length) carrier = only;
+  }
+
+  const sig = [mcvSel ? mcvSel.id : 0, selUnitIds.join(','),
+    firstSelUnit ? (mixed ? 'm' : firstSelUnit.stance | 0) : 'x',
+    carrier ? carrier.id + ':' + carrier.cargo.length : 'x'].join('|');
+  if (sig === H.actSig) return;
+  H.actSig = sig;
+  clear(H.actions);
+  H.actions.style.display = (mcvSel || selUnitIds.length) ? '' : 'none';
+
+  if (mcvSel) {
+    const b = el('button', { class: 'bb-action bb-deploy', type: 'button' }, [icon('deploy'), h('span', null, 'DEPLOY'), h('span', 'kbd', 'D')]);
+    b.title = 'Unpack the MCV into a Construction Yard';
+    b.addEventListener('click', () => hudPushCmd(game, { type: 'deployMCV', unitId: mcvSel.id }));
+    H.actions.appendChild(b);
+  }
+
+  if (carrier) {
+    const b = el('button', { class: 'bb-action bb-unload ready', type: 'button' }, [icon('unload'), h('span', null, 'UNLOAD ×' + carrier.cargo.length)]);
+    b.title = 'Disembark the carried infantry';
+    b.addEventListener('click', () => hudPushCmd(game, { type: 'unload', carrierId: carrier.id }));
+    H.actions.appendChild(b);
   }
 
   if (selUnitIds.length) {
-    const row = h('div', 'bb-stance-row');
+    const wrap = h('div', 'bb-stance');
+    wrap.appendChild(el('span', { class: 'micro' }, ['Stance ', h('span', 'kbd', 'G')]));
+    const rowEl = h('div', 'bb-stance-row');
     const labels = ['AGG', 'DEF', 'HLD', 'HF'];
+    const icons = ['aggressive', 'shield', 'hold', 'holdfire'];
     const keys = 'ADSF';
     const alts = 'ZXCV';
     for (let n = 0; n < labels.length; n++) {
-      const cur = (firstSelUnit.stance | 0) === n;
-      const b = h('button', 'bb-action bb-stance' + (cur ? ' on' : ''), labels[n]);
+      const cur = !mixed && (firstSelUnit.stance | 0) === n;
+      const b = el('button', { class: 'bb-action bb-stance-btn' + (cur ? ' on' : ''), type: 'button', 'aria-pressed': cur ? 'true' : 'false' },
+        [icon(icons[n]), h('span', null, labels[n]), h('span', 'kbd', alts[n])]);
       b.title = STANCE_NAMES[n] + ' [' + alts[n] + ' or Ctrl+Alt+' + keys[n] + ']';
       const stanceN = n;
       b.addEventListener('click', () => {
         hudPushCmd(game, { type: 'setStance', unitIds: selUnitIds.slice(), stance: stanceN });
+        game.hudDirty = true;
       });
-      row.appendChild(b);
+      rowEl.appendChild(b);
     }
-    H.actions.appendChild(row);
-  }
-
-  if (kits) {
-    for (const k of kits) {
-      const usable = !k.owned && k.affordable;
-      const b = h('button', 'bb-action bb-kit' + (usable ? '' : ' disabled'),
-        k.owned ? 'OWNED' : k.label + ' · ' + k.cost + 'cr');
-      if (usable) {
-        b.addEventListener('click', () => {
-          hudPushCmd(game, { type: 'researchUpgrade', upgradeId: k.id });
-        });
-      }
-      H.actions.appendChild(b);
-    }
-  }
-
-  if (showAb) {
-    const abUsable = abCd === 0 && abGateOk;
-    const abLabel = ability.replace(/_/g, ' ')
-      + (!abGateOk ? ' · NEEDS ' + abGateName.toUpperCase()
-        : abCd > 0 ? ' · ' + abCd + 's' : ' · READY');
-    const b = h('button', 'bb-action' + (abUsable ? ' ready' : ''), abLabel);
-    if (!abUsable) b.classList.add('disabled');
-    if (game.targeting && game.targeting.kind === 'ability') b.classList.add('placing');
-    b.addEventListener('click', () => {
-      if (abUsable) { game.targeting = { kind: 'ability' }; game.placement = null; }
-    });
-    H.actions.appendChild(b);
-  }
-
-  if (hasSw) {
-    const readySw = p.swChargeTicks === 0;
-    const b = h('button', 'bb-action' + (readySw ? ' ready' : ' disabled'),
-      readySw ? 'SUPERWEAPON — READY' : 'Superweapon · ' + swSec + 's');
-    if (game.targeting && game.targeting.kind === 'sw') b.classList.add('placing');
-    b.addEventListener('click', () => {
-      if (readySw) { game.targeting = { kind: 'sw' }; game.placement = null; }
-    });
-    H.actions.appendChild(b);
+    wrap.appendChild(rowEl);
+    H.actions.appendChild(wrap);
   }
 }
 
 // ---- selection panel -------------------------------------------------------------
 
+function hpClass(frac) { return frac > 0.6 ? 'ok' : frac > 0.3 ? 'mid' : 'low'; }
+
+function rankPips(rank) {
+  const r = rank | 0;
+  if (!r) return null;
+  const box = el('span', { class: 'sel-rank', title: RANK_NAMES[r] || 'Veteran' });
+  for (let i = 0; i < r; i++) box.appendChild(h('i'));
+  return box;
+}
+
 function updateSelectionPanel(game, st) {
   const H = game.hud;
-  const root = document.getElementById('sel-panel');
   const sel = game.selection.filter((id) => st.units[id] || st.structures[id]);
   // inspected hostile (clicked in the fog-visible map) shows when nothing selected
   const insp = game.inspectId ? (st.units[game.inspectId] || st.structures[game.inspectId]) : null;
-  // v0.9.1 signature guard: this panel rebuilt its whole DOM every sim tick
-  // (40 Hz at 4x) even when nothing visible changed. Rebuild only when the
-  // selection ids, an hp, a stance, the inspected id or a cargo count changes.
-  let sig = insp && !sel.length ? 'i' + game.inspectId + ':' + insp.hp : '';
-  for (let i = 0; i < sel.length; i++) {
-    const ent = st.units[sel[i]] || st.structures[sel[i]];
-    sig += '|' + sel[i] + ':' + ent.hp
-      + (ent.stance !== undefined ? ':' + (ent.stance | 0) : '')
-      + (ent.cargo ? ':' + ent.cargo.length : '');
+  const show = sel.length > 0 || !!insp;
+  if (H._selShow !== show) { H._selShow = show; H.selRoot.classList.toggle('show', show); }
+
+  // structural signature: rebuild when the set of entities or a non-HP fact
+  // changes; hit points are patched in place below
+  let sig = '';
+  if (!sel.length && insp) sig = 'i' + game.inspectId;
+  else if (sel.length === 1) {
+    const ent = st.units[sel[0]] || st.structures[sel[0]];
+    sig = 's' + sel[0] + ':' + (ent.stance !== undefined ? ent.stance | 0 : '') + ':' + (ent.cargo ? ent.cargo.length : '')
+      + ':' + (ent.rank | 0) + ':' + (ent.capTicks | 0) + ':' + (ent.upgradeName || '') + ':' + ent.maxHp;
+  } else if (sel.length > 1) {
+    sig = 'm' + sel.length + ':';
+    const lim = Math.min(sel.length, SEL_TILE_MAX);
+    for (let i = 0; i < lim; i++) sig += sel[i] + '.' + ((st.units[sel[i]] || {}).rank | 0) + ',';
+    const us = sel.map((id) => st.units[id]).filter(Boolean);
+    if (us.length) {
+      const s0 = us[0].stance | 0;
+      sig += us.some((u) => (u.stance | 0) !== s0) ? '|m' : '|' + s0;
+    }
   }
-  if (sig === H.selSig) return;
-  H.selSig = sig;
-  root.innerHTML = '';
-  if (insp && !sel.length) {
-    appendInfoRows(game, root, st, insp, true);
-    return;
+  if (sig !== H.selSig) {
+    H.selSig = sig;
+    clear(H.selInfo);
+    H.selRefs = [];
+    H.selCard.classList.toggle('hostile', !sel.length && !!insp);
+    if (!sel.length && insp) buildSingle(game, st, insp, true);
+    else if (sel.length === 1) buildSingle(game, st, st.units[sel[0]] || st.structures[sel[0]], false);
+    else if (sel.length > 1) buildMulti(game, st, sel);
   }
-  if (!sel.length) return;
-  const max = 12;
-  for (let i = 0; i < Math.min(sel.length, max); i++) {
-    const ent = st.units[sel[i]] || st.structures[sel[i]];
+  // in-place health
+  for (const r of H.selRefs || []) {
+    const ent = st.units[r.id] || st.structures[r.id];
+    if (!ent) continue;
+    if (r.hp === ent.hp) continue;
+    r.hp = ent.hp;
+    const frac = Math.max(0, Math.min(1, ent.hp / ent.maxHp));
+    r.fill.style.width = Math.round(frac * 100) + '%';
+    r.bar.className = r.barCls + ' ' + hpClass(frac);
+    if (r.text) r.text.textContent = fmtInt(ent.hp) + ' / ' + fmtInt(ent.maxHp);
+  }
+}
+
+// name/hp header + stat lines for one entity (selection of 1, or inspect)
+function buildSingle(game, st, ent, isInspect) {
+  const H = game.hud;
+  const isUnit = !!st.unitDefs[ent.defId];
+  const def = isUnit ? st.unitDefs[ent.defId] : st.structDefs[ent.defId];
+  const box = h('div', 'sel-single');
+  const port = h('div', 'sel-portrait brackets');
+  port.appendChild(makeCameo(game, def, isUnit ? 'unit' : 'struct'));
+  const pips = isUnit ? rankPips(ent.rank) : null;
+  if (pips) port.appendChild(pips);
+  box.appendChild(port);
+
+  const main = h('div', 'sel-main');
+  const title = h('div', 'sel-title');
+  title.appendChild(h('span', 'sel-name', def.name));
+  if (isInspect) title.appendChild(el('span', { class: 'chip chip-red' }, [icon('target'), 'Hostile']));
+  title.appendChild(h('span', 'chip', isUnit ? def.cls : def.type + ' structure'));
+  if (isUnit && (ent.rank | 0) > 0) title.appendChild(h('span', 'chip chip-gold', RANK_NAMES[ent.rank | 0]));
+  main.appendChild(title);
+
+  const hpRow = h('div', 'sel-hprow');
+  const bar = h('span', 'sel-hpbar');
+  const fill = h('span');
+  bar.appendChild(fill);
+  hpRow.appendChild(bar);
+  const hpText = h('span', 'sel-hp num', '');
+  hpRow.appendChild(hpText);
+  main.appendChild(hpRow);
+  H.selRefs.push({ id: ent.id, hp: -1, bar, fill, text: hpText, barCls: 'sel-hpbar' });
+
+  const lines = [];
+  if (isUnit) {
+    if (ent.upgradeName) lines.push(['cube', 'Upgrade: ' + ent.upgradeName, 'gold']);
+    const facts = [def.domain];
+    if (def.range > 0) facts.push('Range ' + def.range, 'ROF ' + def.rof_s + 's');
+    if (def.armor) facts.push(def.armor + ' armour');
+    lines.push(['info', facts.join(' · ')]);
+    if (def.hardCounter) lines.push(['warn', 'Beaten by (hard): ' + def.hardCounter, 'hard']);
+    if (def.softCounter) lines.push(['info', 'Threatened by (soft): ' + def.softCounter, 'soft']);
+    if (def.cls === 'Engineer' && !isInspect) {
+      if (ent.capTicks > 0) lines.push(['flag', `Capturing… ${ent.capTicks}/${CAPTURE_TICKS}`, 'gold']);
+      else lines.push(['flag', 'Attack a structure to capture it']);
+    }
+    if (!isInspect && ent.cargo && ent.cargo.length) lines.push(['users', 'Carrying ' + ent.cargo.length + ' infantry']);
+    if (!isInspect) lines.push(['shield', 'Stance: ' + STANCE_NAMES[ent.stance | 0] + ' [G]']);
+  } else {
+    const facts = [];
+    if (def.range > 0) facts.push('Range ' + def.range, 'ROF ' + def.rof_s + 's');
+    if (def.power_out > 0) facts.push('Power +' + def.power_out);
+    else if (def.power_use > 0) facts.push('Power -' + def.power_use);
+    if (facts.length) lines.push(['bolt', facts.join(' · ')]);
+    if (def.unlocks) lines.push(['info', def.unlocks]);
+    if (!isInspect && ent.owner === game.playerSlot && def.type === 'Prod') {
+      lines.push(['flag', 'Right-click the map to set a rally point']);
+    }
+  }
+  const list = h('div', 'sel-lines');
+  for (const [ico, text, cls] of lines) {
+    list.appendChild(el('div', { class: 'sel-tip' + (cls ? ' ' + cls : '') }, [icon(ico), h('span', null, text)]));
+  }
+  main.appendChild(list);
+  box.appendChild(main);
+  H.selInfo.appendChild(box);
+}
+
+function buildMulti(game, st, sel) {
+  const H = game.hud;
+  const box = h('div', 'sel-multi');
+  const head = h('div', 'sel-multi-head');
+  head.appendChild(h('span', 'sel-count num', String(sel.length)));
+  // short composition summary: "5 Infantry · 3 MBT · 2 IFV"
+  const byCls = {};
+  for (const id of sel) {
+    const ent = st.units[id] || st.structures[id];
     const def = st.unitDefs[ent.defId] || st.structDefs[ent.defId];
-    const row = h('div', 'sel-row');
-    const selShape = st.units[sel[i]] ? shapeForUnit(def) : shapeForStructure(def);
-    // single selection with a painted plate (pass-3 iconArt): 48px cameo
-    // next to the name replaces the small CSS glyph
-    const selCameoUri = sel.length === 1 ? iconArtUri(game, ent.defId) : null;
-    if (selCameoUri) row.appendChild(cameoImg('sel', selCameoUri));
-    else row.appendChild(h('span', 'sel-glyph shape-' + selShape, initialsFor(def.name)));
-    row.appendChild(h('span', 'sel-name', def.name));
-    row.appendChild(h('span', 'sel-hp', ent.hp + '/' + ent.maxHp));
-    const bar = h('span', 'sel-hpbar');
-    const fill = h('span');
-    fill.style.width = Math.floor(100 * ent.hp / ent.maxHp) + '%';
-    bar.appendChild(fill);
-    row.appendChild(bar);
-    root.appendChild(row);
+    const k = def.cls || def.type || '?';
+    byCls[k] = (byCls[k] || 0) + 1;
   }
-  if (sel.length > max) root.appendChild(h('div', 'sel-tip', '… +' + (sel.length - max) + ' more'));
+  const parts = Object.keys(byCls).sort((a, b) => byCls[b] - byCls[a]).slice(0, 4).map((k) => byCls[k] + ' ' + k);
+  head.appendChild(h('span', 'sel-summary', 'selected — ' + parts.join(' · ')));
   // v0.3.6: stance readout when units are selected ('G' cycles); v0.4.3: a
   // mixed selection shows a dash instead of the first unit's stance
   const selUnits = sel.map((id) => st.units[id]).filter((u) => u);
   if (selUnits.length) {
     const st0 = selUnits[0].stance | 0;
     const mixed = selUnits.some((u) => (u.stance | 0) !== st0);
-    root.appendChild(h('div', 'sel-tip',
-      'Stance: ' + (mixed ? '—' : STANCE_NAMES[st0]) + ' [G]'));
+    head.appendChild(h('span', 'sel-stance', 'Stance: ' + (mixed ? '—' : STANCE_NAMES[st0]) + ' [G]'));
   }
-  if (sel.length === 1) {
-    const ent = st.units[sel[0]] || st.structures[sel[0]];
-    appendInfoRows(game, root, st, ent, false);
-    const s = st.structures[sel[0]];
-    if (s && s.owner === game.playerSlot && st.structDefs[s.defId].type === 'Prod') {
-      root.appendChild(h('div', 'sel-tip', 'Right-click the map to set a rally point'));
-    }
+  box.appendChild(head);
+  const gridEl = h('div', 'sel-units');
+  const lim = Math.min(sel.length, SEL_TILE_MAX - (sel.length > SEL_TILE_MAX ? 1 : 0));
+  for (let i = 0; i < lim; i++) {
+    const id = sel[i];
+    const ent = st.units[id] || st.structures[id];
+    const isUnit = !!st.units[id];
+    const def = isUnit ? st.unitDefs[ent.defId] : st.structDefs[ent.defId];
+    const t = el('button', { class: 'sel-unit', type: 'button', title: def.name + ' — click to select only this, Shift-click to drop it' });
+    t.appendChild(makeCameo(game, def, isUnit ? 'unit' : 'struct', { code: false }));
+    const pips = isUnit ? rankPips(ent.rank) : null;
+    if (pips) t.appendChild(pips);
+    const bar = h('span', 'sel-unit-hp');
+    const fill = h('span');
+    bar.appendChild(fill);
+    t.appendChild(bar);
+    t.addEventListener('click', (e) => {
+      if (e.shiftKey || e.ctrlKey) game.selection = game.selection.filter((x) => x !== id);
+      else game.selection = [id];
+      game.hudDirty = true;
+      sfx(game, 'select');
+    });
+    gridEl.appendChild(t);
+    H.selRefs.push({ id, hp: -1, bar, fill, text: null, barCls: 'sel-unit-hp' });
   }
+  if (sel.length > lim) gridEl.appendChild(h('span', 'sel-unit more num', '+' + (sel.length - lim)));
+  box.appendChild(gridEl);
+  H.selInfo.appendChild(box);
 }
 
-// name/hp header + stat lines for one entity (selection of 1, or inspect)
-function appendInfoRows(game, root, st, ent, isInspect) {
-  const isUnit = !!st.unitDefs[ent.defId];
-  const def = isUnit ? st.unitDefs[ent.defId] : st.structDefs[ent.defId];
-  if (isInspect) {
-    const row = h('div', 'sel-row');
-    const shape = isUnit ? shapeForUnit(def) : shapeForStructure(def);
-    row.appendChild(h('span', 'sel-glyph shape-' + shape, initialsFor(def.name)));
-    row.appendChild(h('span', 'sel-name', def.name));
-    row.appendChild(h('span', 'sel-hp', ent.hp + '/' + ent.maxHp));
-    root.appendChild(row);
+// ---- chat feed ------------------------------------------------------------------------
+// main.js appends every inbound line to #chatlog, which is only visible while
+// the chat box is open. Mirror new lines into a transient feed, and echo the
+// local player's own messages (the relay never sends them back).
+
+function initChatFeed(game) {
+  const log = document.getElementById('chatlog');
+  const feed = document.getElementById('chat-feed');
+  const bar = document.getElementById('chatbar');
+  if (!log || !feed) return;
+  const post = (text, mine) => {
+    while (feed.children.length >= 5) feed.removeChild(feed.children[0]);
+    const line = h('div', 'chat-feed-line' + (mine ? ' mine' : ''), text);
+    feed.appendChild(line);
+    setTimeout(() => line.classList.add('fade'), 7000);
+    setTimeout(() => { if (line.parentNode) line.parentNode.removeChild(line); }, 7800);
+  };
+  if (typeof MutationObserver === 'function' && !log.__feedBound) {
+    log.__feedBound = true;
+    new MutationObserver((muts) => {
+      for (const m of muts) {
+        for (const n of m.addedNodes) {
+          if (n.nodeType === 1) post(n.textContent, n.classList.contains('mine'));
+        }
+      }
+      log.scrollTop = log.scrollHeight;
+    }).observe(log, { childList: true });
   }
-  const lines = [];
-  if (isUnit) {
-    if (ent.upgradeName) lines.push('Upgrade: ' + ent.upgradeName);
-    lines.push(def.cls + ' · ' + def.domain);
-    if (def.range > 0) lines.push('Range ' + def.range + ' · ROF ' + def.rof_s + 's');
-    if (def.hardCounter) lines.push('Beaten by (hard): ' + def.hardCounter);
-    if (def.softCounter) lines.push('Threatened by (soft): ' + def.softCounter);
-    if (def.cls === 'Engineer' && !isInspect) {
-      if (ent.capTicks > 0) lines.push(`Capturing… ${ent.capTicks}/${CAPTURE_TICKS}`);
-      else lines.push('Attack a structure to capture it');
-    }
-  } else {
-    lines.push(def.type + ' structure');
-    if (def.range > 0) lines.push('Range ' + def.range + ' · ROF ' + def.rof_s + 's');
-    if (def.power_out > 0) lines.push('Power +' + def.power_out);
-    else if (def.power_use > 0) lines.push('Power -' + def.power_use);
+  if (bar && !bar.__echoBound) {
+    bar.__echoBound = true;
+    // registered before main.js's own listener, so the value is still intact
+    bar.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.code !== 'Enter') return;
+      const text = String(bar.value || '').trim();
+      if (!text || !(game.net && game.net.active)) return;
+      const name = game.net.name || 'You';
+      if (!game.mpChatLog) game.mpChatLog = [];
+      game.mpChatLog.push({ name, text });
+      if (game.mpChatLog.length > 50) game.mpChatLog.shift();
+      log.appendChild(h('div', 'mp-chatline mine', name + ': ' + text));
+      while (log.children.length > 50) log.removeChild(log.firstChild);
+    });
   }
-  for (const ln of lines) root.appendChild(h('div', 'sel-tip', ln));
 }
 
 // ---- tutorial mode (v0.4.4) -----------------------------------------------------
@@ -1760,8 +2426,8 @@ function appendInfoRows(game, root, st, ent, isInspect) {
 // machine is pure UI — it only WATCHES game state each frame (never issues
 // commands, never touches the sim) and advances when the watched condition
 // holds. game.tutor = { step, pulseEl } is armed by main.js when cfg.tutorial
-// is set; 'tutorial seen' persists in localStorage so the setup checkbox
-// defaults off afterwards.
+// is set; 'tutorial seen' persists in localStorage so the setup switch can
+// tell first-timers from returning players.
 
 const TUTOR_SEEN_KEY = 'mca_tutorial_seen';
 
@@ -1790,7 +2456,7 @@ const TUTOR_STEPS = [
       + '(It auto-deploys at 20s if you wait.)',
     pulse: null,
     done: (game, st, p) => standingStructs(st, p.slot, (s) => s.defId === 'SH-01').length > 0 },
-  { text: 'Build a Power Plant from the build bar (Q).',
+  { text: 'Build a Power Plant from the command panel (Q).',
     pulse: 'SH-02',
     done: (game, st, p) => standingStructs(st, p.slot, (s) => s.defId === 'SH-02').length > 0 },
   { text: 'Build an Oil Depot on a gold oil ring — credits flow from oil.',
@@ -1820,11 +2486,11 @@ function clearTutorPulse(game) {
 }
 
 function hideTutorOverlay(game) {
-  const el = typeof document !== 'undefined' && document.getElementById
+  const node = typeof document !== 'undefined' && document.getElementById
     ? document.getElementById('tutor') : null;
-  if (el) {
-    el.innerHTML = '';
-    if (el.classList) el.classList.add('hidden');
+  if (node) {
+    clear(node);
+    if (node.classList) node.classList.add('hidden');
   }
   game._tutorSig = '';
 }
@@ -1854,9 +2520,9 @@ export function updateTutorial(game) {
   const st = game.state;
   if (!st || st.over) { endTutorial(game, false); return; }
   const p = st.players[game.playerSlot];
-  const el = typeof document !== 'undefined' && document.getElementById
+  const node = typeof document !== 'undefined' && document.getElementById
     ? document.getElementById('tutor') : null;
-  if (!el) return;
+  if (!node) return;
   // advance at most one step per frame, and only after the current prompt has
   // been on screen for a frame (S1's MCV is auto-selected at match start —
   // without this guard it would chain to S2 before ever being visible)
@@ -1864,27 +2530,35 @@ export function updateTutorial(game) {
     && TUTOR_STEPS[T.step].done(game, st, p)) {
     clearTutorPulse(game);
     T.step++;
+    sfx(game, 'ui_confirm');
   }
   const sig = 'step' + T.step;
   if (sig !== game._tutorSig) {
     game._tutorSig = sig;
-    el.innerHTML = '';
-    if (el.classList) el.classList.remove('hidden');
-    const box = h('div', 'tutor-box');
-    box.appendChild(h('div', 'tutor-eva', 'EVA briefing — tutorial '
+    clear(node);
+    if (node.classList) node.classList.remove('hidden');
+    const box = h('div', 'tutor-box panel chamfer');
+    const head = h('div', 'tutor-head');
+    head.appendChild(h('span', 'tutor-eva', 'EVA briefing — tutorial '
       + (T.step + 1) + '/' + TUTOR_STEPS.length));
+    const pips = h('span', 'tutor-pips');
+    for (let i = 0; i < TUTOR_STEPS.length; i++) {
+      pips.appendChild(h('i', i < T.step ? 'done' : i === T.step ? 'cur' : ''));
+    }
+    head.appendChild(pips);
+    box.appendChild(head);
     box.appendChild(h('div', 'tutor-text', TUTOR_STEPS[T.step].text));
     const row = h('div', 'tutor-row');
+    const skip = el('button', { class: 'tutor-skip', type: 'button' }, ['Skip tutorial ', h('span', 'kbd', 'Esc')]);
+    skip.addEventListener('click', () => skipTutorial(game));
+    row.appendChild(skip);
     if (T.step === TUTOR_STEPS.length - 1) {
-      const begin = h('button', 'tutor-done', 'Begin');
+      const begin = el('button', { class: 'tutor-done btn btn-primary btn-sm', type: 'button' }, ['Begin']);
       begin.addEventListener('click', () => endTutorial(game, true));
       row.appendChild(begin);
     }
-    const skip = h('span', 'tutor-skip', 'Skip tutorial');
-    skip.addEventListener('click', () => skipTutorial(game));
-    row.appendChild(skip);
     box.appendChild(row);
-    el.appendChild(box);
+    node.appendChild(box);
   }
   // keep the pulse on the current step's build tile (tiles rebuild on grid
   // signature changes, so re-assert the class every frame — it's idempotent)

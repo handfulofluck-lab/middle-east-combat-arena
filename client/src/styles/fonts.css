@@ -1,0 +1,9 @@
+/* Typefaces (npm: @fontsource/*). The per-weight files carry unicode-range
+   subsets, so the browser only downloads the scripts a page actually uses. */
+@import '@fontsource/rajdhani/500.css';
+@import '@fontsource/rajdhani/600.css';
+@import '@fontsource/rajdhani/700.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';

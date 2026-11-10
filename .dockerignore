@@ -1,0 +1,37 @@
+# Keep the build context small and secrets out of images.
+.git
+.github
+.gitignore
+.dockerignore
+Dockerfile
+render.yaml
+fly.toml
+
+node_modules
+dist
+.vite
+data
+.env
+.env.*
+*.log
+
+# server tests are not needed in the image
+server/test
+
+# not part of the web build
+docs
+attachments
+artwork
+pdf-qa
+review_v035
+NEW MCA
+*.pdf
+*.bat
+egypt-pc-workstation-guide.*
+make_html.py
+make_pdf.py
+tools/.venv
+tools/__pycache__
+tools/*.png
+tools/edgeprof-*
+client/test

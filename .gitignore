@@ -13,3 +13,8 @@ review_v035/
 node_modules/
 dist/web/
 .vite/
+
+# server runtime data and secrets
+data/
+.env
+.env.*

@@ -3,7 +3,8 @@
 // never mutates sim state directly.
 import { CELL, cellOf, isHostile, entityPos, structCenter, teamOf, isInfantryCls, formationOffsetsAir } from '../sim/index.js';
 import { screenToWorld, panCameraBy, zoomCameraAt, clampCameraToMap, centerCameraOn } from './camera.js';
-import { glScreenToWorld, glWorldToScreen, panGlBy, zoomGlBy } from './gl.js';
+import { glScreenToWorld, glWorldToScreen, glUnitToScreen, glPickEntity,
+  panGlBy, zoomGlBy } from './gl.js';
 import { resolvePlacement, placementBlockReason } from './placement.js';
 import { rallyCommand } from './rally.js';
 import { flashAtCursor, skipTutorial } from './hud.js';
@@ -27,7 +28,22 @@ export function screenToWorld3d(game, sx, sy) {
 }
 
 function worldAt(game, sx, sy) {
-  if (is3d(game)) return screenToWorld3d(game, sx, sy);
+  if (is3d(game)) {
+    // Perspective picking: when the cursor is over a visible entity (an
+    // aircraft at altitude, a tank on a slope, a tall building), aim at that
+    // entity's sim position instead of the ground point behind it, so every
+    // world-space pick below keeps working unchanged.
+    if (!game.placement && typeof glPickEntity === 'function') {
+      const e = glPickEntity(game, sx, sy);
+      if (e) {
+        if (e.fp !== undefined && e.cx !== undefined) {
+          return { x: (e.cx + e.fp / 2) * CELL, y: (e.cy + e.fp / 2) * CELL };
+        }
+        return { x: e.x, y: e.y };
+      }
+    }
+    return screenToWorld3d(game, sx, sy);
+  }
   return screenToWorld(game.camera, sx, sy);
 }
 
@@ -228,7 +244,7 @@ export function initInput(game, canvas) {
       for (const id in game.state.units) {
         const u = game.state.units[id];
         if (u.owner !== game.playerSlot || u.defId !== ent.defId) continue;
-        const p = glWorldToScreen(game, u.x, u.y);
+        const p = glUnitToScreen(game, u);
         if (p && p.x >= 0 && p.y >= 0 && p.x <= cw && p.y <= ch) sel.push(u.id);
       }
     } else {
@@ -350,7 +366,7 @@ function handleLeftUp(game, e) {
       for (const id in game.state.units) {
         const u = game.state.units[id];
         if (u.owner !== game.playerSlot) continue;
-        const p = glWorldToScreen(game, u.x, u.y);
+        const p = glUnitToScreen(game, u);
         if (p && p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) {
           if (!game.selection.includes(u.id)) game.selection.push(u.id);
         }
@@ -848,4 +864,6 @@ function handleDigit(game, e, digit) {
 function pushCmd(game, cmd) {
   cmd.player = game.playerSlot;
   game.pendingCmds.push(cmd);
+  // render-side feedback hook (order pings); never affects the sim
+  if (game.onCmd) { try { game.onCmd(cmd); } catch (e) { /* cosmetic */ } }
 }

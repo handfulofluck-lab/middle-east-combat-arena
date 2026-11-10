@@ -1,0 +1,193 @@
+/* Founder's Pass store (game/store.js). Self-contained: every colour, font,
+   radius, shadow, timing and layer comes from the variables in tokens.css;
+   every class is prefixed `store-`. Obsidian glass panel, brass-gold accent. */
+
+.store-root {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; box-sizing: border-box;
+  font: 400 14px/1.5 var(--font-body); color: var(--text);
+  cursor: default; -webkit-user-select: text; user-select: text;
+}
+.store-root *, .store-root *::before, .store-root *::after { box-sizing: border-box; }
+.store-root.store-hidden { display: none; }
+
+.store-backdrop {
+  position: absolute; inset: 0;
+  background: radial-gradient(90% 80% at 50% 42%, var(--glass-soft), var(--ink-0));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(0.8);
+  backdrop-filter: blur(var(--blur)) saturate(0.8);
+  animation: store-fade var(--t-med) var(--ease-out) both;
+}
+
+/* The drop shadow lives on the frame: clip-path on the panel would eat it. */
+.store-frame {
+  position: relative; width: min(780px, 100%); max-height: 100%;
+  display: flex;
+  filter: drop-shadow(0 18px 44px var(--ink-0));
+  animation: store-rise var(--t-slow) var(--ease-out) both;
+}
+.store-panel {
+  position: relative; width: 100%;
+  background:
+    linear-gradient(180deg, var(--gold-glow), transparent 120px),
+    var(--glass-strong);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(1.2);
+  backdrop-filter: blur(var(--blur)) saturate(1.2);
+  clip-path: polygon(
+    var(--chamfer) 0, 100% 0, 100% calc(100% - var(--chamfer)),
+    calc(100% - var(--chamfer)) 100%, 0 100%, 0 var(--chamfer));
+  outline: none;
+}
+/* hairline + the two cut corners (a real border would be clipped away) */
+.store-panel::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  border: 1px solid var(--hairline-strong);
+  background:
+    linear-gradient(to bottom right, transparent 50%, var(--gold) 50%, var(--gold) calc(50% + 1.5px), transparent calc(50% + 1.5px))
+      top left / var(--chamfer) var(--chamfer) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - 1.5px), var(--gold) calc(50% - 1.5px), var(--gold) 50%, transparent 50%)
+      bottom right / var(--chamfer) var(--chamfer) no-repeat;
+}
+/* brass rule along the top edge */
+.store-panel::after {
+  content: ''; position: absolute; top: 0; left: var(--chamfer); right: 0; height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, var(--gold), var(--gold-lo) 45%, transparent);
+}
+
+/* The content scrolls inside the frame, so the hairline and the cut corners
+   above stay put on short screens. */
+.store-scroll {
+  max-height: calc(100vh - 32px); max-height: calc(100dvh - 32px);
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 26px 28px 22px;
+}
+
+/* ── header ───────────────────────────────────────────────────────────── */
+.store-head { display: flex; align-items: flex-start; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--hairline); }
+.store-head-text { flex: 1; min-width: 0; }
+.store-kicker {
+  font: 600 11px/1 var(--font-display); letter-spacing: 0.26em; text-transform: uppercase; color: var(--gold);
+}
+.store-title {
+  margin: 10px 0 0; font: 700 38px/1 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text); text-shadow: 0 0 28px var(--gold-glow);
+  overflow-wrap: anywhere;
+}
+.store-close {
+  flex: none; width: 34px; height: 34px; padding: 0; cursor: pointer;
+  font: 400 22px/1 var(--font-display); color: var(--text-dim);
+  background: transparent; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.store-close:hover, .store-close:focus-visible { color: var(--gold-hi); border-color: var(--gold); background: var(--glass-soft); outline: none; }
+
+/* ── body: what you get | the offer ───────────────────────────────────── */
+.store-body { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 22px; padding: 20px 0 6px; }
+.store-lede { margin: 0 0 14px; color: var(--text-dim); }
+.store-subhead {
+  margin: 0 0 10px; font: 600 12px/1 var(--font-display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-mute);
+}
+.store-includes { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.store-includes li { position: relative; padding-left: 22px; color: var(--text); }
+.store-includes li::before {
+  content: ''; position: absolute; left: 3px; top: 0.5em; width: 8px; height: 8px;
+  background: var(--gold); transform: rotate(45deg); box-shadow: 0 0 10px var(--gold-glow);
+}
+
+.store-offer {
+  align-self: start; display: flex; flex-direction: column; gap: 10px; padding: 18px;
+  background: linear-gradient(180deg, var(--ink-3), var(--ink-1));
+  border: 1px solid var(--hairline); border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+.store-price-label { font: 600 11px/1 var(--font-display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-mute); }
+.store-price { font: 700 44px/1 var(--font-display); letter-spacing: 0.04em; color: var(--gold-hi); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.store-price.store-price-none { font-size: 20px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); }
+.store-price-note { font-size: 12px; color: var(--text-mute); }
+.store-secure { font-size: 11px; line-height: 1.45; color: var(--text-mute); }
+
+/* ── buttons ──────────────────────────────────────────────────────────── */
+.store-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 38px; padding: 1px 16px 0; cursor: pointer;
+  font: 700 14px/1 var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;
+  color: var(--text); background: var(--ink-3);
+  border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+.store-btn:hover, .store-btn:focus-visible { color: var(--gold-hi); border-color: var(--gold); background: var(--ink-4); outline: none; }
+.store-btn:focus-visible { box-shadow: 0 0 0 2px var(--gold-glow); }
+.store-btn:active { transform: translateY(1px); }
+.store-btn-primary {
+  min-height: 50px; font-size: 17px; letter-spacing: 0.2em; color: var(--ink-0);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold) 52%, var(--gold-lo));
+  border-color: var(--gold-hi); box-shadow: 0 0 22px var(--gold-glow);
+}
+.store-btn-primary:hover, .store-btn-primary:focus-visible {
+  color: var(--ink-0); border-color: var(--text);
+  background: linear-gradient(180deg, var(--text), var(--gold-hi) 45%, var(--gold));
+}
+.store-btn-quiet { min-height: 30px; padding: 0 10px; font-size: 12px; color: var(--text-dim); background: transparent; }
+.store-btn:disabled, .store-btn[aria-disabled='true'] {
+  cursor: not-allowed; color: var(--text-mute); background: var(--ink-2);
+  border-color: var(--hairline); box-shadow: none; transform: none;
+}
+
+/* ── status line ──────────────────────────────────────────────────────── */
+.store-status {
+  margin: 14px 0 0; padding: 10px 14px; font-size: 13px; color: var(--text);
+  background: var(--glass-soft); border: 1px solid var(--hairline); border-left: 3px solid var(--text-mute);
+  border-radius: var(--r-sm);
+}
+.store-status:empty { display: none; }
+.store-status-ok { border-left-color: var(--green); color: var(--green); }
+.store-status-warn { border-left-color: var(--amber); color: var(--amber); }
+.store-status-error { border-left-color: var(--red); color: var(--red); box-shadow: inset 0 0 18px var(--red-glow); }
+.store-status-busy { border-left-color: var(--cyan); color: var(--cyan); }
+
+/* ── notice: purchases not available in this build ────────────────────── */
+.store-notice {
+  margin: 14px 0 0; padding: 12px 14px; font-size: 13px; color: var(--text-dim);
+  background: var(--ink-2); border: 1px dashed var(--hairline-strong); border-radius: var(--r-sm);
+}
+.store-notice strong { color: var(--amber); font-weight: 600; }
+
+/* ── owned key + redeem ───────────────────────────────────────────────── */
+.store-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--hairline); }
+.store-row { display: flex; gap: 8px; align-items: stretch; }
+.store-input, .store-key {
+  flex: 1; min-width: 0; padding: 9px 12px;
+  font: 400 12px/1.4 var(--font-mono); color: var(--text);
+  background: var(--ink-1); border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.store-input::placeholder { color: var(--text-mute); }
+.store-input:focus, .store-key:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-glow); }
+.store-key { display: block; width: 100%; height: 74px; resize: none; color: var(--gold-hi); word-break: break-all; }
+.store-key-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.store-hint { font-size: 12px; color: var(--text-mute); }
+.store-key-actions .store-hint { flex: 1; min-width: 180px; }
+
+.store-foot { margin: 16px 0 0; font-size: 11px; line-height: 1.5; color: var(--text-mute); }
+
+.store-hidden { display: none !important; }
+
+/* gate mode (MCA_PAYWALL=full without a pass): cannot be dismissed */
+.store-gate .store-close { display: none; }
+.store-gate .store-backdrop { background: var(--ink-0); }
+
+@keyframes store-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes store-rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 640px) {
+  .store-scroll { padding: 20px 18px 18px; }
+  .store-body { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .store-title { font-size: 28px; letter-spacing: 0.1em; }
+  .store-price { font-size: 36px; }
+  .store-row { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .store-backdrop, .store-frame { animation: none; }
+  .store-btn, .store-close, .store-input, .store-key { transition: none; }
+}

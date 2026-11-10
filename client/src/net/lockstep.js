@@ -25,9 +25,10 @@ export const MP_STEP_CAP = 30;         // per-frame catch-up cap (offline: 6)
 
 export function createLockstep(opts) {
   const {
-    state, ai, playerSlot, humanSlots, delay,
+    state, ai, playerSlot, humanSlots,
     send, now, onDesync, onPeerDrop, extraCmds, trace,
   } = opts;
+  let delay = opts.delay; // mutable: setDelay() adjusts the input delay live
   const me = playerSlot;
   const peers = humanSlots.filter((s) => s !== me).sort((a, b) => a - b);
   const all = humanSlots.slice().sort((a, b) => a - b);

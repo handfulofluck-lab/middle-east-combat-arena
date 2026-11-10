@@ -1,0 +1,112 @@
+/* Base: reset, document, world/HUD/menu layer stack, cursors, legacy hooks.
+
+   Extra tokens defined here (tokens.css is shared and read-only):
+     --tile      build-grid cameo edge          --mm     minimap edge
+     --hud-pad   HUD gutter                     --cmd-w  command panel width
+     --edge      current hairline colour of a chamfered box
+     --accent / --accent-dim  the local player's faction colour (set by hud.js) */
+:root {
+  --tile: 84px;
+  --mm: 244px;
+  --hud-pad: 16px;
+  --cmd-w: calc(var(--tile) * 3 + 38px);
+  --top-h: 52px;
+  --accent: var(--gold);
+  --accent-dim: var(--gold-glow);
+  --fill-hover: rgba(233, 184, 114, 0.09);
+  --fill-press: rgba(233, 184, 114, 0.16);
+  --ink-glass: rgba(6, 9, 13, 0.62);
+
+  --cur-default: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M4 2.5v19.5l5.3-4.9 3.9 8.9 3.7-1.6-3.9-8.9h7.4z' fill='%23eef6f5' stroke='%2305070a' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M6.2 7.2v10.1l2.7-2.5z' fill='%235fe3d0'/%3E%3C/svg%3E") 4 2, default;
+  --cur-link: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M4 2.5v19.5l5.3-4.9 3.9 8.9 3.7-1.6-3.9-8.9h7.4z' fill='%23ffdca6' stroke='%2305070a' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M6.2 7.2v10.1l2.7-2.5z' fill='%23a9793a'/%3E%3C/svg%3E") 4 2, pointer;
+  --cur-target: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='34' viewBox='0 0 34 34'%3E%3Cg fill='none' stroke='%2305070a' stroke-width='4.2'%3E%3Ccircle cx='17' cy='17' r='9'/%3E%3Cpath d='M17 2v8M17 24v8M2 17h8M24 17h8'/%3E%3C/g%3E%3Cg fill='none' stroke='%23ff5a3c' stroke-width='2'%3E%3Ccircle cx='17' cy='17' r='9'/%3E%3Cpath d='M17 2v8M17 24v8M2 17h8M24 17h8'/%3E%3C/g%3E%3Ccircle cx='17' cy='17' r='1.8' fill='%23ffdca6'/%3E%3C/svg%3E") 17 17, crosshair;
+  --cur-place: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='34' viewBox='0 0 34 34'%3E%3Cg fill='none' stroke='%2305070a' stroke-width='4.2'%3E%3Cpath d='M17 3v11M17 20v11M3 17h11M20 17h11'/%3E%3C/g%3E%3Cg fill='none' stroke='%235fe3d0' stroke-width='2'%3E%3Cpath d='M17 3v11M17 20v11M3 17h11M20 17h11'/%3E%3C/g%3E%3C/svg%3E") 17 17, crosshair;
+}
+
+@media (max-width: 1560px), (max-height: 880px) {
+  :root { --tile: 72px; --mm: 204px; --hud-pad: 12px; --top-h: 48px; }
+}
+@media (max-width: 1180px), (max-height: 700px) {
+  :root { --tile: 60px; --mm: 164px; --hud-pad: 8px; --top-h: 44px; }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%; overflow: hidden;
+  background: var(--ink-0); color: var(--text);
+  font: 400 13px/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+body { user-select: none; -webkit-user-select: none; cursor: var(--cur-default); }
+
+button, input, select, textarea { font: inherit; color: inherit; margin: 0; }
+button, select, summary, label[for], [role="button"], a { cursor: var(--cur-link); }
+button { background: none; border: 0; padding: 0; }
+input[type="text"], input:not([type]), textarea { user-select: text; -webkit-user-select: text; cursor: text; }
+img, svg, canvas { display: block; }
+h1, h2, h3, h4, p { margin: 0; }
+
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+::selection { background: rgba(233, 184, 114, 0.4); color: #fff; }
+
+.hidden { display: none !important; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* thin technical scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(233, 184, 114, 0.35) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(233, 184, 114, 0.28); border: 2px solid transparent;
+  background-clip: padding-box; border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(233, 184, 114, 0.5); background-clip: padding-box; }
+
+/* ── layer stack ───────────────────────────────────────────────────────── */
+#game {
+  position: fixed; inset: 0; width: 100vw; height: 100vh; display: block;
+  z-index: 0; cursor: var(--cur-default);
+}
+#gl-canvas { cursor: var(--cur-default); }
+#menu-backdrop {
+  position: fixed; inset: 0; z-index: 1; display: none; overflow: hidden;
+  background: var(--ink-0);
+}
+#menu-backdrop svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+#menu-backdrop .bd-grid {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px) 0 0 / 100% 72px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px) 0 0 / 72px 100%;
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 62% 55%, #000 10%, transparent 78%);
+  mask-image: radial-gradient(ellipse 80% 70% at 62% 55%, #000 10%, transparent 78%);
+}
+/* menu.js raises .fe-idle while the front-end is up and no match exists */
+body.fe-idle #menu-backdrop { display: block; }
+#ui-overlay {
+  position: fixed; inset: 0; width: 100vw; height: 100vh; display: none;
+  pointer-events: none; z-index: var(--z-overlay);
+}
+
+/* world cursors while a mode is armed (hud.js toggles the body classes) */
+body.placing #game, body.placing #gl-canvas { cursor: var(--cur-place); }
+body.targeting #game, body.attackmove #game,
+body.targeting #gl-canvas, body.attackmove #gl-canvas { cursor: var(--cur-target); }
+body.capture #game, body.capture #gl-canvas { cursor: copy; }
+
+/* ── legacy hooks ──────────────────────────────────────────────────────── */
+#gfx-toggle { display: none !important; }
+
+/* ── motion preferences ────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important; scroll-behavior: auto !important;
+  }
+}

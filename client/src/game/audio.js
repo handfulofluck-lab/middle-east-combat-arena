@@ -1,30 +1,51 @@
-// Central audio module (v0.3.7): synthesized SFX, generative music loops,
-// per-faction EVA voice lines, and a quiet always-on battlefield bed during
-// matches. No assets — oscillators + one shared noise buffer +
-// speechSynthesis, every public function guarded so headless test stubs (no
-// AudioContext / speechSynthesis / localStorage) never throw and audio never
-// blocks a frame. The UI only calls these functions; sim state is never
-// touched here.
+// Central audio module — public facade over the synthesis engine in
+// ../audio/ (v1.0 audio rebuild). Everything is synthesised at runtime with
+// the Web Audio API: layered SFX, an adaptive orchestral-hybrid score,
+// positional one-shots, renderer-owned loops, per-faction EVA voice lines
+// (speechSynthesis) and a quiet desert ambience bed during matches.
+//
+// Contract:
+//  - every public function is guarded: with no AudioContext, speechSynthesis
+//    or localStorage (headless harnesses, privacy mode) calls are silent
+//    no-ops and never throw;
+//  - the AudioContext is created lazily on the first user gesture
+//    (unlockAudio; this module also listens for the first pointer / key
+//    event itself so menu music can start before the HUD exists);
+//  - nothing here touches sim state, and nothing blocks a frame: asset
+//    generation runs in a worker and all scheduling is on the audio clock.
+//
+// Persisted preferences (localStorage): mca_muted, mca_music ('0' = off;
+// music is ON by default), mca.vol.master / .music / .sfx / .voice.
+import { AudioEngine } from '../audio/engine.js';
+import { SFX } from '../audio/sfx.js';
 
-let __game = null;       // stored by initAudio (ambient bed watches .state)
-let __ctx = null;        // shared AudioContext, created lazily on first gesture
-let __noiseBuf = null;   // one shared 2KB (2048-sample) white-noise buffer
+let __game = null;       // stored by initAudio (the ambience bed watches .state)
+let __ctx = null;        // AudioContext, created by unlockAudio on a gesture
+let __eng = null;        // AudioEngine bound to __ctx
+let __dead = false;      // engine construction failed once: stay silent
 let __muted = false;     // persisted to localStorage 'mca_muted'
-let __musicOn = false;   // persisted to 'mca_music' — OFF by default
-let __musicTrack = null; // desired track: 'ambient' | 'battle' | null
-let __musicNodes = null; // live node set of the running track
-let __musicGain = null;  // master music gain (0.15 * masterVol, 0 while muted)
+let __musicOn = true;    // persisted to 'mca_music' — ON unless the user turned it off
+let __track = null;      // requested music track (remembered while audio is locked)
+let __intensity = 0;     // requested adaptive intensity 0..1
+let __ambWanted = false; // ambience bed should run (set by initAudio)
+let __suspendTimer = null;
 
-// ambient battlefield bed (independent of the music toggle)
-let __ambNodes = null;      // live bed nodes (hum + mute gate)
-let __ambGain = null;       // bed mute gate (0 while muted)
-let __ambWanted = false;    // bed should run (set by initAudio, cleared on match end)
-let __thunderAt = Infinity; // nowMs() when the next distant rumble fires
-let __thunderCount = 0;     // deterministic 20-45s interval schedule
+const VOLUME_DEFAULTS = { master: 0.9, music: 0.55, sfx: 0.8, voice: 0.9 };
+const __vol = { master: 0.9, music: 0.55, sfx: 0.8, voice: 0.9 };
+let __volLoaded = false;
+let __legacyVol = null;   // last seen value of the legacy 'mca_vol' slider key
+let __legacyAt = -Infinity;
 
-// SFX throttle: max 8 per 100ms window, drop overflow; shots max 12/s on top.
-let __winStart = -Infinity, __winCount = 0;
-let __shotStart = -Infinity, __shotCount = 0;
+const MUSIC_TRACKS = { title: 1, menu: 1, briefing: 1, ambient: 1, battle: 1, victory: 1, defeat: 1 };
+const LOOP_KINDS = { rotor: 1, jet: 1, engine: 1, fire: 1, wind: 1, waves: 1 };
+// minimum seconds between two stingers of the same name
+const STINGER_GAP = {
+  match_start: 4, under_attack: 6, superweapon_ready: 4, superweapon_launch: 4,
+  unit_lost: 2.5, objective: 1.5, countdown: 0.4,
+};
+const __stingerAt = {};
+const __handles = [];     // live startLoop handles (bound to the engine once it exists)
+const ZERO_LEVELS = { rms: 0, low: 0, mid: 0, high: 0, peak: 0 };
 
 // voice cooldown: at most one line per key per 6s; 'unit' additionally speaks
 // only every 3rd eligible trigger and never within 15s of an 'attack' alert
@@ -276,22 +297,111 @@ function lsSet(k, v) {
   } catch (e) { /* best-effort */ }
 }
 
-// master volume 0..1 from the HUD slider (localStorage 'mca_vol'); read per
-// call so mid-match slider moves take effect immediately
-function masterVol() {
-  const v = lsGet('mca_vol');
-  if (v === null || v === undefined || v === '') return 1;
+function clamp01(v) {
   const n = Number(v);
-  if (!isFinite(n)) return 1;
-  return Math.max(0, Math.min(1, n));
+  if (!(n === n)) return 0;
+  return n < 0 ? 0 : n > 1 ? 1 : n;
 }
 
-function ensureCtx() {
-  if (__ctx) return __ctx;
-  const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
-  if (!AC) return null; // headless test stub: no audio, no throw
-  try { __ctx = new AC(); } catch (e) { __ctx = null; }
-  return __ctx;
+// the engine modules are absent when a harness inlines this file on its own
+function engineClass() {
+  return (typeof AudioEngine === 'function') ? AudioEngine : null;
+}
+
+function sfxTable() {
+  return (typeof SFX === 'object' && SFX) ? SFX : null;
+}
+
+function contextClass() {
+  return globalThis.AudioContext || globalThis.webkitAudioContext || null;
+}
+
+function musicPref() {
+  const mu = lsGet('mca_music');
+  return !(mu === '0' || mu === 'false'); // ON by default
+}
+
+// ---- volumes -------------------------------------------------------------------
+
+function loadVolumes() {
+  if (__volLoaded) return;
+  __volLoaded = true;
+  for (const k in VOLUME_DEFAULTS) {
+    const s = lsGet('mca.vol.' + k);
+    if (s !== null && s !== undefined && s !== '' && isFinite(Number(s))) __vol[k] = clamp01(s);
+  }
+  // the pre-1.0 menu slider wrote a single master volume to 'mca_vol':
+  // honour it until the player sets a master volume through the new API
+  __legacyVol = lsGet('mca_vol');
+  if (lsGet('mca.vol.master') === null && __legacyVol !== null && __legacyVol !== ''
+      && isFinite(Number(__legacyVol))) {
+    __vol.master = clamp01(__legacyVol);
+  }
+}
+
+// the legacy slider keeps working live: when its key changes, adopt it
+function pollLegacyVolume(now) {
+  if (now - __legacyAt < 400) return;
+  __legacyAt = now;
+  const s = lsGet('mca_vol');
+  if (s === __legacyVol) return;
+  __legacyVol = s;
+  if (s !== null && s !== '' && isFinite(Number(s))) setVolume('master', Number(s));
+}
+
+function voiceVolume() {
+  loadVolumes();
+  return clamp01(__vol.voice * Math.min(1, __vol.master / 0.9));
+}
+
+// ---- engine lifecycle ------------------------------------------------------------
+
+function syncMusic() {
+  if (!__eng) return;
+  __eng.music.play(__musicOn ? __track : null);
+}
+
+function syncAmbient() {
+  if (!__eng) return;
+  if (__game && __game.state === null) __ambWanted = false; // match is gone
+  __eng.ambience(__ambWanted);
+}
+
+function bindLoop(h) {
+  if (!__eng || h.real || h.dead) return;
+  h.real = __eng.loopStart(h.name);
+  if (h.real) h.real.set(h.pan, h.dist, h.gain, h.pitch);
+}
+
+function applyMuteState() {
+  if (!__eng || !__ctx) return;
+  __eng.mute(__muted);
+  if (__suspendTimer !== null && typeof clearTimeout === 'function') clearTimeout(__suspendTimer);
+  __suspendTimer = null;
+  if (__muted) {
+    // let the fade finish, then stop the audio thread altogether (zero CPU)
+    const stop = () => {
+      __suspendTimer = null;
+      try {
+        if (__muted && __ctx && __ctx.state === 'running' && typeof __ctx.suspend === 'function') {
+          const p = __ctx.suspend();
+          if (p && typeof p.catch === 'function') p.catch(() => {});
+        }
+      } catch (e) { /* ok */ }
+    };
+    if (typeof setTimeout === 'function') __suspendTimer = setTimeout(stop, 200);
+  } else {
+    resumeContext();
+  }
+}
+
+function resumeContext() {
+  try {
+    if (__ctx && __ctx.state !== 'running' && !__muted && typeof __ctx.resume === 'function') {
+      const p = __ctx.resume();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+  } catch (e) { /* best-effort */ }
 }
 
 // ---- speechSynthesis voice availability ---------------------------------------
@@ -332,223 +442,7 @@ function hasVoiceFor(synth, lang) {
   }
 }
 
-// shared 2KB white-noise buffer for shot/boom (and the battle music ticks)
-function noiseBuf(ctx) {
-  if (__noiseBuf) return __noiseBuf;
-  const len = 2048;
-  const buf = ctx.createBuffer(1, len, ctx.sampleRate || 44100);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-  __noiseBuf = buf;
-  return buf;
-}
-
-function throttled(name, now) {
-  if (now - __winStart >= 100) { __winStart = now; __winCount = 0; }
-  if (__winCount >= 8) return true;
-  if (name === 'shot') {
-    if (now - __shotStart >= 1000) { __shotStart = now; __shotCount = 0; }
-    if (__shotCount >= 12) return true;
-    __shotCount++;
-  }
-  __winCount++;
-  return false;
-}
-
-// one enveloped oscillator tone; freq2 jumps at t0+at2 for two-tone effects
-function tone(ctx, o) {
-  const osc = ctx.createOscillator();
-  const g = ctx.createGain();
-  osc.type = o.type || 'sine';
-  osc.frequency.setValueAtTime(o.freq, o.t0);
-  if (o.freq2 !== undefined) osc.frequency.setValueAtTime(o.freq2, o.t0 + (o.at2 || o.dur / 2));
-  g.gain.setValueAtTime(o.gain, o.t0);
-  g.gain.linearRampToValueAtTime(0.0001, o.t0 + o.dur);
-  osc.connect(g);
-  g.connect(ctx.destination);
-  osc.start(o.t0);
-  osc.stop(o.t0 + o.dur + 0.02);
-}
-
-// enveloped slice of the shared noise buffer, optionally through a filter;
-// ffreq2 sweeps the filter frequency over dur, dest overrides the output
-// (the ambient bed routes through its mute gate instead of ctx.destination)
-function noiseHit(ctx, t0, dur, ftype, ffreq, vol, ffreq2, dest) {
-  const src = ctx.createBufferSource();
-  src.buffer = noiseBuf(ctx);
-  src.loop = true;
-  let node = src;
-  if (ftype) {
-    const f = ctx.createBiquadFilter();
-    f.type = ftype;
-    f.frequency.setValueAtTime(ffreq, t0);
-    if (ffreq2 !== undefined) {
-      f.frequency.exponentialRampToValueAtTime(Math.max(1, ffreq2), t0 + dur);
-    }
-    src.connect(f);
-    node = f;
-  }
-  const g = ctx.createGain();
-  g.gain.setValueAtTime(vol, t0);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  node.connect(g);
-  g.connect(dest || ctx.destination);
-  src.start(t0);
-  src.stop(t0 + dur + 0.02);
-}
-
-// ---- generative music ------------------------------------------------------------
-// Static node graphs (oscillators + LFOs, one looping noise source for battle):
-// nothing is scheduled or allocated per frame. Master gain 0.15 (0 when muted).
-
-function stopMusic() {
-  if (!__musicNodes) return;
-  for (const n of __musicNodes) {
-    try { if (typeof n.stop === 'function') n.stop(); } catch (e) { /* ok */ }
-    try { if (typeof n.disconnect === 'function') n.disconnect(); } catch (e) { /* ok */ }
-  }
-  __musicNodes = null;
-  __musicGain = null;
-}
-
-function startMusic(ctx) {
-  stopMusic();
-  const t0 = ctx.currentTime;
-  const master = ctx.createGain();
-  master.gain.setValueAtTime(__muted ? 0 : 0.15 * masterVol(), t0);
-  master.connect(ctx.destination);
-  const nodes = [master];
-  const mk = (type, freq) => {
-    const o = ctx.createOscillator();
-    o.type = type;
-    o.frequency.setValueAtTime(freq, t0);
-    o.start(t0);
-    nodes.push(o);
-    return o;
-  };
-  // slow drone: two slightly detuned low sines, breathing via a slow LFO
-  const droneGain = ctx.createGain();
-  droneGain.gain.setValueAtTime(0.3, t0);
-  droneGain.connect(master);
-  mk('sine', 55).connect(droneGain);
-  mk('sine', 55.6).connect(droneGain);
-  const breathe = mk('sine', 0.08);
-  const bg = ctx.createGain();
-  bg.gain.setValueAtTime(0.12, t0);
-  breathe.connect(bg);
-  bg.connect(droneGain.gain);
-  nodes.push(droneGain, bg);
-  // soft high pulse (faster in battle)
-  const pulseGain = ctx.createGain();
-  pulseGain.gain.setValueAtTime(0, t0);
-  pulseGain.connect(master);
-  mk('sine', 220).connect(pulseGain);
-  const plfo = mk('sine', __musicTrack === 'battle' ? 0.6 : 0.2);
-  const pg = ctx.createGain();
-  pg.gain.setValueAtTime(0.05, t0);
-  plfo.connect(pg);
-  pg.connect(pulseGain.gain);
-  nodes.push(pulseGain, pg);
-  // battle: percussion-ish noise ticks (looped noise, bandpass, square LFO gate)
-  if (__musicTrack === 'battle') {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf(ctx);
-    src.loop = true;
-    src.start(t0);
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.setValueAtTime(2000, t0);
-    const tickGain = ctx.createGain();
-    tickGain.gain.setValueAtTime(0, t0);
-    src.connect(bp);
-    bp.connect(tickGain);
-    tickGain.connect(master);
-    const tlfo = mk('square', 2);
-    const tg = ctx.createGain();
-    tg.gain.setValueAtTime(0.09, t0);
-    tlfo.connect(tg);
-    tg.connect(tickGain.gain);
-    nodes.push(src, bp, tickGain, tg);
-  }
-  __musicNodes = nodes;
-  __musicGain = master;
-}
-
-// ---- ambient battlefield bed ---------------------------------------------------
-// Quiet always-on layer during matches: a ~58Hz hum plus an occasional
-// distant filtered-noise rumble every 20-45s (deterministic schedule from an
-// incrementing counter). Independent of the music toggle; gated to silence
-// while muted. The bed is (re)started by initAudio and stopped by the next
-// initAudio, by stopAmbient(), or by the playSfx poll once game.state is null
-// — never two beds across a rematch.
-
-function killAmbient() {
-  if (!__ambNodes) return;
-  for (const n of __ambNodes) {
-    try { if (typeof n.stop === 'function') n.stop(); } catch (e) { /* ok */ }
-    try { if (typeof n.disconnect === 'function') n.disconnect(); } catch (e) { /* ok */ }
-  }
-  __ambNodes = null;
-  __ambGain = null;
-}
-
-// public match-exit hook: drop the bed and don't restart it until initAudio
-export function stopAmbient() {
-  try {
-    __ambWanted = false;
-    killAmbient();
-  } catch (e) { /* never throws */ }
-}
-
-function thunderInterval() {
-  return 20000 + (__thunderCount * 7 % 26) * 1000; // 20-45s, deterministic
-}
-
-function startAmbient(ctx) {
-  killAmbient(); // rematch guard: the old bed dies first
-  const t0 = ctx.currentTime;
-  const gate = ctx.createGain();
-  gate.gain.setValueAtTime(__muted ? 0 : 1, t0);
-  gate.connect(ctx.destination);
-  const hum = ctx.createOscillator();
-  hum.type = 'sine';
-  hum.frequency.setValueAtTime(58, t0);
-  const humGain = ctx.createGain();
-  humGain.gain.setValueAtTime(0.015 * masterVol(), t0);
-  hum.connect(humGain);
-  humGain.connect(gate);
-  hum.start(t0);
-  __ambNodes = [gate, hum, humGain];
-  __ambGain = gate;
-  __thunderAt = nowMs() + thunderInterval();
-}
-
-function ensureAmbient() {
-  if (!__ambWanted || __ambNodes) return;
-  const ctx = ensureCtx();
-  if (!ctx) return;
-  startAmbient(ctx);
-}
-
-// cheap poll from playSfx: drop the bed when the match is gone, start it if
-// the context arrived late, and fire the scheduled distant rumble
-function pollAmbient(ctx) {
-  if (__game && __game.state === null) {
-    __ambWanted = false;
-    killAmbient();
-    return;
-  }
-  ensureAmbient();
-  if (!__ambNodes || !__ambGain) return;
-  const now = nowMs();
-  if (now < __thunderAt) return;
-  __thunderCount++;
-  __thunderAt = now + thunderInterval();
-  // distant thunder: noise through a lowpass swept 200 -> 40Hz, 1.6s tail
-  noiseHit(ctx, ctx.currentTime, 1.6, 'lowpass', 200, 0.06 * masterVol(), 40, __ambGain);
-}
-
-// ---- public API (contract: exact named exports) ------------------------------------
+// ---- public API ------------------------------------------------------------------
 
 export function initAudio(game) {
   try {
@@ -556,122 +450,100 @@ export function initAudio(game) {
     resetAudioThrottles();
     const m = lsGet('mca_muted');
     if (m !== null && m !== undefined) __muted = m === '1' || m === 'true';
-    const mu = lsGet('mca_music');
-    __musicOn = mu === '1' || mu === 'true'; // music OFF by default
+    __musicOn = musicPref();
+    loadVolumes();
     stopAmbient();      // never leak the previous match's bed
-    __ambWanted = true; // match start: run the battlefield bed
-    ensureAmbient();
+    __ambWanted = true; // match start: run the ambience bed
+    syncAmbient();
+    applyMuteState();
   } catch (e) { /* never throws */ }
 }
 
-// clear every module-level throttle (SFX window, shot cap, per-key voice
-// cooldown): a rematch starting seconds after the last battle must not
+// clear every throttle (SFX rate limits, stinger and per-key voice
+// cooldowns): a rematch starting seconds after the last battle must not
 // inherit the previous match's cooldowns. Called from initAudio and by the
 // HUD on every new match.
 export function resetAudioThrottles() {
   try {
-    __winStart = -Infinity; __winCount = 0;
-    __shotStart = -Infinity; __shotCount = 0;
     for (const k in __voiceAt) delete __voiceAt[k];
+    for (const k in __stingerAt) delete __stingerAt[k];
     __unitCount = 0;
     __attackVoiceAt = -Infinity;
+    if (__eng) __eng.unthrottle();
   } catch (e) { /* never throws */ }
 }
 
+// Call from a user gesture (any pointer / key event). The first call creates
+// the AudioContext and the engine; later calls only resume a suspended
+// context, so it is cheap enough to hang on every input event.
 export function unlockAudio() {
   try {
-    const ctx = ensureCtx();
-    if (!ctx) return;
-    if (ctx.state === 'suspended' && typeof ctx.resume === 'function') {
-      try { ctx.resume(); } catch (e) { /* best-effort */ }
+    if (__eng) { resumeContext(); return; }
+    if (__dead) return;
+    const EC = engineClass(), AC = contextClass();
+    if (!EC || !AC) return; // headless harness / unsupported browser: stay silent
+    loadVolumes();
+    const m = lsGet('mca_muted');
+    if (m !== null && m !== undefined) __muted = m === '1' || m === 'true';
+    __musicOn = musicPref();
+    try {
+      __ctx = new AC({ latencyHint: 'interactive' });
+      __eng = new EC(__ctx, { volumes: __vol });
+    } catch (e) {
+      __dead = true;
+      try { if (__ctx && typeof __ctx.close === 'function') __ctx.close(); } catch (e2) { /* ok */ }
+      __ctx = null; __eng = null;
+      return;
     }
-    // a track requested before the first gesture starts now
-    if (__musicOn && __musicTrack && !__musicNodes && ctx.state !== 'suspended') {
-      startMusic(ctx);
-    }
-    ensureAmbient(); // context may have arrived after initAudio
+    __eng.music.intensity(__intensity);
+    __eng.run();
+    applyMuteState();
+    resumeContext();
+    syncMusic();
+    syncAmbient();
+    for (let i = 0; i < __handles.length; i++) bindLoop(__handles[i]);
   } catch (e) { /* never throws */ }
 }
 
-export function playSfx(game, name) {
+function emit(name, pan, dist, gain, positional) {
   try {
     if (__muted) return;
-    const now = nowMs();
-    if (throttled(name, now)) return; // overflow dropped
-    const ctx = ensureCtx();
-    if (!ctx || ctx.state === 'suspended') return; // inaudible pre-gesture
-    const mv = masterVol(); // HUD volume slider scales everything
-    pollAmbient(ctx);
-    if (mv <= 0) return;
-    const t0 = ctx.currentTime;
-    switch (name) {
-      case 'move':
-        tone(ctx, { type: 'sine', freq: 440, t0, dur: 0.06, gain: 0.08 * mv });
-        break;
-      case 'attack':
-        tone(ctx, { type: 'square', freq: 220, t0, dur: 0.08, gain: 0.1 * mv });
-        break;
-      case 'select':
-        tone(ctx, { type: 'sine', freq: 660, t0, dur: 0.04, gain: 0.06 * mv });
-        break;
-      case 'build':
-        tone(ctx, { type: 'sine', freq: 330, freq2: 660, at2: 0.1, t0, dur: 0.2, gain: 0.09 * mv });
-        break;
-      case 'error':
-        tone(ctx, { type: 'square', freq: 200, t0, dur: 0.12, gain: 0.1 * mv });
-        break;
-      case 'siren':
-        // supersedes the inline hud.js siren (wiring agent reroutes)
-        tone(ctx, { type: 'square', freq: 660, freq2: 880, at2: 0.2, t0, dur: 0.4, gain: 0.12 * mv });
-        break;
-      case 'victory': {
-        // major triad arpeggio over 600ms
-        const notes = [262, 330, 392, 523];
-        for (let i = 0; i < notes.length; i++) {
-          tone(ctx, { type: 'triangle', freq: notes[i], t0: t0 + i * 0.15, dur: 0.25, gain: 0.1 * mv });
-        }
-        break;
-      }
-      case 'defeat': {
-        // minor triad, descending, over 600ms
-        const notes = [330, 262, 220];
-        for (let i = 0; i < notes.length; i++) {
-          tone(ctx, { type: 'triangle', freq: notes[i], t0: t0 + i * 0.2, dur: 0.25, gain: 0.1 * mv });
-        }
-        break;
-      }
-      case 'shot': {
-        // layered: 5kHz transient crack (5ms) + 500Hz body (30ms) + 120Hz
-        // thump, staggered ~5ms, ±5% random pitch so bursts don't sound like
-        // a printer (the 12/s shot cap in throttled() still applies)
-        const p = 1 + (Math.random() * 0.1 - 0.05);
-        noiseHit(ctx, t0, 0.005, 'highpass', 5000 * p, 0.13 * mv);
-        tone(ctx, { type: 'triangle', freq: 500 * p, t0: t0 + 0.005, dur: 0.03, gain: 0.1 * mv });
-        tone(ctx, { type: 'sine', freq: 120 * p, t0: t0 + 0.01, dur: 0.06, gain: 0.12 * mv });
-        break;
-      }
-      case 'boom':
-        // noise swept 800 -> 80Hz with a 300ms lowpass tail + 60Hz sine sub
-        noiseHit(ctx, t0, 0.3, 'lowpass', 800, 0.16 * mv, 80);
-        tone(ctx, { type: 'sine', freq: 60, t0, dur: 0.3, gain: 0.14 * mv });
-        break;
-      case 'click':
-        tone(ctx, { type: 'square', freq: 1000, t0, dur: 0.02, gain: 0.05 * mv });
-        break;
-      default:
-        break; // unknown name: silent no-op
+    const eng = __eng;
+    if (eng && __game && __game.state === null && __ambWanted) syncAmbient();
+    const table = sfxTable();
+    const def = table ? table[name] : null;
+    if (!def) return; // unknown name: silent no-op
+    if (!eng || !__ctx || __ctx.state !== 'running') return; // inaudible pre-gesture
+    pollLegacyVolume(nowMs());
+    if (!positional && (def.cat === 'light' || def.cat === 'heavy' || def.cat === 'impact')) {
+      // battlefield sounds without a position still sit in the world, not in the ear
+      pan = Math.random() * 0.7 - 0.35;
+      dist = 0.15 + Math.random() * 0.15;
     }
+    eng.fire(name, pan, dist, gain);
   } catch (e) { /* audio is best-effort */ }
 }
 
+// One-shot, non-positional. Unknown names are ignored.
+export function playSfx(game, name) {
+  emit(name, 0, 0, 1, false);
+}
+
+// Positional one-shot from the 3D world. pan -1..1 (screen x), dist 0..1
+// (0 = at the camera focus, 1 = far / off-screen: quieter, darker, wetter),
+// gain 0..2 (default 1).
+export function playSfxAt(game, name, pan, dist, gain) {
+  emit(name, Number(pan) || 0, Number(dist) || 0, gain === undefined ? 1 : Number(gain), true);
+}
+
+// name: 'title' | 'menu' | 'briefing' | 'ambient' | 'battle' | 'victory' |
+// 'defeat' | null (stop). Cross-fades; asking for the track that is already
+// playing is a no-op. 'ambient' and 'battle' are one adaptive piece ('battle'
+// holds its intensity at >= 0.62); drive it with setMusicIntensity.
 export function playMusicTrack(game, name) {
   try {
-    __musicTrack = (name === 'ambient' || name === 'battle') ? name : null;
-    if (!__musicOn) { stopMusic(); return; } // remembered; starts on setMusicOn/unlock
-    if (!__musicTrack) { stopMusic(); return; }
-    const ctx = ensureCtx();
-    if (!ctx || ctx.state === 'suspended') return; // unlockAudio will start it
-    startMusic(ctx);
+    __track = (typeof name === 'string' && MUSIC_TRACKS[name] === 1) ? name : null;
+    syncMusic(); // remembered until the first gesture / setMusicOn otherwise
   } catch (e) { /* never throws */ }
 }
 
@@ -679,9 +551,101 @@ export function setMusicOn(game, on) {
   try {
     __musicOn = !!on;
     lsSet('mca_music', __musicOn ? '1' : '0');
-    if (!__musicOn) { stopMusic(); return; }
-    const ctx = ensureCtx();
-    if (ctx && ctx.state !== 'suspended' && __musicTrack) startMusic(ctx);
+    syncMusic();
+  } catch (e) { /* never throws */ }
+}
+
+// 0 = sparse / tense exploration layer ... 1 = full combat percussion + brass.
+// Smoothed inside the engine (attack ~1 s, release ~6 s).
+export function setMusicIntensity(x) {
+  try {
+    __intensity = clamp01(x);
+    if (__eng) __eng.music.intensity(__intensity);
+  } catch (e) { /* never throws */ }
+}
+
+// Musical cue over the current track: 'match_start' | 'under_attack' |
+// 'superweapon_ready' | 'superweapon_launch' | 'unit_lost' | 'objective' |
+// 'countdown'. Follows the music on/off preference and the music volume.
+export function playStinger(game, name) {
+  try {
+    if (__muted || !__musicOn) return;
+    const gap = STINGER_GAP[name];
+    if (gap === undefined) return;
+    if (!__eng || !__ctx || __ctx.state !== 'running') return;
+    const now = __ctx.currentTime;
+    if (__stingerAt[name] !== undefined && now - __stingerAt[name] < gap) return;
+    __stingerAt[name] = now;
+    __eng.music.stinger(name);
+  } catch (e) { /* never throws */ }
+}
+
+// Continuous loop owned by the caller: 'rotor' | 'jet' | 'engine' | 'fire' |
+// 'wind' | 'waves'. Returns { set(pan, dist, gain[, pitch]), stop() } or null
+// (unknown name, no Web Audio, or too many loops). A handle obtained before
+// the first user gesture starts sounding once audio unlocks.
+export function startLoop(game, name) {
+  try {
+    if (LOOP_KINDS[name] !== 1 || __dead) return null;
+    if (!engineClass() || !contextClass()) return null;
+    if (__handles.length >= 14) return null;
+    const h = {
+      name, real: null, dead: false, pan: 0, dist: 0.25, gain: 0.8, pitch: 1,
+      set(pan, dist, gain, pitch) {
+        try {
+          if (h.dead) return;
+          if (pan === pan && pan !== undefined) h.pan = Number(pan) || 0;
+          if (dist === dist && dist !== undefined) h.dist = Number(dist) || 0;
+          if (gain === gain && gain !== undefined) h.gain = Number(gain) || 0;
+          if (pitch === pitch && pitch !== undefined) h.pitch = Number(pitch) || 1;
+          if (h.real) h.real.set(h.pan, h.dist, h.gain, h.pitch);
+        } catch (e) { /* best-effort */ }
+      },
+      stop() {
+        try {
+          if (h.dead) return;
+          h.dead = true;
+          const i = __handles.indexOf(h);
+          if (i >= 0) __handles.splice(i, 1);
+          if (h.real) h.real.stop();
+          h.real = null;
+        } catch (e) { /* best-effort */ }
+      },
+    };
+    __handles.push(h);
+    bindLoop(h);
+    return h;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Analysis tap for audio-reactive visuals: { rms, low, mid, high } in 0..1
+// (plus peak). Cheap — reads one AnalyserNode, at most once per ~10 ms — and
+// returns the same object every call, so do not hold on to old values.
+export function getLevels() {
+  try {
+    if (__eng && !__muted) return __eng.levels();
+  } catch (e) { /* never throws */ }
+  return ZERO_LEVELS;
+}
+
+// kind: 'master' | 'music' | 'sfx' | 'voice'; values 0..1, persisted.
+export function getVolume(kind) {
+  try {
+    loadVolumes();
+    return (kind in VOLUME_DEFAULTS) ? __vol[kind] : 0;
+  } catch (e) { /* never throws */ }
+  return 0;
+}
+
+export function setVolume(kind, v) {
+  try {
+    if (!(kind in VOLUME_DEFAULTS)) return;
+    loadVolumes();
+    __vol[kind] = clamp01(v);
+    lsSet('mca.vol.' + kind, String(__vol[kind]));
+    if (__eng) __eng.volume(kind, __vol[kind]);
   } catch (e) { /* never throws */ }
 }
 
@@ -725,10 +689,22 @@ export function playVoice(game, faction, key, detail) {
     if (!line) return;
     __voiceAt[key] = now;
     if (key === 'attack') __attackVoiceAt = now;
+    pollLegacyVolume(now);
+    const vol = voiceVolume();
+    if (vol <= 0) return;
     const u = new Utterance(line);
     if (set.lang) u.lang = set.lang;
     u.rate = 1.05;
-    u.volume = 0.9;
+    u.volume = vol; // 0.9 at the default voice / master volumes
+    // duck the score under the line; released when the utterance ends (the
+    // duck also times out on its own if the browser never reports the end)
+    const eng = __eng;
+    if (eng && __ctx && __ctx.state === 'running') {
+      eng.duck(5, 3.5, 0.9);
+      const release = () => { try { eng.unduck(); } catch (e) { /* ok */ } };
+      u.onend = release;
+      u.onerror = release;
+    }
     synth.speak(u);
   } catch (e) { /* speechSynthesis missing or busy: never throws */ }
 }
@@ -737,14 +713,7 @@ export function setMuted(game, muted) {
   try {
     __muted = !!muted;
     lsSet('mca_muted', __muted ? '1' : '0');
-    if (__musicGain && __ctx) {
-      try {
-        __musicGain.gain.setValueAtTime(__muted ? 0 : 0.15 * masterVol(), __ctx.currentTime);
-      } catch (e) { /* ok */ }
-    }
-    if (__ambGain && __ctx) {
-      try { __ambGain.gain.setValueAtTime(__muted ? 0 : 1, __ctx.currentTime); } catch (e) { /* ok */ }
-    }
+    applyMuteState();
   } catch (e) { /* never throws */ }
 }
 
@@ -752,13 +721,53 @@ export function isMuted(game) {
   return __muted;
 }
 
-// persisted music preference (localStorage 'mca_music'), OFF by default —
-// main.js initializes game.musicOn from this so the toggle starts truthful
+// public match-exit hook: drop the ambience bed and don't restart it until
+// the next initAudio
+export function stopAmbient() {
+  try {
+    __ambWanted = false;
+    if (__eng) __eng.ambience(false);
+  } catch (e) { /* never throws */ }
+}
+
+// persisted music preference (localStorage 'mca_music'); music is ON unless
+// the player turned it off — main.js initializes game.musicOn from this so
+// the toggle starts truthful
 export function getMusicOn() {
   try {
-    const mu = lsGet('mca_music');
-    __musicOn = mu === '1' || mu === 'true';
+    __musicOn = musicPref();
     return __musicOn;
   } catch (e) { /* never throws */ }
-  return false;
+  return true;
 }
+
+// ---- diagnostics (audio lab / perf overlays; not part of the game contract) ----
+
+export function audioStats() {
+  try {
+    if (!__eng) return { ready: false, state: __ctx ? __ctx.state : 'none' };
+    const s = __eng.stats;
+    return {
+      ready: true, state: __ctx.state, track: __eng.music.name, intensity: __eng.music.value,
+      voices: __eng.activeVoices(), peakVoices: s.peakVoices, loops: __eng.loops.length,
+      fired: s.fired, dropped: s.dropped, stolen: s.stolen, nodes: s.nodes,
+      tickMs: s.tickMs, ticks: s.ticks, maxTickMs: s.maxTickMs, musicEvents: s.musicEvents,
+      assets: __eng.assets.built, assetMs: __eng.assets.genMs, worker: !!__eng.assets.worker,
+    };
+  } catch (e) { /* never throws */ }
+  return { ready: false, state: 'error' };
+}
+
+export function audioInternals() {
+  return { engine: __eng, ctx: __ctx };
+}
+
+// first-gesture unlock independent of the HUD (title / menu music)
+try {
+  if (typeof window !== 'undefined' && window && typeof window.addEventListener === 'function') {
+    const kick = () => { unlockAudio(); };
+    window.addEventListener('pointerdown', kick, true);
+    window.addEventListener('keydown', kick, true);
+    window.addEventListener('touchend', kick, true);
+  }
+} catch (e) { /* headless: nothing to hook */ }
