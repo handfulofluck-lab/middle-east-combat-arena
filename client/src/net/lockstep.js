@@ -51,6 +51,17 @@ export const STALL_TIMEOUT_MS = 1500;  // forceOnSilence only (offline tooling)
 export const KEEPALIVE_MS = 500;       // re-send my marker while I am waiting
 export const MP_STEP_CAP = 30;         // per-frame catch-up cap (offline: 6)
 
+// Online, time spent waiting for the room is not owed back. Nobody can be
+// more than the input delay ahead of anybody else, so after a hold there is
+// nothing to catch up to: replaying the wait at full speed only fast-forwards
+// the match for everyone (and can trip the relay's rate limit). While the
+// gate is closed a peer keeps one tick of backlog; otherwise a few, enough to
+// absorb an ordinary hiccup.
+export function shedBacklog(accMs, tickMs, waiting, delay) {
+  const keep = waiting ? 1 : (delay | 0) + 2;
+  return accMs > tickMs * keep ? tickMs * keep : accMs;
+}
+
 export function createLockstep(opts) {
   const {
     state, ai, playerSlot, humanSlots,

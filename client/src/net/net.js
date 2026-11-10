@@ -284,8 +284,8 @@ export const Net = {
       case 'start':
         if (msg.from === 0) { this.epoch = msg.epoch || 0; this._hook('onStart', msg); }
         break;
-      case 'pause':
-        this._hook('onPause', !!msg.on, msg.from);
+      case 'pause': // host-authoritative, like cfg and start
+        if (msg.from === 0) this._hook('onPause', !!msg.on, msg.from);
         break;
       case 'chat':
         this._hook('onChat', msg.from, String(msg.msg || '').slice(0, 140));

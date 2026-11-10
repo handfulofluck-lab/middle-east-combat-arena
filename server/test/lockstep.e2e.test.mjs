@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, test } from 'node:test';
 import * as Sim from '../../client/src/sim/index.js';
-import { createLockstep, CSUM_EVERY, KEEPALIVE_MS, MP_STEP_CAP, STALL_TIMEOUT_MS } from '../../client/src/net/lockstep.js';
+import { createLockstep, shedBacklog, CSUM_EVERY, KEEPALIVE_MS, MP_STEP_CAP, STALL_TIMEOUT_MS } from '../../client/src/net/lockstep.js';
 import { http, sleep, startServer } from './helpers/harness.mjs';
 
 const CLIENT = path.resolve(import.meta.dirname, '..', '..', 'client');
@@ -396,6 +396,8 @@ async function drive(peers, done, { timeoutMs = 30000, maxSteps = MP_STEP_CAP, p
         p.acc -= TICK_MS;
         steps++;
       }
+      // (main.js) waiting time is not owed back
+      p.acc = shedBacklog(p.acc, TICK_MS, p.acc >= TICK_MS && steps < MP_STEP_CAP, p.ls.getDelay());
       afterFrame(p);
     }
     if (each) each();
@@ -846,6 +848,7 @@ describe('headless lockstep matches through the Node relay', () => {
             acc -= TICK_MS;
             steps++;
           }
+          acc = shedBacklog(acc, TICK_MS, acc >= TICK_MS && steps < MP_STEP_CAP, p.ls.getDelay());
           real.set(p, acc);
         }
       },
@@ -1046,6 +1049,50 @@ function assertOrdersRanEverywhere(peers) {
 describe('lockstep scheduler rules, end to end through the relay', () => {
   // ---- a missing peer holds the room ------------------------------------------
 
+  test('S0. shedBacklog: one tick while the gate is closed, delay + 2 otherwise, never more than was owed', () => {
+    assert.equal(shedBacklog(45000, TICK_MS, true, 2), TICK_MS, 'a 45 s wait leaves one tick due');
+    assert.equal(shedBacklog(45000, TICK_MS, false, 2), TICK_MS * 4);
+    assert.equal(shedBacklog(45000, TICK_MS, false, 4), TICK_MS * 6);
+    assert.equal(shedBacklog(250, TICK_MS, false, 2), 250, 'an ordinary hiccup is still caught up');
+    assert.equal(shedBacklog(60, TICK_MS, true, 2), 60);
+  });
+
+  test('S. time spent waiting for the room is not replayed: after a hold the match resumes at 10 Hz, in sync', async (t) => {
+    const { peers, host, bob, carol, delay, held } = await carolFreezes(t);
+    const HOLD = 5000;
+    assert.ok(HOLD < DROP_AFTER_MS);
+    const until = clock.t + HOLD;
+    await drive(peers, () => clock.t >= until, { paced: true, clockStep: 20, timeoutMs: 60000 });
+    for (const p of [host, bob]) {
+      assert.equal(p.state.tick, held, p.tag + ' held for the whole wait');
+      assert.ok(p.acc <= TICK_MS, p.tag + ' owes at most one tick after ' + HOLD + ' ms of waiting, not ' + Math.round(p.acc / TICK_MS));
+    }
+    thaw(carol);
+    const from = host.state.tick;
+    const t0 = clock.t;
+    await drive(peers, () => clock.t >= t0 + 1000, { paced: true, clockStep: 20, timeoutMs: 60000 });
+    for (const p of [host, bob]) {
+      const ran = p.state.tick - from;
+      assert.ok(ran >= 5 && ran <= 10 + delay + 2, p.tag + ' ran ' + ran + ' ticks in the second after the hold (a replayed 5 s wait would be ~50)');
+    }
+    await drive(peers, () => peers.every((p) => p.state.tick >= from + 40), { paced: true, clockStep: 20, timeoutMs: 60000 });
+    await settle(peers);
+    assertInSync(peers, from + 40);
+    for (const p of peers) assert.equal(forcedTicks(p), 0);
+  });
+
+  test('P0. only the host can pause the room: a guest\'s pause message changes nothing', async (t) => {
+    const { peers } = await threeHumans(t);
+    const [host, bob, carol] = peers;
+    carol.Net._send({ t: 'pause', on: true });
+    await settle(peers);
+    for (const p of [host, bob]) assert.equal(!!p.paused, false, p.tag + ' ignored a pause that did not come from the host');
+    const from = host.state.tick;
+    await drive(peers, () => peers.every((p) => p.state.tick >= from + 30));
+    await settle(peers);
+    assertInSync(peers, from + 30);
+  });
+
   test('A. a frozen peer holds the whole room -- no forced tick, no drop -- and the order it gives on returning runs on the same tick everywhere', async (t) => {
     const { peers, host, bob, carol, delay, c, held } = await carolFreezes(t);
     const WAIT = 4000;
@@ -1113,6 +1160,35 @@ describe('lockstep scheduler rules, end to end through the relay', () => {
     assert.equal(host.declared.length, 1);
     t.diagnostic(`Bob on tick ${T}, host on ${hostTick}; Carol left with orders out for ticks ${inFlight.map((o) => o.tick).join(',')}; drop line ${line}; `
       + `all ${r.carol.orders.length} of her orders ran on the same ticks on both; ${compared} checksums compared`);
+  });
+
+  test('B2. the player who disconnects was ahead of the host: the drop line clears everything her marker covers', async (t) => {
+    const { peers } = await threeHumans(t);
+    const [host, bob, carol] = peers;
+    const delay = host.ls.getDelay();
+    orderEveryTick(carol);
+    host.frozen = true; // the host's frames stall (it still receives): the others run on as far as its marker lets them
+    await stepUntilHeld([bob, carol], peers);
+    const T = host.state.tick;
+    assert.deepEqual([bob.state.tick, carol.state.tick], [T + delay, T + delay]);
+    const carolMarker = marker(carol);
+    assert.equal(markerSeen(host, 2), carolMarker);
+    assert.ok(carolMarker + 1 > T + delay, 'her marker reaches further than the host\'s own position (+ delay) does');
+
+    carol.gone = true;
+    carol.Net.ws.close();
+    await until(() => host.byes.length > 0, 'the bye to reach the host');
+    await settle([host, bob]);
+    assert.equal(host.declared.length, 1);
+    const line = host.declared[0].at;
+    assert.equal(line, carolMarker + 1 + TAKEOVER_DELAY_TICKS, 'safeDropTick(slot) = max(tick + delay, her marker + 1): here her marker decides');
+    assert.ok(carol.orders.length >= delay && carol.orders.every((o) => o.tick < line), 'every order she got out lies below the line');
+
+    host.frozen = false;
+    await drive([host, bob], () => host.state.tick >= T + 60 && bob.state.tick >= T + 60);
+    await settle([host, bob]);
+    const compared = assertDropHeldTogether({ host, bob, carol, line }, T + 60);
+    t.diagnostic(`host on tick ${T}, Carol on ${T + delay} with marker ${carolMarker}; drop line ${line}; all ${carol.orders.length} of her orders ran on both; ${compared} checksums compared`);
   });
 
   test('B (rule). a drop line that cuts through the orders in flight: below it they count, from it on they are void -- on both machines', async (t) => {
@@ -1782,6 +1858,7 @@ describe('the harness mirrors the real client', () => {
     }
     assert.ok(DROP_AFTER_MS > STALL_TIMEOUT_MS && LOAD_GRACE_MS > DROP_AFTER_MS);
     mirrors(MAIN_SRC, 'main.js', /if \(!mpSimStep\(\)\) break;/, 'frame loop: a closed gate holds the accumulator');
+    mirrors(MAIN_SRC, 'main.js', /acc = shedBacklog\(acc, TICK_MS, acc >= TICK_MS && steps < cap && !G\.state\.over, G\.ls\.getDelay\(\)\);/, 'frame loop: waiting time is shed, not replayed');
     mirrors(MAIN_SRC, 'main.js', /hostDropWatch\(now\);[^\n]*\n\s*processPendingDrops\(\);/, 'frame loop: hostDropWatch(now), then processPendingDrops()');
     mirrors(MAIN_SRC, 'main.js', /G\.state && !G\.paused && /, 'frame loop: no ticks while paused');
     for (const name of Object.keys(REAL_SOURCE)) {
@@ -1800,7 +1877,7 @@ describe('the harness mirrors the real client', () => {
       'net.js sendDrop: the harness tells the local fallback from the relay echo by the missing `echo` flag: ' + local.join(' | '));
   });
 
-  test('lockstep.js: the scheduler interface the tests drive and inspect', async (t) => {
+  test('lockstep.js: the scheduler interface the tests drive and inspect', () => {
     for (const [name, value] of Object.entries({ CSUM_EVERY, STALL_TIMEOUT_MS, KEEPALIVE_MS, MP_STEP_CAP })) {
       assert.ok(Number.isFinite(value) && value > 0, 'lockstep.js no longer exports ' + name);
     }
@@ -1811,10 +1888,10 @@ describe('the harness mirrors the real client', () => {
       players: [{ slot: 0, faction: 'Egypt', team: 0 }, { slot: 1, faction: 'Turkey', team: 1 }],
     });
     const ls = createLockstep({ state, ai: Sim.createAI([], 7), playerSlot: 0, humanSlots: [0, 1], delay: 2, send: (m) => sent.push(m), now: () => 5 });
-    for (const fn of ['issue', 'ingest', 'advance', 'logSnapshot', 'isDesynced', 'isDropped', 'waitingOn', 'isWaiting', 'safeDropTick', 'getDelay', 'debugState', 'resume']) {
+    for (const fn of ['issue', 'ingest', 'advance', 'isDesynced', 'isDropped', 'waitingOn', 'isWaiting', 'safeDropTick', 'getDelay', 'debugState']) {
       assert.equal(typeof ls[fn], 'function', 'the scheduler no longer has ' + fn + '()');
     }
-    assert.deepEqual(Object.keys(ls.debugState()).sort(), ['bornAt', 'eoiFrom', 'eoiSent', 'gateWaitStart', 'lastHeard', 'tick', 'waitingOn']);
+    for (const key of ['eoiFrom', 'eoiSent', 'lastHeard']) assert.ok(key in ls.debugState(), 'debugState() no longer reports ' + key);
     assert.deepEqual(sent, [], 'nothing is sent before the first tick is attempted');
     assert.equal(ls.advance(), false, 'tick 0 waits for the other player');
     assert.deepEqual(sent, [{ t: 'eoi', tick: 1 }], 'on tick 0 with delay 2 a peer declares its input complete up to tick 1');

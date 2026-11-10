@@ -43,7 +43,7 @@ Useful while developing:
 PORT=8791 LOG_LEVEL=debug npm start          # another port, verbose logs
 WEB_ROOT=/some/other/build npm start         # serve a different build
 curl -s localhost:8790/healthz               # {"status":"ok","uptime":…,"rooms":0,"peers":0,…}
-node --test server/test/                     # the server test suite (about 15 s)
+node --test server/test/                     # the server test suite (about 20 s)
 ```
 
 `npm run dev` (Vite, port 5173) serves the client only. A client loaded from

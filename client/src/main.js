@@ -21,7 +21,7 @@ import { dirArtBitmap, unitArtBitmap, structArtBitmap } from './game/sprites.js'
 import { showMenu, showPauseMenu, showEndBanner, showBriefing, showLobby,
   showMpSetup, showDesyncOverlay, closeLobbyUi } from './game/menu.js';
 import { Net } from './net/net.js';
-import { createLockstep, MP_STEP_CAP } from './net/lockstep.js';
+import { createLockstep, MP_STEP_CAP, shedBacklog } from './net/lockstep.js';
 // v0.4.4 (DeepSeek 3.1): audio.js ships concurrently; the export will exist,
 // but headless harnesses strip imports — every use is typeof-guarded
 import { getMusicOn } from './game/audio.js';
@@ -484,10 +484,11 @@ export async function boot() {
     onChat: (from, text) => mpChatLine(mpNameOf(from), text),
     onGameMsg: (m) => {
       if (G.ls) {
-        if (m.t === 'needlog' && Net.isHost) {
-          Net.sendLog(m.from, G.ls.logSnapshot(m.fromTick || 0, G.state.tick));
-          return;
-        }
+        // 'needlog' (a late-join catch-up request) is not answered: no client
+        // sends it, and replying with the whole command log in one message
+        // let any guest push the host past the relay's size cap and close
+        // the room.
+        if (m.t === 'needlog') return;
         G.ls.ingest(m);
       }
     },
@@ -629,6 +630,10 @@ export async function boot() {
           steps++;
         }
         if (!mp && steps === 6) acc = 0; // shed backlog instead of death-spiralling
+        // online: a tick still due with the cap unspent means the gate is closed
+        if (mp && G.ls) {
+          acc = shedBacklog(acc, TICK_MS, acc >= TICK_MS && steps < cap && !G.state.over, G.ls.getDelay());
+        }
         if (G.state.over) acc = 0;
       }
       if (mp) {
@@ -1100,7 +1105,7 @@ function mpBackgroundPump() {
     bgAcc -= TICK_MS;
     steps++;
   }
-  if (bgAcc > TICK_MS * MP_STEP_CAP) bgAcc = TICK_MS;
+  bgAcc = shedBacklog(bgAcc, TICK_MS, bgAcc >= TICK_MS && steps < MP_STEP_CAP, G.ls.getDelay());
   hostDropWatch(now);
   processPendingDrops();
   if (G.net && G.net.active) Net.netTick();
