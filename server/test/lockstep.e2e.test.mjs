@@ -9,7 +9,8 @@
 // lifted out of the source text and RUN AS IT IS for every peer -- whatever
 // those functions do today is what these tests exercise:
 //   * hostDropWatch() and processPendingDrops();
-//   * the hooks onBye, onPause (Net.init) and onPeerDrop (createLockstep).
+//   * the hooks onGameMsg, onBye, onPause (Net.init) and onPeerDrop
+//     (createLockstep).
 // Only its frame loop is re-stated here (stepPeer/afterFrame/drive); a guard
 // test at the end of this file fails when main.js stops matching it.
 //
@@ -20,7 +21,10 @@
 //
 // Time: the scheduler and the host's drop timeouts run on a VIRTUAL clock that
 // only the test driver advances. A frozen CI machine freezes the clock too, so
-// no timeout here can fire because the hardware was slow.
+// none of those timeouts can fire because the hardware was slow. The one real
+// timer in play is net.js's: it waits 2.5 s (wall clock) for the relay to echo
+// a drop declaration before applying it locally. Here the echo is back within
+// milliseconds; test D4 withholds it on purpose and waits those 2.5 s out.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -82,11 +86,12 @@ function mainHook(name) {
 const REAL_SOURCE = {
   hostDropWatch: mainFunction('hostDropWatch'),
   processPendingDrops: mainFunction('processPendingDrops'),
+  onGameMsg: mainHook('onGameMsg'),
   onBye: mainHook('onBye'),
   onPause: mainHook('onPause'),
   onPeerDrop: mainHook('onPeerDrop'),
 };
-const IS_HOOK = { onBye: true, onPause: true, onPeerDrop: true };
+const IS_HOOK = { onGameMsg: true, onBye: true, onPause: true, onPeerDrop: true };
 
 // Give a peer its own copies of those functions, closed over a `G` that maps
 // main.js's game object onto the peer, the peer's Net, and the virtual clock.
@@ -195,12 +200,8 @@ async function makePeer(tag, rngSeed, opts = {}) {
   };
   const deliver = (m) => {
     if (!peer.ls) { peer.lost++; return; }
-    if (m.t === 'needlog' && Net.isHost) {
-      Net.sendLog(m.from, peer.ls.logSnapshot(m.fromTick || 0, peer.state.tick));
-      return;
-    }
     peer.heard.push({ t: m.t, from: m.from, tick: m.tick, slot: m.slot, seq: m.seq, at: m.at });
-    peer.ls.ingest(m);
+    peer.real.onGameMsg(m); // main.js: into the scheduler
   };
   Net.init(peer.game, {
     onLobby: () => { peer.lobbies++; },
