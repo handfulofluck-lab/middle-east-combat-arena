@@ -24,7 +24,7 @@
    "infantry": "am_fenrir",
    "vehicle": "am_onyx",
    "air": "af_kore",
-   "naval": "bm_daniel",
+   "naval": "bm_lewis",
    "support": "am_michael"
   }
  },
@@ -38,24 +38,24 @@
     },
     {
      "f": "ann_a/online_2.mp3",
-     "d": 1.655,
+     "d": 1.599,
      "t": "Field headquarters is online."
     },
     {
      "f": "ann_a/online_3.mp3",
-     "d": 3.091,
+     "d": 3.041,
      "t": "Command network is up. All stations report ready."
     }
    ],
    "built": [
     {
      "f": "ann_a/built_1.mp3",
-     "d": 1.395,
+     "d": 1.356,
      "t": "Structure operational."
     },
     {
      "f": "ann_a/built_2.mp3",
-     "d": 1.758,
+     "d": 1.706,
      "t": "New facility is up and running."
     },
     {
@@ -72,38 +72,38 @@
     },
     {
      "f": "ann_a/built_core_2.mp3",
-     "d": 1.847,
+     "d": 1.802,
      "t": "Command center is operational."
     }
    ],
    "built.Eco": [
     {
      "f": "ann_a/built_eco_1.mp3",
-     "d": 1.903,
+     "d": 1.858,
      "t": "Resource facility operational."
     },
     {
      "f": "ann_a/built_eco_2.mp3",
-     "d": 1.376,
+     "d": 1.307,
      "t": "Utilities are on line."
     }
    ],
    "built.Prod": [
     {
      "f": "ann_a/built_prod_1.mp3",
-     "d": 1.491,
+     "d": 1.442,
      "t": "Production facility ready."
     },
     {
      "f": "ann_a/built_prod_2.mp3",
-     "d": 1.474,
+     "d": 1.423,
      "t": "Production line is open."
     }
    ],
    "built.Def": [
     {
      "f": "ann_a/built_def_1.mp3",
-     "d": 1.531,
+     "d": 1.481,
      "t": "Defensive position ready."
     },
     {
@@ -115,70 +115,70 @@
    "built.Tech": [
     {
      "f": "ann_a/built_tech_1.mp3",
-     "d": 1.867,
+     "d": 1.822,
      "t": "Technology center operational."
     },
     {
      "f": "ann_a/built_tech_2.mp3",
-     "d": 1.376,
+     "d": 1.322,
      "t": "Research wing is open."
     }
    ],
    "built.SW": [
     {
      "f": "ann_a/built_sw_1.mp3",
-     "d": 2.268,
+     "d": 2.219,
      "t": "Strategic weapons facility is ready."
     },
     {
      "f": "ann_a/built_sw_2.mp3",
-     "d": 1.784,
+     "d": 1.743,
      "t": "Strategic site operational."
     }
    ],
    "unit": [
     {
      "f": "ann_a/unit_1.mp3",
-     "d": 1.307,
+     "d": 1.199,
      "t": "New unit on the field."
     },
     {
      "f": "ann_a/unit_2.mp3",
-     "d": 1.468,
-     "t": "Reinforcement deployed."
+     "d": 1.264,
+     "t": "Reinforcements ready."
     },
     {
      "f": "ann_a/unit_3.mp3",
-     "d": 1.625,
+     "d": 1.571,
      "t": "Unit is ready for tasking."
     }
    ],
    "harv": [
     {
      "f": "ann_a/harv_1.mp3",
-     "d": 1.278,
+     "d": 1.234,
      "t": "Harvester deployed."
     },
     {
      "f": "ann_a/harv_2.mp3",
-     "d": 2.114,
+     "d": 2.052,
      "t": "Harvester is heading for the oil field."
     },
     {
      "f": "ann_a/harv_3.mp3",
-     "d": 1.38,
+     "d": 1.308,
      "t": "Oil convoy is rolling."
     }
    ],
    "attack": [
     {
      "f": "ann_a/attack_1.mp3",
-     "d": 2.021,
+     "d": 1.958,
      "t": "Warning. Our base is taking fire."
     },
     {
      "f": "ann_a/attack_2.mp3",
-     "d": 2.852,
+     "d": 2.803,
      "t": "Alert. Enemy forces are attacking our position."
     },
     {
@@ -195,53 +195,53 @@
     },
     {
      "f": "ann_a/lost_2.mp3",
-     "d": 1.175,
+     "d": 1.109,
      "t": "Friendly unit down."
     },
     {
      "f": "ann_a/lost_3.mp3",
-     "d": 1.049,
+     "d": 1.003,
      "t": "Unit destroyed."
     }
    ],
    "structLost": [
     {
      "f": "ann_a/structlost_1.mp3",
-     "d": 1.178,
+     "d": 1.16,
      "t": "Structure destroyed."
     },
     {
      "f": "ann_a/structlost_2.mp3",
-     "d": 1.22,
+     "d": 1.15,
      "t": "We have lost a building."
     },
     {
      "f": "ann_a/structlost_3.mp3",
-     "d": 1.017,
+     "d": 0.958,
      "t": "Facility down."
     }
    ],
    "captured": [
     {
      "f": "ann_a/captured_1.mp3",
-     "d": 1.046,
+     "d": 1.007,
      "t": "Structure seized."
     },
     {
      "f": "ann_a/captured_2.mp3",
-     "d": 1.982,
+     "d": 1.929,
      "t": "The building is now under our control."
     },
     {
      "f": "ann_a/captured_3.mp3",
-     "d": 1.154,
+     "d": 1.104,
      "t": "Capture successful."
     }
    ],
    "peaceStart": [
     {
      "f": "ann_a/peacestart_1.mp3",
-     "d": 2.231,
+     "d": 2.181,
      "t": "Ceasefire in effect. Hold your fire."
     },
     {
@@ -253,12 +253,12 @@
    "peaceEnd": [
     {
      "f": "ann_a/peaceend_1.mp3",
-     "d": 2.223,
+     "d": 2.182,
      "t": "Ceasefire has ended. Weapons free."
     },
     {
      "f": "ann_a/peaceend_2.mp3",
-     "d": 2.245,
+     "d": 2.204,
      "t": "The ceasefire is over. Weapons free."
     }
    ]
@@ -272,24 +272,24 @@
     },
     {
      "f": "ann_b/online_2.mp3",
-     "d": 1.853,
+     "d": 1.791,
      "t": "Field headquarters is online."
     },
     {
      "f": "ann_b/online_3.mp3",
-     "d": 3.102,
+     "d": 3.05,
      "t": "Command network is up. All stations report ready."
     }
    ],
    "built": [
     {
      "f": "ann_b/built_1.mp3",
-     "d": 1.47,
+     "d": 1.403,
      "t": "Structure operational."
     },
     {
      "f": "ann_b/built_2.mp3",
-     "d": 1.926,
+     "d": 1.864,
      "t": "New facility is up and running."
     },
     {
@@ -306,38 +306,38 @@
     },
     {
      "f": "ann_b/built_core_2.mp3",
-     "d": 1.931,
+     "d": 1.884,
      "t": "Command center is operational."
     }
    ],
    "built.Eco": [
     {
      "f": "ann_b/built_eco_1.mp3",
-     "d": 1.961,
+     "d": 1.902,
      "t": "Resource facility operational."
     },
     {
      "f": "ann_b/built_eco_2.mp3",
-     "d": 1.603,
+     "d": 1.486,
      "t": "Utilities are on line."
     }
    ],
    "built.Prod": [
     {
      "f": "ann_b/built_prod_1.mp3",
-     "d": 1.597,
+     "d": 1.532,
      "t": "Production facility ready."
     },
     {
      "f": "ann_b/built_prod_2.mp3",
-     "d": 1.586,
+     "d": 1.504,
      "t": "Production line is open."
     }
    ],
    "built.Def": [
     {
      "f": "ann_b/built_def_1.mp3",
-     "d": 1.658,
+     "d": 1.59,
      "t": "Defensive position ready."
     },
     {
@@ -349,70 +349,70 @@
    "built.Tech": [
     {
      "f": "ann_b/built_tech_1.mp3",
-     "d": 1.903,
+     "d": 1.85,
      "t": "Technology center operational."
     },
     {
      "f": "ann_b/built_tech_2.mp3",
-     "d": 1.483,
+     "d": 1.404,
      "t": "Research wing is open."
     }
    ],
    "built.SW": [
     {
      "f": "ann_b/built_sw_1.mp3",
-     "d": 2.338,
+     "d": 2.299,
      "t": "Strategic weapons facility is ready."
     },
     {
      "f": "ann_b/built_sw_2.mp3",
-     "d": 1.89,
+     "d": 1.836,
      "t": "Strategic site operational."
     }
    ],
    "unit": [
     {
      "f": "ann_b/unit_1.mp3",
-     "d": 1.526,
+     "d": 1.363,
      "t": "New unit on the field."
     },
     {
      "f": "ann_b/unit_2.mp3",
-     "d": 1.659,
-     "t": "Reinforcement deployed."
+     "d": 1.372,
+     "t": "Reinforcements ready."
     },
     {
      "f": "ann_b/unit_3.mp3",
-     "d": 1.749,
+     "d": 1.679,
      "t": "Unit is ready for tasking."
     }
    ],
    "harv": [
     {
      "f": "ann_b/harv_1.mp3",
-     "d": 1.448,
+     "d": 1.383,
      "t": "Harvester deployed."
     },
     {
      "f": "ann_b/harv_2.mp3",
-     "d": 2.224,
+     "d": 2.132,
      "t": "Harvester is heading for the oil field."
     },
     {
      "f": "ann_b/harv_3.mp3",
-     "d": 1.545,
+     "d": 1.431,
      "t": "Oil convoy is rolling."
     }
    ],
    "attack": [
     {
      "f": "ann_b/attack_1.mp3",
-     "d": 2.051,
+     "d": 1.986,
      "t": "Warning. Our base is taking fire."
     },
     {
      "f": "ann_b/attack_2.mp3",
-     "d": 2.718,
+     "d": 2.684,
      "t": "Alert. Enemy forces are attacking our position."
     },
     {
@@ -429,53 +429,53 @@
     },
     {
      "f": "ann_b/lost_2.mp3",
-     "d": 1.357,
+     "d": 1.206,
      "t": "Friendly unit down."
     },
     {
      "f": "ann_b/lost_3.mp3",
-     "d": 1.198,
+     "d": 1.112,
      "t": "Unit destroyed."
     }
    ],
    "structLost": [
     {
      "f": "ann_b/structlost_1.mp3",
-     "d": 1.364,
+     "d": 1.316,
      "t": "Structure destroyed."
     },
     {
      "f": "ann_b/structlost_2.mp3",
-     "d": 1.355,
+     "d": 1.221,
      "t": "We have lost a building."
     },
     {
      "f": "ann_b/structlost_3.mp3",
-     "d": 1.202,
+     "d": 1.094,
      "t": "Facility down."
     }
    ],
    "captured": [
     {
      "f": "ann_b/captured_1.mp3",
-     "d": 1.208,
+     "d": 1.167,
      "t": "Structure seized."
     },
     {
      "f": "ann_b/captured_2.mp3",
-     "d": 1.987,
+     "d": 1.913,
      "t": "The building is now under our control."
     },
     {
      "f": "ann_b/captured_3.mp3",
-     "d": 1.278,
+     "d": 1.209,
      "t": "Capture successful."
     }
    ],
    "peaceStart": [
     {
      "f": "ann_b/peacestart_1.mp3",
-     "d": 2.102,
+     "d": 2.047,
      "t": "Ceasefire in effect. Hold your fire."
     },
     {
@@ -487,12 +487,12 @@
    "peaceEnd": [
     {
      "f": "ann_b/peaceend_1.mp3",
-     "d": 2.217,
+     "d": 2.158,
      "t": "Ceasefire has ended. Weapons free."
     },
     {
      "f": "ann_b/peaceend_2.mp3",
-     "d": 2.131,
+     "d": 2.077,
      "t": "The ceasefire is over. Weapons free."
     }
    ]
@@ -506,24 +506,24 @@
     },
     {
      "f": "ann_c/online_2.mp3",
-     "d": 2.358,
+     "d": 2.294,
      "t": "Field headquarters is online."
     },
     {
      "f": "ann_c/online_3.mp3",
-     "d": 3.549,
+     "d": 3.487,
      "t": "Command network is up. All stations report ready."
     }
    ],
    "built": [
     {
      "f": "ann_c/built_1.mp3",
-     "d": 1.772,
+     "d": 1.72,
      "t": "Structure operational."
     },
     {
      "f": "ann_c/built_2.mp3",
-     "d": 2.354,
+     "d": 2.3,
      "t": "New facility is up and running."
     },
     {
@@ -540,38 +540,38 @@
     },
     {
      "f": "ann_c/built_core_2.mp3",
-     "d": 2.46,
+     "d": 2.391,
      "t": "Command center is operational."
     }
    ],
    "built.Eco": [
     {
      "f": "ann_c/built_eco_1.mp3",
-     "d": 2.431,
+     "d": 2.365,
      "t": "Resource facility operational."
     },
     {
      "f": "ann_c/built_eco_2.mp3",
-     "d": 2.179,
+     "d": 2.082,
      "t": "Utilities are on line."
     }
    ],
    "built.Prod": [
     {
      "f": "ann_c/built_prod_1.mp3",
-     "d": 2.076,
+     "d": 2.01,
      "t": "Production facility ready."
     },
     {
      "f": "ann_c/built_prod_2.mp3",
-     "d": 1.972,
+     "d": 1.911,
      "t": "Production line is open."
     }
    ],
    "built.Def": [
     {
      "f": "ann_c/built_def_1.mp3",
-     "d": 1.998,
+     "d": 1.942,
      "t": "Defensive position ready."
     },
     {
@@ -583,70 +583,70 @@
    "built.Tech": [
     {
      "f": "ann_c/built_tech_1.mp3",
-     "d": 2.441,
+     "d": 2.378,
      "t": "Technology center operational."
     },
     {
      "f": "ann_c/built_tech_2.mp3",
-     "d": 1.884,
+     "d": 1.826,
      "t": "Research wing is open."
     }
    ],
    "built.SW": [
     {
      "f": "ann_c/built_sw_1.mp3",
-     "d": 2.879,
+     "d": 2.805,
      "t": "Strategic weapons facility is ready."
     },
     {
      "f": "ann_c/built_sw_2.mp3",
-     "d": 2.343,
+     "d": 2.274,
      "t": "Strategic site operational."
     }
    ],
    "unit": [
     {
      "f": "ann_c/unit_1.mp3",
-     "d": 1.989,
+     "d": 1.911,
      "t": "New unit on the field."
     },
     {
      "f": "ann_c/unit_2.mp3",
-     "d": 2.003,
-     "t": "Reinforcement deployed."
+     "d": 1.576,
+     "t": "Reinforcements ready."
     },
     {
      "f": "ann_c/unit_3.mp3",
-     "d": 2.067,
+     "d": 2.004,
      "t": "Unit is ready for tasking."
     }
    ],
    "harv": [
     {
      "f": "ann_c/harv_1.mp3",
-     "d": 1.73,
+     "d": 1.668,
      "t": "Harvester deployed."
     },
     {
      "f": "ann_c/harv_2.mp3",
-     "d": 2.892,
+     "d": 2.827,
      "t": "Harvester is heading for the oil field."
     },
     {
      "f": "ann_c/harv_3.mp3",
-     "d": 2.07,
+     "d": 1.977,
      "t": "Oil convoy is rolling."
     }
    ],
    "attack": [
     {
      "f": "ann_c/attack_1.mp3",
-     "d": 2.458,
+     "d": 2.399,
      "t": "Warning. Our base is taking fire."
     },
     {
      "f": "ann_c/attack_2.mp3",
-     "d": 3.343,
+     "d": 3.291,
      "t": "Alert. Enemy forces are attacking our position."
     },
     {
@@ -663,53 +663,53 @@
     },
     {
      "f": "ann_c/lost_2.mp3",
-     "d": 1.687,
+     "d": 1.617,
      "t": "Friendly unit down."
     },
     {
      "f": "ann_c/lost_3.mp3",
-     "d": 1.404,
+     "d": 1.37,
      "t": "Unit destroyed."
     }
    ],
    "structLost": [
     {
      "f": "ann_c/structlost_1.mp3",
-     "d": 1.55,
+     "d": 1.522,
      "t": "Structure destroyed."
     },
     {
      "f": "ann_c/structlost_2.mp3",
-     "d": 1.505,
+     "d": 1.458,
      "t": "We have lost a building."
     },
     {
      "f": "ann_c/structlost_3.mp3",
-     "d": 1.457,
+     "d": 1.384,
      "t": "Facility down."
     }
    ],
    "captured": [
     {
      "f": "ann_c/captured_1.mp3",
-     "d": 1.38,
+     "d": 1.325,
      "t": "Structure seized."
     },
     {
      "f": "ann_c/captured_2.mp3",
-     "d": 2.762,
+     "d": 2.662,
      "t": "The building is now under our control."
     },
     {
      "f": "ann_c/captured_3.mp3",
-     "d": 1.455,
+     "d": 1.394,
      "t": "Capture successful."
     }
    ],
    "peaceStart": [
     {
      "f": "ann_c/peacestart_1.mp3",
-     "d": 2.771,
+     "d": 2.714,
      "t": "Ceasefire in effect. Hold your fire."
     },
     {
@@ -721,12 +721,12 @@
    "peaceEnd": [
     {
      "f": "ann_c/peaceend_1.mp3",
-     "d": 2.701,
+     "d": 2.637,
      "t": "Ceasefire has ended. Weapons free."
     },
     {
      "f": "ann_c/peaceend_2.mp3",
-     "d": 2.74,
+     "d": 2.671,
      "t": "The ceasefire is over. Weapons free."
     }
    ]
@@ -737,39 +737,39 @@
    "select": [
     {
      "f": "ack_infantry/select_1.mp3",
-     "d": 0.809,
+     "d": 0.808,
      "t": "Squad here."
     },
     {
      "f": "ack_infantry/select_2.mp3",
-     "d": 0.883,
+     "d": 0.882,
      "t": "Rifles ready."
     },
     {
      "f": "ack_infantry/select_3.mp3",
-     "d": 0.964,
+     "d": 0.945,
      "t": "Go ahead, command."
     },
     {
      "f": "ack_infantry/select_4.mp3",
-     "d": 0.753,
+     "d": 0.652,
      "t": "Send it."
     }
    ],
    "move": [
     {
      "f": "ack_infantry/move_1.mp3",
-     "d": 0.86,
+     "d": 0.775,
      "t": "Stepping off."
     },
     {
      "f": "ack_infantry/move_2.mp3",
-     "d": 0.706,
+     "d": 0.626,
      "t": "On the move."
     },
     {
      "f": "ack_infantry/move_3.mp3",
-     "d": 0.992,
+     "d": 0.989,
      "t": "Shifting position."
     },
     {
@@ -791,12 +791,12 @@
     },
     {
      "f": "ack_infantry/attack_3.mp3",
-     "d": 0.864,
+     "d": 0.855,
      "t": "Taking them on."
     },
     {
      "f": "ack_infantry/attack_4.mp3",
-     "d": 0.878,
+     "d": 0.846,
      "t": "Opening fire."
     }
    ]
@@ -805,12 +805,12 @@
    "select": [
     {
      "f": "ack_vehicle/select_1.mp3",
-     "d": 0.832,
+     "d": 0.808,
      "t": "Crew ready."
     },
     {
      "f": "ack_vehicle/select_2.mp3",
-     "d": 1.034,
+     "d": 1.008,
      "t": "Engine's warm."
     },
     {
@@ -827,12 +827,12 @@
    "move": [
     {
      "f": "ack_vehicle/move_1.mp3",
-     "d": 0.706,
+     "d": 0.699,
      "t": "Rolling."
     },
     {
      "f": "ack_vehicle/move_2.mp3",
-     "d": 0.938,
+     "d": 0.93,
      "t": "Tracks turning."
     },
     {
@@ -842,14 +842,14 @@
     },
     {
      "f": "ack_vehicle/move_4.mp3",
-     "d": 1.638,
-     "t": "Copy, repositioning."
+     "d": 0.787,
+     "t": "Moving up."
     }
    ],
    "attack": [
     {
      "f": "ack_vehicle/attack_1.mp3",
-     "d": 1.18,
+     "d": 0.986,
      "t": "Target sighted."
     },
     {
@@ -859,13 +859,13 @@
     },
     {
      "f": "ack_vehicle/attack_3.mp3",
-     "d": 0.748,
+     "d": 0.72,
      "t": "Firing."
     },
     {
      "f": "ack_vehicle/attack_4.mp3",
-     "d": 1.348,
-     "t": "Guns up, engaging."
+     "d": 1.21,
+     "t": "Engaging target."
     }
    ]
   },
@@ -873,34 +873,34 @@
    "select": [
     {
      "f": "ack_air/select_1.mp3",
-     "d": 1.158,
+     "d": 0.962,
      "t": "Flight checking in."
     },
     {
      "f": "ack_air/select_2.mp3",
-     "d": 0.988,
+     "d": 0.82,
      "t": "On station."
     },
     {
      "f": "ack_air/select_3.mp3",
-     "d": 1.01,
+     "d": 0.878,
      "t": "Go for flight."
     },
     {
      "f": "ack_air/select_4.mp3",
-     "d": 1.286,
+     "d": 1.046,
      "t": "Airborne and listening."
     }
    ],
    "move": [
     {
      "f": "ack_air/move_1.mp3",
-     "d": 1.158,
-     "t": "New heading, copy."
+     "d": 0.97,
+     "t": "Copy, new heading."
     },
     {
      "f": "ack_air/move_2.mp3",
-     "d": 0.988,
+     "d": 0.818,
      "t": "Coming around."
     },
     {
@@ -910,15 +910,15 @@
     },
     {
      "f": "ack_air/move_4.mp3",
-     "d": 0.722,
+     "d": 0.702,
      "t": "Turning now."
     }
    ],
    "attack": [
     {
      "f": "ack_air/attack_1.mp3",
-     "d": 0.882,
-     "t": "Tally target."
+     "d": 0.966,
+     "t": "Eyes on target."
     },
     {
      "f": "ack_air/attack_2.mp3",
@@ -927,12 +927,12 @@
     },
     {
      "f": "ack_air/attack_3.mp3",
-     "d": 0.636,
+     "d": 0.612,
      "t": "Committing."
     },
     {
      "f": "ack_air/attack_4.mp3",
-     "d": 1.184,
+     "d": 1.113,
      "t": "Engaging from the air."
     }
    ]
@@ -941,67 +941,67 @@
    "select": [
     {
      "f": "ack_naval/select_1.mp3",
-     "d": 0.996,
+     "d": 0.818,
      "t": "Bridge here."
     },
     {
      "f": "ack_naval/select_2.mp3",
-     "d": 1.405,
+     "d": 1.139,
      "t": "Helm standing by."
     },
     {
      "f": "ack_naval/select_3.mp3",
-     "d": 0.96,
+     "d": 0.76,
      "t": "Ship ready."
     },
     {
      "f": "ack_naval/select_4.mp3",
-     "d": 1.544,
-     "t": "All stations manned."
+     "d": 1.14,
+     "t": "All hands ready."
     }
    ],
    "move": [
     {
      "f": "ack_naval/move_1.mp3",
-     "d": 1.05,
+     "d": 0.85,
      "t": "Coming about."
     },
     {
      "f": "ack_naval/move_2.mp3",
-     "d": 1.161,
+     "d": 0.914,
      "t": "Setting course."
     },
     {
      "f": "ack_naval/move_3.mp3",
-     "d": 1.231,
+     "d": 1.006,
      "t": "Helm answering."
     },
     {
      "f": "ack_naval/move_4.mp3",
-     "d": 1.158,
+     "d": 0.823,
      "t": "Making way."
     }
    ],
    "attack": [
     {
      "f": "ack_naval/attack_1.mp3",
-     "d": 1.213,
+     "d": 0.963,
      "t": "Guns bearing."
     },
     {
      "f": "ack_naval/attack_2.mp3",
-     "d": 1.339,
+     "d": 1.046,
      "t": "Battle stations."
     },
     {
      "f": "ack_naval/attack_3.mp3",
-     "d": 1.634,
-     "t": "Target locked, firing."
+     "d": 0.978,
+     "t": "Target locked."
     },
     {
      "f": "ack_naval/attack_4.mp3",
-     "d": 1.586,
-     "t": "Engaging contact."
+     "d": 0.882,
+     "t": "Firing now."
     }
    ]
   },
@@ -1009,12 +1009,12 @@
    "select": [
     {
      "f": "ack_support/select_1.mp3",
-     "d": 1.148,
+     "d": 1.13,
      "t": "Support team here."
     },
     {
      "f": "ack_support/select_2.mp3",
-     "d": 0.948,
+     "d": 0.938,
      "t": "Tools ready."
     },
     {
@@ -1024,36 +1024,36 @@
     },
     {
      "f": "ack_support/select_4.mp3",
-     "d": 0.93,
+     "d": 0.922,
      "t": "Crew listening."
     }
    ],
    "move": [
     {
      "f": "ack_support/move_1.mp3",
-     "d": 0.915,
+     "d": 0.914,
      "t": "Heading over."
     },
     {
      "f": "ack_support/move_2.mp3",
-     "d": 0.828,
+     "d": 0.822,
      "t": "On our way."
     },
     {
      "f": "ack_support/move_3.mp3",
-     "d": 0.911,
+     "d": 0.875,
      "t": "Relocating."
     },
     {
      "f": "ack_support/move_4.mp3",
-     "d": 1.018,
+     "d": 0.932,
      "t": "Moving the rig."
     }
    ],
    "attack": [
     {
      "f": "ack_support/attack_1.mp3",
-     "d": 0.95,
+     "d": 0.914,
      "t": "On the job."
     },
     {
@@ -1063,7 +1063,7 @@
     },
     {
      "f": "ack_support/attack_3.mp3",
-     "d": 0.776,
+     "d": 0.738,
      "t": "Going in."
     },
     {

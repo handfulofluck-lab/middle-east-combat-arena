@@ -14,8 +14,11 @@
 //   auto   scale so the layout viewport is about 1480 × 720 design px:
 //          1.00 on a 1366×768 laptop, ~1.30 on a maximised 1080p browser,
 //          ~1.75 at 1440p, ~2.6 at 4K. Never below 1 (today's size).
-//   fixed  100 / 125 / 150 / 175 %, capped so the layout viewport never drops
-//          under 1200 × 600 (the smallest size the compact layouts hold).
+//   fixed  Small 100 %, Medium 125 %, Large 150 %, Extra large 175 % — and on
+//          big monitors Large / Extra large are at least 15 % / 30 % above
+//          the automatic size, so they always mean "bigger than Auto".
+//          Capped so the layout viewport never drops under 1200 × 600 (the
+//          smallest size the compact layouts hold).
 import { lsGet, lsSet } from './dom.js';
 
 const K_SCALE = 'mca.ui.scale';
@@ -24,8 +27,8 @@ export const UI_SCALE_OPTIONS = [
   { id: 'auto', label: 'Auto', scale: 0 },
   { id: 'small', label: 'Small', scale: 1 },
   { id: 'medium', label: 'Medium', scale: 1.25 },
-  { id: 'large', label: 'Large', scale: 1.5 },
-  { id: 'xlarge', label: 'Extra large', scale: 1.75 },
+  { id: 'large', label: 'Large', scale: 1.5, rel: 1.15 },
+  { id: 'xlarge', label: 'Extra large', scale: 1.75, rel: 1.3 },
 ];
 
 const AUTO_W = 1480, AUTO_H = 720;   // layout viewport the automatic scale aims for
@@ -56,10 +59,15 @@ export function getUiScalePref() {
   return UI_SCALE_OPTIONS.some((o) => o.id === v) ? v : 'auto';
 }
 
+// what a fixed option asks for in this window, before the fit cap
+function wantedUiScale(opt, vw, vh) {
+  return tidy(Math.max(opt.scale, opt.rel ? round(autoUiScale(vw, vh) * opt.rel) : 0));
+}
+
 export function resolveUiScale(pref, vw, vh) {
   const opt = UI_SCALE_OPTIONS.find((o) => o.id === pref);
   if (!opt || !opt.scale) return autoUiScale(vw, vh);
-  return tidy(Math.min(opt.scale, maxUiScale(vw, vh)));
+  return tidy(Math.min(wantedUiScale(opt, vw, vh), maxUiScale(vw, vh)));
 }
 
 let __scale = 1;
@@ -100,8 +108,9 @@ export function describeUiScale() {
   const opt = UI_SCALE_OPTIONS.find((o) => o.id === pref) || UI_SCALE_OPTIONS[0];
   const pct = Math.round(__scale * 100) + '%';
   if (!opt.scale) return 'Fitted to this window: ' + pct + '.';
-  if (__scale + 1e-6 < opt.scale) {
-    return pct + ' — the most this window can hold (' + Math.round(opt.scale * 100)
+  const want = wantedUiScale(opt, vp.w, vp.h);
+  if (__scale + 1e-6 < want) {
+    return pct + ' — the most this window can hold (' + Math.round(want * 100)
       + '% needs a larger window or full screen, F11).';
   }
   return pct + (opt.scale === 1 ? ' — the original compact size.' : '.');

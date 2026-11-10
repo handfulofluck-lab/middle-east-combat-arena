@@ -77,6 +77,38 @@ def ensure_model():
 
 
 _kokoro = None
+_tokenizer = None
+
+
+def phonemes(text, lang):
+    """The phoneme string the model is given for `text` (cached on disk)."""
+    global _tokenizer
+    key = hashlib.sha256(json.dumps(["phonemes", text, lang]).encode()).hexdigest()[:24]
+    f = CACHE / "raw" / (key + ".txt")
+    if f.exists():
+        return f.read_text(encoding="utf-8")
+    if _tokenizer is None:
+        from kokoro_onnx.tokenizer import Tokenizer
+        _tokenizer = Tokenizer()
+    ph = _tokenizer.phonemize(text, lang)
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(ph, encoding="utf-8")
+    return ph
+
+
+# final sounds that are themselves noise (fricatives, plosive releases): a line
+# ending in one of these keeps its tail; any other line must end with its voice
+NOISY_FINALS = set("sz\u0283\u0292f\u03b8tkp\u02a7\u02a4xh")
+
+
+def ending(text, lang):
+    """How a line ends: 'noisy' (fricative / unvoiced stop: the tail is part of
+    the word), 'stop' (b d g: a short release follows the voicing) or 'open'
+    (vowel, nasal, liquid: nothing should follow the voicing)."""
+    ph = [c for c in phonemes(text, lang) if c.isalpha()]
+    if not ph or ph[-1] in NOISY_FINALS:
+        return "noisy"
+    return "stop" if ph[-1] in "bdg\u0261" else "open"
 
 
 def synth(text, voice, speed, lang):
@@ -117,6 +149,41 @@ def trim(x, floor_db=-42.0, head_ms=8, tail_ms=45):
     a = max(0, live[0] - int(SR * head_ms / 1000))
     b = min(len(x), live[-1] + int(SR * tail_ms / 1000))
     return fade(x[a:b].copy(), 4, 18)
+
+
+def drop_breath(x, end_kind):
+    """End the clip with the voice. The model sometimes lets out a breathy hiss
+    after the last word (heard as a stray "s": "unit downs"). For a line whose
+    last sound is voiced, whatever follows once the low band has died away is
+    that hiss, so fade it out just past the end of the voicing (a little
+    later after b / d / g, which have a release)."""
+    if end_kind == "noisy":
+        return x
+    hold_ms, fade_ms = (40, 40) if end_kind == "stop" else (12, 35)
+    low = envelope(butter(x, "lowpass", 1000, 4), 12)
+    live = np.nonzero(low > low.max() * lin(-26))[0]
+    if not len(live):
+        return x
+    voiced = live[-1]
+    y = x.astype(np.float64).copy()
+    if end_kind == "open":
+        # the hiss often starts while the last vowel is still dying away:
+        # over the final 90 ms of voicing, cross over to a 2.2 kHz low-passed
+        # copy (zero-phase, so the two stay aligned)
+        dark = signal.sosfiltfilt(signal.butter(4, 2200, btype="lowpass", fs=SR, output="sos"), y)
+        a = max(0, voiced - int(SR * 0.09))
+        b = min(len(y), a + int(SR * 0.05))
+        mix = np.zeros(len(y))
+        mix[a:b] = np.sin(np.linspace(0, np.pi / 2, b - a)) ** 2
+        mix[b:] = 1.0
+        y = y * (1 - mix) + dark * mix
+    end = voiced + int(SR * hold_ms / 1000)
+    stop = end + int(SR * fade_ms / 1000)
+    if stop >= len(y):
+        return y
+    y = y[:stop]
+    y[end:] *= np.cos(np.linspace(0, np.pi / 2, stop - end)) ** 2
+    return y
 
 
 def fade(x, in_ms, out_ms):
@@ -209,13 +276,13 @@ def loudness(x):
 
 # ---- the two treatments ---------------------------------------------------------------
 
-def announcer(raw):
+def announcer(raw, end_kind="noisy"):
     """Command voice: clean and close, deliberately light. Rumble filter,
     gentle 2:1 levelling, and a transparent look-ahead limiter that holds the
     few stray peaks to 12 dB over the speech level so the line can sit
     higher in a battle. Levelling lifts the sibilants a couple of dB against
     the vowels; a broad 2 dB dip at 8 kHz puts the model's balance back."""
-    x = trim(raw, tail_ms=70)
+    x = trim(drop_breath(raw, end_kind), tail_ms=70)
     x = butter(x, "highpass", 85, 2)
     x = set_speech_rms(x, -20)
     x = compress(x, threshold_db=-20, ratio=2, attack_ms=4, release_ms=120)
@@ -225,11 +292,11 @@ def announcer(raw):
     return fade(x, 3, 25)
 
 
-def radio(raw, seed):
+def radio(raw, seed, end_kind="noisy"):
     """Field radio: telephone band, speaker honk, hard levelling, a little
     saturation, carrier hiss while keyed, key-up click and a squelch tail."""
     rng = np.random.default_rng(seed)
-    x = trim(raw, floor_db=-36, head_ms=4, tail_ms=20)
+    x = trim(drop_breath(raw, end_kind), floor_db=-36, head_ms=4, tail_ms=20)
     x = butter(x, "highpass", 320, 4)
     x = butter(x, "lowpass", 3300, 6)
     x = peaking(x, 1900, 4.0, 1.1)
@@ -357,12 +424,14 @@ def main():
     }
     total = 0
     for n, (section, bank, key, i, text, say, v, rel) in enumerate(jobs, 1):
-        raw = synth(say, v["voice"], v.get("speed", 1.0), v.get("lang", "en-us"))
+        lang = v.get("lang", "en-us")
+        raw = synth(say, v["voice"], v.get("speed", 1.0), lang)
+        end_kind = ending(say, lang)
         if section == "ann":
-            x, kbps = announcer(raw), fmt["announcer_kbps"]
+            x, kbps = announcer(raw, end_kind), fmt["announcer_kbps"]
         else:
             seed = int(hashlib.sha256(rel.encode()).hexdigest()[:8], 16)
-            x, kbps = radio(raw, seed), fmt["ack_kbps"]
+            x, kbps = radio(raw, seed, end_kind), fmt["ack_kbps"]
         path = out / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         got = finish(x, path, kbps, loud["target_lufs"], loud["peak_ceiling_dbfs"])

@@ -312,7 +312,7 @@ function speakLine(key, text) {
 // the engine's clip player (../audio/voice.js), wired to the speech fallback;
 // null until the engine exists
 function voiceBox() {
-  const box = __eng ? __eng.voice : null;
+  const box = __eng ? __eng.voiceBox : null;
   if (!box) return null;
   if (box.onFallback !== speakLine) box.onFallback = speakLine;
   return box;
@@ -346,7 +346,7 @@ export function resetAudioThrottles() {
     __unitCount = 0;
     __attackVoiceAt = -Infinity;
     if (__eng) __eng.unthrottle();
-    if (__eng && __eng.voice) __eng.voice.reset();
+    if (__eng && __eng.voiceBox) __eng.voiceBox.reset();
   } catch (e) { /* never throws */ }
 }
 
@@ -664,7 +664,7 @@ export function audioStats() {
       // scheduler tick, one playSfx call, one bake set-up, one asset hand-over
       initMs: s.initMs, maxFireMs: s.maxFireMs, maxBakeMs: __eng.baker.maxSliceMs,
       maxStoreMs: __eng.assets.maxStoreMs,
-      voice: __eng.voice ? __eng.voice.status() : null,
+      voice: __eng.voiceBox ? __eng.voiceBox.status() : null,
     };
   } catch (e) { /* never throws */ }
   return { ready: false, state: 'error' };

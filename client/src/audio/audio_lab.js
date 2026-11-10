@@ -713,7 +713,7 @@ function voiceClips(m) {
 // play one exact clip on the engine's voice bus (so the sliders and mute apply)
 function auditionClip(clip) {
   const E = audioInternals().engine;
-  const box = E && E.voice;
+  const box = E && E.voiceBox;
   if (!box) return;
   box.buffer(clip).then((buf) => { if (buf) box.start(buf, 1, 0); });
 }
@@ -774,7 +774,7 @@ async function voiceCheck() {
       bytes += size;
       rows.push({
         file: c.clip.f, type, bytes: size, dur: r2(buf.duration), manifestDur: c.clip.d, channels: buf.numberOfChannels,
-        peakDb: r1(toDb(st.peak)), rmsDb: r1(toDb(st.rms)), lufs: r1(loudness([ch], buf.sampleRate)), nan: st.nan,
+        peakDb: r1(toDb(st.peak)), rmsDb: r1(toDb(st.rms)), lufs: r1(loudness([ch], buf.sampleRate).integrated), nan: st.nan,
       });
     } catch (e) {
       failed.push({ file: c.clip.f, error: String(e && e.message || e) });

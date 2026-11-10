@@ -12,7 +12,9 @@
 // A VoiceBox belongs to one AudioEngine and plays through engine.bus.voice, so
 // the voice / master volumes, mute and the master chain all apply. Nothing is
 // fetched until load() (the engine calls it in idle time after the first user
-// gesture); clips are fetched and decoded on first need and kept decoded.
+// gesture). The acknowledgements (about a minute of audio) are then fetched
+// and decoded in the background, because a reply has to start at once;
+// announcer clips are fetched and decoded on first need. Decoded clips are kept.
 // Every method is guarded: without fetch, decodeAudioData or a running
 // context it does nothing, and it never throws.
 //
@@ -162,8 +164,9 @@ export class VoiceBox {
           if (!validManifest(m)) throw new Error('bad voice manifest');
           this.manifest = m;
           this.state = 'ready';
-          // the acknowledgements have to answer at once: fetch them ahead of need
-          later(() => { for (const g in m.ack) this.prefetch(m.ack[g]); }, PREFETCH_DELAY);
+          // the acknowledgements have to answer at once: fetch and decode them
+          // ahead of need (about a minute of audio in all)
+          later(() => { for (const g in m.ack) this.prefetch(m.ack[g], true); }, PREFETCH_DELAY);
           return true;
         })
         .catch(() => {
@@ -242,24 +245,31 @@ export class VoiceBox {
     return p;
   }
 
-  // fetch (not decode) a set of clips in the background, two at a time
-  prefetch(slots) {
+  // fetch a set of clips in the background, two at a time; with `decode` they
+  // are decoded as well, otherwise only the bytes are kept until first use
+  prefetch(slots, decode) {
     try {
-      for (const k in slots) for (const c of slots[k]) this.warm.push(c.f);
+      for (const k in slots) for (const c of slots[k]) this.warm.push({ f: c.f, decode: !!decode });
       this.pump();
     } catch (e) { /* best-effort */ }
   }
 
   pump() {
     while (this.warming < 2 && this.warm.length) {
-      const f = this.warm.shift();
-      if (this.bytes.has(f) || this.bufs.has(f) || this.pending.has(f) || this.bad.has(f)) continue;
+      const w = this.warm.shift();
+      const f = w.f;
+      if (this.bufs.has(f) || this.pending.has(f) || this.bad.has(f)) continue;
+      if (!w.decode && this.bytes.has(f)) continue;
       this.warming++;
       const done = () => { this.warming--; this.pump(); };
-      this.fetchBytes(f).then((ab) => {
-        if (!this.bufs.has(f) && !this.pending.has(f)) this.bytes.set(f, ab);
-        done();
-      }, done);
+      if (w.decode) {
+        this.buffer(w).then(done, done);
+      } else {
+        this.fetchBytes(f).then((ab) => {
+          if (!this.bufs.has(f) && !this.pending.has(f)) this.bytes.set(f, ab);
+          done();
+        }, done);
+      }
     }
   }
 
@@ -328,7 +338,7 @@ export class VoiceBox {
     const id = this.bankFor(req.faction);
     if (!id) return null;
     const bank = this.manifest.ann[id];
-    if (!this.warmed[id]) { this.warmed[id] = 1; later(() => this.prefetch(bank), PREFETCH_DELAY); }
+    if (!this.warmed[id]) { this.warmed[id] = 1; later(() => this.prefetch(bank, false), PREFETCH_DELAY); }
     let key = req.key;
     const type = req.detail && req.detail.type;
     if (key === 'built' && type && bank['built.' + type]) key = 'built.' + type;
@@ -485,10 +495,11 @@ export class VoiceBox {
           this.stats.last = clip.f;
         } catch (e) { /* ok */ }
       });
-      // the rest of this group's replies are likely next: decode them now
+      // this group's other replies are likely next: move them to the front of
+      // the queue if the background decode has not reached them yet
       if (!this.warmed['ack/' + group]) {
         this.warmed['ack/' + group] = 1;
-        later(() => { try { for (const ev in slots) for (const c of slots[ev]) this.buffer(c); } catch (e) { /* ok */ } }, 400);
+        try { for (const ev in slots) for (const c of slots[ev]) this.warm.unshift({ f: c.f, decode: true }); this.pump(); } catch (e) { /* ok */ }
       }
       return true;
     } catch (e) {

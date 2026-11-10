@@ -563,12 +563,12 @@ body.no-blur .main-hints { -webkit-backdrop-filter: none; backdrop-filter: none;
 :where(:root.vw-1560) .dtile-text .dtile-val { font-size: 1.3rem; letter-spacing: 0.02em; }
 
 /* was @media (max-height: 820px) — classes set by ui/scale.js from the scaled viewport */
-:where(:root.vh-820) .fac-tile { flex-direction: row; justify-content: flex-start; gap: .7rem; padding: .6rem .7rem; }
-:where(:root.vh-820) .fac-tile .crest-md { width: 3rem; height: 3rem; }
+:where(:root.vh-820) .fac-tile { flex-direction: row; justify-content: flex-start; gap: .6rem; padding: .6rem .6rem; }
+:where(:root.vh-820) .fac-tile .crest-md { width: 2.8rem; height: 2.8rem; }
 :where(:root.vh-820) .fac-ident { display: none; }
 /* row layout: the name shares the tile with the crest, so it eases down on
    narrow windows (PAKISTAN is the longest) instead of spilling out */
-:where(:root.vh-820) .fac-name { font-size: clamp(1.2rem, 1.02vw, 1.4rem); letter-spacing: 0.08em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:where(:root.vh-820) .fac-name { font-size: clamp(1.15rem, .96vw, 1.4rem); letter-spacing: 0.04em; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 :where(:root.vh-820) .dossier-title h2 { font-size: 2.2rem; }
 :where(:root.vh-820) .dossier-head .crest-lg { width: 5.2rem; height: 5.2rem; }
 :where(:root.vh-820) .brand-lg .brand-emblem { width: 6rem; height: 6rem; }
@@ -613,6 +613,7 @@ body.no-blur .main-hints { -webkit-backdrop-filter: none; backdrop-filter: none;
 
 /* was @media (max-height: 700px) — classes set by ui/scale.js from the scaled viewport */
 :where(:root.vh-700) .dossier-roster { display: none; }
+:where(:root.vh-700) .roe { display: none; }
 :where(:root.vh-700) .mp-card { padding: 1.6rem 1.8rem; }
 :where(:root.vh-700) .mp-card-ico { display: none; }
 :where(:root.vh-700) .room-code { padding: 1rem 1.4rem; }

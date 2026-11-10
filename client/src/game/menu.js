@@ -1308,6 +1308,9 @@ function showSettings(game, opts) {
       sizeNote.textContent = Settings.uiSizeNote();
       sec2.appendChild(sizeRow);
     }
+    sec2.appendChild(settingRow('Edge scrolling',
+      'Rest the pointer on a screen edge to move the view. Arrow keys, middle-drag and the minimap always work.',
+      switchEl(Settings.getEdgeScroll(), (on) => Settings.setEdgeScroll(game, on))));
     sec2.appendChild(settingRow('Frosted glass panels',
       'Blurs the battlefield behind HUD panels. Turn off to save GPU time on integrated graphics.',
       switchEl(Settings.getGlassBlur(), (on) => Settings.setGlassBlur(on))));

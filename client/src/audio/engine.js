@@ -528,12 +528,12 @@ export class AudioEngine {
     this.music = new MusicDirector(this, o);
     // pre-rendered voice clips: live contexts only; the manifest is fetched in
     // idle time, the clips on first need
-    this.voice = null;
+    this.voiceBox = null;
     if (!this.offline && typeof VoiceBox === 'function') {
       try {
-        this.voice = new VoiceBox(this);
-        whenIdle(() => { try { this.voice.load(); } catch (e) { /* ok */ } });
-      } catch (e) { this.voice = null; }
+        this.voiceBox = new VoiceBox(this);
+        whenIdle(() => { try { this.voiceBox.load(); } catch (e) { /* ok */ } });
+      } catch (e) { this.voiceBox = null; }
     }
     if (!this.offline) {
       this.assets.prewarm(['noise:pink', 'noise:brown', 'crackle']);
@@ -724,7 +724,7 @@ export class AudioEngine {
   mute(on) {
     this.muted = !!on;
     this.ramp(this.bus.master.gain, this.muted ? 0 : taper(this.vols.master), this.ctx.currentTime);
-    if (this.muted && this.voice) this.voice.stopAll();
+    if (this.muted && this.voiceBox) this.voiceBox.stopAll();
   }
 
   // ---- music ducking (sidechain-style, driven by events not by a detector) ---
@@ -1076,7 +1076,7 @@ export class AudioEngine {
   dispose() {
     this.halt();
     try { this.music.halt(0); } catch (e) { /* ok */ }
-    try { if (this.voice) this.voice.dispose(); } catch (e) { /* ok */ }
+    try { if (this.voiceBox) this.voiceBox.dispose(); } catch (e) { /* ok */ }
     for (const lp of this.loops.slice()) { try { lp.stop(); } catch (e) { /* ok */ } }
     try { this.bus.master.disconnect(); } catch (e) { /* ok */ }
     this.assets.dispose();

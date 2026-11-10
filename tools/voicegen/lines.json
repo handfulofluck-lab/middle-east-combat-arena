@@ -62,7 +62,7 @@
     ],
     "unit": [
       "New unit on the field.",
-      "Reinforcement deployed.",
+      "Reinforcements ready.",
       "Unit is ready for tasking."
     ],
     "harv": [
@@ -113,24 +113,24 @@
       "voice": "am_onyx", "lang": "en-us", "speed": 1.25,
       "lines": {
         "select": ["Crew ready.", "Engine's warm.", "Armor on the net.", "Driver set."],
-        "move": ["Rolling.", "Tracks turning.", "Advancing.", "Copy, repositioning."],
-        "attack": ["Target sighted.", "Gunner on target.", "Firing.", "Guns up, engaging."]
+        "move": ["Rolling.", "Tracks turning.", "Advancing.", "Moving up."],
+        "attack": ["Target sighted.", "Gunner on target.", "Firing.", "Engaging target."]
       }
     },
     "air": {
       "voice": "af_kore", "lang": "en-us", "speed": 1.12,
       "lines": {
         "select": ["Flight checking in.", "On station.", "Go for flight.", "Airborne and listening."],
-        "move": ["New heading, copy.", "Coming around.", "En route.", "Turning now."],
-        "attack": ["Tally target.", "Going in hot.", "Committing.", "Engaging from the air."]
+        "move": ["Copy, new heading.", "Coming around.", "En route.", "Turning now."],
+        "attack": ["Eyes on target.", "Going in hot.", "Committing.", "Engaging from the air."]
       }
     },
     "naval": {
-      "voice": "bm_daniel", "lang": "en-gb", "speed": 1.08,
+      "voice": "bm_lewis", "lang": "en-gb", "speed": 1.15,
       "lines": {
-        "select": ["Bridge here.", "Helm standing by.", "Ship ready.", "All stations manned."],
+        "select": ["Bridge here.", "Helm standing by.", "Ship ready.", "All hands ready."],
         "move": ["Coming about.", "Setting course.", "Helm answering.", "Making way."],
-        "attack": ["Guns bearing.", "Battle stations.", "Target locked, firing.", "Engaging contact."]
+        "attack": ["Guns bearing.", "Battle stations.", "Target locked.", "Firing now."]
       }
     },
     "support": {

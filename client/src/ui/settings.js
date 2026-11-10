@@ -48,6 +48,14 @@ export function applyGlassBlur() {
   }
 }
 
+// screen-edge scrolling (the renderer reads the same key when it starts)
+const K_EDGE = 'mca.edgePan';
+export function getEdgeScroll() { return lsGet(K_EDGE, '1') !== '0'; }
+export function setEdgeScroll(game, on) {
+  lsSet(K_EDGE, on ? '1' : '0');
+  if (game && game.gl) game.gl.edgePan = !!on;
+}
+
 // interface size (ui/scale.js owns the maths and applies itself on import)
 export const UI_SIZES = UI_SCALE_OPTIONS.map((o) => ({ id: o.id, label: o.label }));
 export function getUiSize() { return getUiScalePref(); }
