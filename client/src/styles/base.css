@@ -27,11 +27,11 @@
 /* HUD chrome grows more slowly than HUD text: the cameo tiles and the top bar
    are half fixed px, half rem (72 px / 48 px at scale 1, as before), floored
    at the size their labels need. On a 1080p monitor (scale 1.3) that keeps the
-   command panel and top bar within a few px of their old size while the text
-   is 30% larger. --mm follows the army panel above the minimap, which has to
+   command panel and top bar within ~8% of their old size while the text is
+   30% larger. --mm follows the army panel above the minimap, which has to
    fit three full-size fraction buttons. */
 :root:where(.vw-1560, .vh-880) {
-  --tile: max(6.4rem, calc(3.6rem + 36px)); --mm: 21.4rem; --hud-pad: 1.2rem;
+  --tile: max(6.8rem, calc(3.6rem + 36px)); --mm: 21.4rem; --hud-pad: 1.2rem;
   --top-h: max(4rem, calc(2.4rem + 24px));
 }
 
