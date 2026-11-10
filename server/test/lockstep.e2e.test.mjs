@@ -139,6 +139,7 @@ async function makePeer(tag, rngSeed, opts = {}) {
     state: null, ai: null, ls: null, slot: -1,
     desync: null, sent: [], sums: new Map(), trace: [], chat: [], byes: [], errors: [],
     hostLeft: null, closed: false, lobbies: 0, lost: 0, issued: 0, orders: [],
+    heard: [],            // every game message handed to this peer's scheduler, in order
     // drops: what this peer was told / decided
     drops: [], takeovers: [], declared: [], declaring: '', selfDropped: false,
     G: null, real: null, // main.js's game object and its real drop functions (bindMainJs)
@@ -168,11 +169,19 @@ async function makePeer(tag, rngSeed, opts = {}) {
       Net.sendLog(m.from, peer.ls.logSnapshot(m.fromTick || 0, peer.state.tick));
       return;
     }
+    peer.heard.push({ t: m.t, from: m.from, tick: m.tick, slot: m.slot, seq: m.seq, at: m.at });
     peer.ls.ingest(m);
   };
   Net.init(peer.game, {
     onLobby: () => { peer.lobbies++; },
     onStart: () => beginMatch(peer),
+    // main.js onPause (guests; the relay does not echo the host's own toggle)
+    onPause: fromNetwork((on) => {
+      const G = peer.G;
+      if (!G.state || G.state.over) return;
+      peer.paused = on;
+      if (!on && G.ls && G.ls.resume) { G.ls.resume(); G.mpStallSince = 0; G.mpStallSlots = ''; }
+    }),
     onChat: fromNetwork((from, text) => peer.chat.push({ from, text })),
     onGameMsg: (m) => {
       // Net.sendDrop echoes the host's own declaration into this hook: that is a
@@ -295,12 +304,15 @@ function mcvMove(peer, k, row = 3) {
   return { player: peer.slot, type: 'move', unitIds: [mcv.id], x: (sp.x + 2 + k) * 64 + 32, y: (sp.y + row) * 64 + 32 };
 }
 
+// Give an order; returns the tick the scheduler stamped it for.
 function issue(peer, cmd) {
-  const tick = peer.state.tick + peer.ls.getDelay();
+  const entry = peer.ls.issue(cmd);
+  assert.ok(entry, peer.tag + ' may give orders');
+  const wire = peer.sent[peer.sent.length - 1];
+  assert.ok(wire.t === 'cmd' && wire.seq === entry.seq, 'the order went out on the wire');
   peer.issued++;
-  peer.orders.push({ tick, cmd, key: JSON.stringify(cmd) });
-  peer.ls.issue(cmd);
-  return tick;
+  peer.orders.push({ tick: wire.tick, seq: wire.seq, cmd, key: JSON.stringify(cmd), issuedAt: peer.state.tick });
+  return wire.tick;
 }
 
 // Deterministic per-tick "human" input, keyed on the SIM tick (the same menu
@@ -403,7 +415,7 @@ async function drive(peers, done, { timeoutMs = 30000, maxSteps = MP_STEP_CAP, p
     for (const p of peers) {
       if (p.gone || p.frozen) continue;
       if (!paced) { frame(p, maxSteps); continue; }
-      p.acc += clockStep;
+      if (!p.paused) p.acc += clockStep; // (main.js: the accumulator only runs while unpaused)
       let steps = 0;
       while (p.acc >= TICK_MS && steps < MP_STEP_CAP) {
         if (!stepPeer(p)) break; // gate closed -- the accumulator holds
@@ -518,6 +530,48 @@ function releaseInbound(peer) {
 }
 
 function thaw(peer) { releaseInbound(peer); peer.frozen = false; }
+
+// The same, one queued message at a time, with `between()` after each (a peer
+// whose frames run in between two messages that left their sender together).
+function releaseStepwise(peer, between) {
+  peer.inboundHeld = false;
+  const queue = peer.inboundQueue;
+  peer.inboundQueue = [];
+  for (const fn of queue) { fn(); between(); }
+  return queue.length;
+}
+
+// Let `ms` of virtual time pass: every `step` ms the `running` peers get a
+// frame and the network settles (peers not listed stay exactly as they are).
+// `each()` returning false stops the clock there.
+async function elapse(running, all, ms, { step = 100, maxSteps = MP_STEP_CAP, each } = {}) {
+  const end = clock.t + ms;
+  while (clock.t < end) {
+    clock.t += Math.min(step, end - clock.t);
+    for (const p of all) arrive(p);
+    for (const p of running) frame(p, maxSteps);
+    await settle(all);
+    if (each && each() === false) return;
+  }
+}
+
+// Frames of ONE peer with nothing arriving in between (no network turn): what
+// that peer does while everybody else's answer is still on its way.
+function framesAlone(peer, frames, stepMs = 16) {
+  for (let i = 0; i < frames; i++) { clock.t += stepMs; frame(peer); }
+}
+
+// hud.js, pause button (host only): the host flips its own flag and tells the room
+function hostPause(host, on) {
+  assert.ok(host.Net.isHost);
+  host.paused = on;
+  host.Net.sendPause(on);
+}
+
+// the end-of-input marker a peer has declared, and the one another peer holds for it
+const marker = (peer) => peer.ls.debugState().eoiSent;
+const markerSeen = (peer, slot) => peer.ls.debugState().eoiFrom[slot];
+const holds = (peer, fromTick = 0) => peer.trace.filter((e) => e.gate === 'hold' && e.tick >= fromTick).length;
 
 // ticks on which this peer's simulation was handed exactly this command
 function appliedTicks(peer, cmd) {

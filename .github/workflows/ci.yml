@@ -34,10 +34,15 @@ jobs:
         run: npm run build
 
       - name: Simulation tests
-        run: npm test
+        run: npm run test:sim
+
+      # every map in the manifest: schema, deployability, economy, paths and
+      # a short AI-vs-AI smoke match
+      - name: Map validation
+        run: node tools/mapgen/validate.mjs --ci
 
       # Relay protocol, static hosting, payments (against a local Stripe mock)
       # and headless lockstep matches through the real relay. No secrets and
       # no network access are needed; listens on 127.0.0.1:8800-8899 only.
       - name: Server tests
-        run: node --test server/test/
+        run: npm run test:server
