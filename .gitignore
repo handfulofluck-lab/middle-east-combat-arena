@@ -9,3 +9,7 @@ tools/edgeprof-*/
 
 NEW MCA/
 review_v035/
+
+node_modules/
+dist/web/
+.vite/
