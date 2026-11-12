@@ -1563,8 +1563,8 @@ export function showMpSetup(game, onStart) {
   reset.addEventListener('click', () => { url.value = defUrl; lsSet(K_MP_RELAY, ''); });
   advBody.appendChild(reset);
   advBody.appendChild(h('p', 'mp-note',
-    'Matches run in lockstep through a lightweight relay. Self-hosting on a LAN? Run '
-    + 'tools/mca_relay.py --port 8790 on the host PC and enter ws://<host-ip>:8790 here.'));
+    'Matches run in lockstep through a lightweight relay, which the game server includes. Playing on a LAN? '
+    + 'Start the game on the host PC (START_GAME.bat or npm start) and enter ws://<host-ip>:8790 here.'));
   adv.appendChild(advBody);
   if (lsGet(K_MP_RELAY, '')) adv.open = true;
   wrap.appendChild(adv);

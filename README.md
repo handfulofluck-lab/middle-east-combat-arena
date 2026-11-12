@@ -118,6 +118,13 @@ Runs three suites:
 - [docs/ONLINE.md](docs/ONLINE.md) — running the server, deploying it (Docker, Render, Fly), or hosting the client statically and pointing it at a relay.
 - [docs/MONETIZATION.md](docs/MONETIZATION.md) — the built-in Founder's Pass flow (Stripe Checkout + signed licence keys), paywall modes, and what you need to supply before taking money.
 
-## Earlier builds
+## Older tooling
 
-`dist/MCA-Argon.html` and `dist/MCA_Reference.html` are single-file builds from earlier iterations of the project, kept for reference. The Python scripts under `tools/` belong to that earlier 2D pipeline.
+A few Python scripts remain under `tools/` from before the Node toolchain:
+
+- `run_tests.py`, `test_sim_fixes.py`, `test_upgrades.py`, `test_transports.py`, `test_airsystems.py`, `test_deploy.py`, `run_qa.py` — further simulation tests that run the real sim modules in an embedded V8 (`pip install mini-racer`). They pass against the current simulation but are not part of `npm test` or CI.
+- `test_net.py` — the original `net.js` driver; `npm run test:server` runs its checks from Node.
+- `mca_relay.py`, `test_relay.py` — the original Python relay, still wire-compatible (see [docs/ONLINE.md](docs/ONLINE.md)).
+- `export_data.py` — regenerates `client/data/game.json` from `attachments/stat_sheet.xlsx`; `attachments/` holds the original design documents.
+
+Earlier single-file builds of the game are in the repository history, not in the tree.

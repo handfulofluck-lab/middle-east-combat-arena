@@ -205,7 +205,6 @@ export function getGame() {
 }
 
 async function loadData() {
-  // BUILD-INLINE-DATA-BEGIN (tools/build_singlefile.py replaces this block)
   let done = 0, total = 2;
   const get = (u) => fetch(u).then((r) => {
     if (!r.ok) throw new Error('fetch ' + u + ': ' + r.status);
@@ -225,7 +224,6 @@ async function loadData() {
   const art = cfg.artPack ? await quiet('assets/art.json') : {};
   const unitart = cfg.artPack ? await quiet('assets/unitart.json') : {};
   return { data, maps, art, unitart };
-  // BUILD-INLINE-DATA-END
 }
 
 // ---- boot screen + battlefield veil ----------------------------------------

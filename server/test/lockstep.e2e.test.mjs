@@ -289,8 +289,7 @@ function issue(peer, cmd) {
   return wire.tick;
 }
 
-// Deterministic per-tick "human" input, keyed on the SIM tick (the same menu
-// as tools/test_lockstep.py): move the MCV, deploy it, queue + place a power
+// Deterministic per-tick "human" input, keyed on the SIM tick: move the MCV, deploy it, queue + place a power
 // plant, then periodic stance / production orders.
 function runScript(peer) {
   const st = peer.state;

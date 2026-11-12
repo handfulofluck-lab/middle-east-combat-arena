@@ -138,7 +138,7 @@ export const Net = {
     this.ws = ws;
     ws.onopen = () => { onOpen(); };
     ws.onerror = () => {
-      if (!this.active) onFail('Could not reach relay at ' + url + ' -- is tools/mca_relay.py running?');
+      if (!this.active) onFail('Could not reach relay at ' + url + ' -- is the game server running there?');
     };
     ws.onclose = () => {
       const wasActive = this.active;
