@@ -281,6 +281,52 @@ function tAiSmoke(data, duel) {
   return [ok, `tick=${state.tick} over=${state.over} eliminated=${elim} unitsBuilt=${built}`];
 }
 
+// Ceasefire (match option peaceTicks): until it ends nobody can be attacked,
+// by order, by auto-acquire or by a strike; afterwards combat is normal.
+function tCeasefire(data, duel) {
+  const PEACE = 300;
+  const mk = () => Sim.createMatch({
+    data, map: duel, seed: 4242, options: { peaceTicks: PEACE },
+    players: [{ slot: 0, faction: 'Egypt' }, { slot: 1, faction: 'Algeria' }],
+  });
+  const state = mk();
+  if (!Sim.inPeace(state) || Sim.peaceTicksLeft(state) !== PEACE) return [false, 'peace not armed at tick 0'];
+  const kor = Sim.addUnit(state, 'EG-02', 0, 30 * 64 + 32, 60 * 64 + 32); // Kornet team
+  const t90 = Sim.addUnit(state, 'DZ-07', 1, kor.x + 300, kor.y);          // T-90SA, in range
+  const hp0 = t90.hp, khp0 = kor.hp;
+  // an explicit attack order is rejected, and nothing auto-acquires
+  const order = { player: 0, type: 'attackTarget', unitIds: [kor.id], targetId: t90.id };
+  const v = Sim.validateCommand(state, order);
+  Sim.tick(state, [order]);
+  const sw = Sim.validateCommand(state, { player: 0, type: 'useSuperweapon', x: t90.x, y: t90.y });
+  while (state.tick < PEACE - 1) Sim.tick(state);
+  const quiet = state.units[t90.id] && state.units[t90.id].hp === hp0
+    && state.units[kor.id] && state.units[kor.id].hp === khp0;
+  const stillPeace = Sim.inPeace(state);
+  // after the timer the same two units fight on their own
+  for (let i = 0; i < 1500 && state.units[t90.id] && state.units[kor.id]; i++) Sim.tick(state);
+  const fought = !state.units[t90.id] || !state.units[kor.id]
+    || state.units[t90.id].hp < hp0 || state.units[kor.id].hp < khp0;
+  // AI players hold their waves during the ceasefire and the run stays deterministic
+  const run = () => {
+    const cfgs = [{ personality: 'Front', difficulty: 'veteran' }, { personality: 'Front', difficulty: 'veteran' }];
+    const players = [{ slot: 0, faction: 'Egypt', ai: cfgs[0] }, { slot: 1, faction: 'Israel', ai: cfgs[1] }];
+    const st = Sim.createMatch({ data, map: duel, seed: 99, players, options: { peaceTicks: 1800 } });
+    const ai = Sim.createAI(players, 99);
+    let lostInPeace = 0;
+    for (let t = 0; t < 2600 && !st.over; t++) {
+      Sim.tick(st, Sim.aiCommands(st, ai));
+      if (st.tick === 1800) lostInPeace = st.players.reduce((n, p) => n + p.unitsLost + p.structsLost, 0);
+    }
+    return { lostInPeace, sum: Sim.checksum(st), built: st.players.reduce((n, p) => n + p.unitsBuilt, 0) };
+  };
+  const r1 = run(), r2 = run();
+  const ok = v.ok === false && sw.ok === false && sw.reason === 'peace' && quiet && stillPeace && fought
+    && r1.lostInPeace === 0 && r1.built > 0 && r1.sum === r2.sum;
+  return [ok, `attack order ok=${v.ok} (${v.reason}), strike reason=${sw.reason}, untouched during peace=${quiet}, `
+    + `fought after=${fought}, AI losses during peace=${r1.lostInPeace}, units built=${r1.built}, deterministic=${r1.sum === r2.sum}`];
+}
+
 // ---- runner -----------------------------------------------------------------
 
 export function runAll(data, duel, coast) {
@@ -294,6 +340,7 @@ export function runAll(data, duel, coast) {
     ['superweapon-intercept', () => tSuperweaponIntercept(data, duel)],
     ['elimination', () => tElimination(data, duel)],
     ['ai-smoke', () => tAiSmoke(data, duel)],
+    ['ceasefire', () => tCeasefire(data, duel)],
   ];
   for (const [name, fn] of cases) {
     try {

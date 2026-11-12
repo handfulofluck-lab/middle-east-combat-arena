@@ -1,0 +1,145 @@
+{
+  "_readme": [
+    "Line table for tools/voicegen/generate.py. Edit the text here, then regenerate (see README.md).",
+    "announcers: one bank per entry; every bank speaks all of announcer_lines. 'factions' picks the bank a",
+    "faction hears (anything unlisted gets default_announcer).",
+    "announcer_lines keys are the playVoice() keys of client/src/game/audio.js; 'built.<Type>' are the",
+    "per-structure-type variants of 'built' (types from client/data/game.json).",
+    "units: one radio operator per group; events are select / move / attack. Keep acknowledgements to a",
+    "few words: the finished clip (with its squelch tail) must stay inside limits.ack_seconds.",
+    "A line is either a string or { \"text\": shown/fallback text, \"say\": respelling fed to the TTS }."
+  ],
+
+  "model": "kokoro-v1.0",
+  "format": { "codec": "mp3", "sample_rate": 24000, "announcer_kbps": 48, "ack_kbps": 32 },
+  "loudness": { "target_lufs": -16.0, "tolerance_lu": 0.6, "peak_ceiling_dbfs": -1.0 },
+  "limits": { "ack_seconds": [0.4, 1.4], "announcer_seconds": [0.6, 4.0], "total_bytes": 2500000 },
+
+  "default_announcer": "a",
+  "announcers": {
+    "a": { "voice": "af_heart", "lang": "en-us", "speed": 1.0,
+           "factions": ["Saudi", "UAE", "Israel"] },
+    "b": { "voice": "bf_emma", "lang": "en-gb", "speed": 1.0,
+           "factions": ["Egypt", "Algeria", "Turkey"] },
+    "c": { "voice": "bm_george", "lang": "en-gb", "speed": 1.0,
+           "factions": ["India", "Pakistan", "Iran"] }
+  },
+
+  "announcer_lines": {
+    "online": [
+      "Command link established.",
+      "Field headquarters is online.",
+      "Command network is up. All stations report ready."
+    ],
+    "built": [
+      "Structure operational.",
+      "New facility is up and running.",
+      "Engineers report the build is finished."
+    ],
+    "built.Core": [
+      "Headquarters established.",
+      "Command center is operational."
+    ],
+    "built.Eco": [
+      "Resource facility operational.",
+      "Utilities are on line."
+    ],
+    "built.Prod": [
+      "Production facility ready.",
+      "Production line is open."
+    ],
+    "built.Def": [
+      "Defensive position ready.",
+      "Defenses are in place."
+    ],
+    "built.Tech": [
+      "Technology center operational.",
+      "Research wing is open."
+    ],
+    "built.SW": [
+      "Strategic weapons facility is ready.",
+      "Strategic site operational."
+    ],
+    "unit": [
+      "New unit on the field.",
+      "Reinforcements ready.",
+      "Unit is ready for tasking."
+    ],
+    "harv": [
+      "Harvester deployed.",
+      "Harvester is heading for the oil field.",
+      "Oil convoy is rolling."
+    ],
+    "attack": [
+      "Warning. Our base is taking fire.",
+      "Alert. Enemy forces are attacking our position.",
+      "We are under assault. Defend the base."
+    ],
+    "lost": [
+      "We have lost a unit.",
+      "Friendly unit down.",
+      "Unit destroyed."
+    ],
+    "structLost": [
+      "Structure destroyed.",
+      "We have lost a building.",
+      "Facility down."
+    ],
+    "captured": [
+      "Structure seized.",
+      "The building is now under our control.",
+      "Capture successful."
+    ],
+    "peaceStart": [
+      "Ceasefire in effect. Hold your fire.",
+      "A ceasefire is now in effect."
+    ],
+    "peaceEnd": [
+      "Ceasefire has ended. Weapons free.",
+      "The ceasefire is over. Weapons free."
+    ]
+  },
+
+  "units": {
+    "infantry": {
+      "voice": "am_fenrir", "lang": "en-us", "speed": 1.12,
+      "lines": {
+        "select": ["Squad here.", "Rifles ready.", "Go ahead, command.", "Send it."],
+        "move": ["Stepping off.", "On the move.", "Shifting position.", "Copy, relocating."],
+        "attack": ["Contact, engaging.", "Rifles up.", "Taking them on.", "Opening fire."]
+      }
+    },
+    "vehicle": {
+      "voice": "am_onyx", "lang": "en-us", "speed": 1.25,
+      "lines": {
+        "select": ["Crew ready.", "Engine's warm.", "Armor on the net.", "Driver set."],
+        "move": ["Rolling.", "Tracks turning.", "Advancing.", "Moving up."],
+        "attack": ["Target sighted.", "Gunner on target.", "Firing.", "Engaging target."]
+      }
+    },
+    "air": {
+      "voice": "af_kore", "lang": "en-us", "speed": 1.12,
+      "lines": {
+        "select": ["Flight checking in.", "On station.", "Go for flight.", "Airborne and listening."],
+        "move": ["Copy, new heading.", "Coming around.", "En route.", "Turning now."],
+        "attack": ["Eyes on target.", "Going in hot.", "Committing.", "Engaging from the air."]
+      }
+    },
+    "naval": {
+      "voice": "bm_lewis", "lang": "en-gb", "speed": 1.15,
+      "lines": {
+        "select": ["Bridge here.", "Helm standing by.", "Ship ready.", "All hands ready."],
+        "move": ["Coming about.", "Setting course.", "Helm answering.", "Making way."],
+        "attack": ["Guns bearing.", "Battle stations.", "Target locked.", "Firing now."]
+      }
+    },
+    "support": {
+      "voice": "am_michael", "lang": "en-us", "speed": 1.1,
+      "lines": {
+        "select": ["Support team here.", "Tools ready.", "What's the task?", "Crew listening."],
+        "move": ["Heading over.", "On our way.", "Relocating.", "Moving the rig."],
+        "attack": ["On the job.", "We'll handle it.", "Going in.", "Starting work."]
+      }
+    }
+  }
+}

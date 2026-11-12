@@ -1,0 +1,76 @@
+name: Deploy client to GitHub Pages
+
+# Manual only (Actions tab -> "Deploy client to GitHub Pages" -> Run workflow),
+# so a repository without Pages enabled never gets a red push.
+#
+# One-time setup: Settings -> Pages -> Build and deployment -> Source:
+# "GitHub Actions". See docs/ONLINE.md, "Static hosting".
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: >-
+          URL of your MCA server (e.g. https://mca.example.com). Its settings
+          (relay, store, paywall) are baked into config.js. Leave empty for a
+          single-player-only build.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# never cancel a deployment half way; queue the next one instead
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the client
+        run: npm run build
+
+      - name: Point config.js at the server
+        if: ${{ inputs.server_url != '' }}
+        env:
+          SERVER_URL: ${{ inputs.server_url }}
+        run: node server/static-config.mjs dist/web/config.js --server "$SERVER_URL"
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/web
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,5 +1,15 @@
 {
   "maps": [
+    "bab_al_rih",
+    "serpent_siq",
+    "corsair_coast",
+    "scorpion_flats",
+    "qalat_nusur",
+    "reedwater",
+    "lantern_strait",
+    "kurgan_line",
+    "crown_of_salt",
+    "sea_of_dunes",
     "sinai",
     "jerusalem",
     "arabia",
@@ -23,5 +33,17 @@
     "zagros_pass",
     "kyzylkum_steppe",
     "arabian_sea_convoy"
+  ],
+  "mapgen_v3_maps": [
+    "bab_al_rih",
+    "serpent_siq",
+    "corsair_coast",
+    "scorpion_flats",
+    "qalat_nusur",
+    "reedwater",
+    "lantern_strait",
+    "kurgan_line",
+    "crown_of_salt",
+    "sea_of_dunes"
   ]
 }

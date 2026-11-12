@@ -1,0 +1,65 @@
+/* MCA design tokens — the single source of truth for the visual identity.
+   Every stylesheet and every DOM-building module reads these variables. */
+:root {
+  /* surfaces */
+  --ink-0: #05070a;
+  --ink-1: #0a0d12;
+  --ink-2: #10151c;
+  --ink-3: #18202a;
+  --ink-4: #232d3a;
+  --glass: rgba(11, 15, 21, 0.72);
+  --glass-strong: rgba(9, 12, 17, 0.88);
+  --glass-soft: rgba(14, 19, 27, 0.5);
+  --hairline: rgba(255, 255, 255, 0.08);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+
+  /* brand: brass / desert gold */
+  --gold: #e9b872;
+  --gold-hi: #ffdca6;
+  --gold-lo: #a9793a;
+  --gold-glow: rgba(233, 184, 114, 0.35);
+
+  /* signal colours */
+  --cyan: #5fe3d0;        /* friendly, selection, confirm */
+  --cyan-glow: rgba(95, 227, 208, 0.35);
+  --red: #ff5a3c;         /* hostile, damage, deny */
+  --red-glow: rgba(255, 90, 60, 0.4);
+  --amber: #ffb347;       /* warning, low power */
+  --green: #7ee081;       /* healthy, income */
+  --blue: #6aa8ff;        /* info, allied */
+
+  /* text */
+  --text: #eef2f6;
+  --text-dim: #a8b3c0;
+  --text-mute: #8b96a5;
+
+  /* type */
+  --font-display: 'Rajdhani', 'Bahnschrift', 'DIN Alternate', 'Segoe UI', system-ui, sans-serif;
+  --font-body: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Cascadia Mono', Consolas, monospace;
+
+  /* shape + motion */
+  --r-sm: 3px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --chamfer: 1rem;
+  --blur: 14px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 120ms;
+  --t-med: 240ms;
+  --t-slow: 520ms;
+
+  /* elevation */
+  --shadow-1: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-2: 0 12px 40px rgba(0, 0, 0, 0.6);
+
+  /* layers (the WebGL canvas sits at 2, HUD above, menus above that) */
+  --z-world: 2;
+  --z-overlay: 4;
+  --z-hud: 10;
+  --z-cine: 30;
+  --z-menu: 40;
+  --z-modal: 60;
+  --z-toast: 80;
+}

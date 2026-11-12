@@ -170,8 +170,16 @@ function think(state, b, p, cmds) {
     const order = ['SH-02', 'SH-03', 'SH-04', 'SH-05'];
     if (b.doctrine === 'sky') order.push('SH-06', 'SH-11');
     order.push('SH-08');
-    // naval on wet maps (v0.3.2): yard after tech, then ships from it
-    if (mapHasWater(state)) order.push('SH-07');
+    // naval on wet maps (v0.3.2): yard after tech, then ships from it.
+    // v1.0: only when a yard can actually be placed near this base. Before,
+    // an unplaceable yard nulled the next build item on every think, so
+    // everything after it in the order (SAM sites, defences, superweapon,
+    // the spare power plant) was never built on maps with distant water.
+    if (mapHasWater(state) && (hasOrQueued('SH-07')
+        || findPlacement(state, p.slot, state.structDefs['SH-07'],
+          anchorCell.x, anchorCell.y, 10))) {
+      order.push('SH-07');
+    }
     if (b.doctrine === 'fortress') {
       const def = data.structures.find((s) => s.type === 'Def' && s.faction === p.faction);
       const sw = data.structures.find((s) => s.type === 'SW' && s.faction === p.faction);
@@ -184,11 +192,6 @@ function think(state, b, p, cmds) {
     if (p.lowPower && !p.buildQueue.some((q) => q.structId === 'SH-02')
         && !p.ready.includes('SH-02')) {
       next = 'SH-02';
-    }
-    if (next === 'SH-07'
-        && !findPlacement(state, p.slot, state.structDefs['SH-07'],
-          anchorCell.x, anchorCell.y, 10)) {
-      next = null; // no legal water-adjacent spot near the base — skip
     }
     if (next) {
       const cmd = { player: p.slot, type: 'buildStructure', structId: next };
@@ -239,6 +242,14 @@ function think(state, b, p, cmds) {
 
   // 5. attack waves every ~60-90s at the nearest enemy base; the two cheapest
   // combat units always stay home on guard
+  // Ceasefire: no waves and no strikes. The first wave leaves a little after
+  // it ends, staggered by slot so every AI does not march on the same tick.
+  const peace = state.tick < state.peaceUntil;
+  if (peace) {
+    const first = state.peaceUntil + 150 + p.slot * 40;
+    if (b.waveNext < first) b.waveNext = first;
+    return;
+  }
   if (state.tick >= b.waveNext) {
     b.waveNext = state.tick
       + Math.round((WAVE_BASE + b.rng.int(WAVE_SPREAD + 1)) * b.waveMult);

@@ -1,0 +1,11 @@
+{
+  "name": "MCA — Middle East Combat Arena",
+  "short_name": "MCA",
+  "description": "Real-time strategy in the browser: nine factions, land, air and naval warfare, skirmish and online multiplayer.",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#05070a",
+  "theme_color": "#0a0d12",
+  "icons": [{ "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

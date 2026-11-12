@@ -1,420 +1,75 @@
-// In-engine cinematics (v0.11.0). No video files: the menu flyby has its own
-// small Three scene/canvas; the match intro and victory/defeat sequences drive
-// the real 3D camera and add temporary scene effects. Render-side only.
-import { focusGl, setCinematicReveal } from './gl.js';
+// In-engine cinematics. Nothing here is pre-rendered: the title sequence and
+// the menu backdrop are a live AI-vs-AI battle filmed by an automatic
+// director, the match intro is a keyframed flyover of the real battlefield,
+// and the outro orbits the final scene. All of it drives the one renderer.
+import * as Sim from '../sim/index.js';
+import { initGl, setWorld, updateCamera, wuToX, wuToZ } from '../gfx/engine.js';
+import { CELL, S, clamp, lerp, damp, angleDelta, mulberry32 } from '../gfx/util.js';
+import * as Audio from './audio.js';
+import '../styles/cine.css';
 
-const CELL = 64;
-const S = 2;
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const lerp = (a, b, t) => a + (b - a) * t;
 const smooth = (t) => { const x = clamp(t, 0, 1); return x * x * (3 - 2 * x); };
-const nowMs = () => (globalThis.performance && globalThis.performance.now)
-  ? globalThis.performance.now() : Date.now();
-
-function h01(n) {
-  let x = Math.imul(n | 0, 374761393) + 668265263;
-  x = Math.imul(x ^ (x >>> 13), 1274126177);
-  return ((x ^ (x >>> 16)) >>> 0) / 4294967296;
-}
-
-function mat(color, opts = {}) {
-  const T = globalThis.THREE;
-  return new T.MeshStandardMaterial({
-    color, roughness: opts.rough === undefined ? 0.82 : opts.rough,
-    metalness: opts.metal === undefined ? 0.08 : opts.metal,
-    flatShading: !!opts.flat, transparent: !!opts.transparent,
-    opacity: opts.opacity === undefined ? 1 : opts.opacity,
-    side: opts.side || T.FrontSide,
-  });
-}
-
-function mesh(parent, geo, material, x, y, z) {
-  const T = globalThis.THREE;
-  const m = new T.Mesh(geo, material);
-  m.position.set(x || 0, y || 0, z || 0);
-  parent.add(m);
-  return m;
-}
-
-function box(parent, w, h, d, material, x, y, z) {
-  const T = globalThis.THREE;
-  return mesh(parent, new T.BoxGeometry(w, h, d), material, x, y, z);
-}
+const ease = (t) => { const x = clamp(t, 0, 1); return 1 - Math.pow(1 - x, 3); };
+const audio = (fn, ...a) => { try { if (typeof Audio[fn] === 'function') return Audio[fn](...a); } catch (e) { /* audio is optional */ } return undefined; };
 
 // ---------------------------------------------------------------------------
-// init + overlay plumbing
+// overlay DOM
 // ---------------------------------------------------------------------------
+function el(tag, cls, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
 
+function ensureDom(c) {
+  if (c.dom) return c.dom;
+  const root = el('div', 'cine hidden');
+  root.id = 'cine';
+  const title = el('div', 'cine-title', `
+    <div class="cine-title-rule"></div>
+    <div class="cine-logo" aria-label="MCA"><span>M</span><span>C</span><span>A</span></div>
+    <div class="cine-logo-sub">MIDDLE EAST COMBAT ARENA</div>
+    <div class="cine-title-rule"></div>
+    <div class="cine-prompt">PRESS ANY KEY</div>`);
+  const card = el('div', 'cine-card', `
+    <div class="cine-kicker"></div>
+    <div class="cine-h1"></div>
+    <div class="cine-h2"></div>`);
+  const verdict = el('div', 'cine-verdict', '<div class="cine-verdict-text"></div><div class="cine-verdict-sub"></div>');
+  const skip = el('div', 'cine-skip', '<kbd>SPACE</kbd> SKIP');
+  root.append(title, card, verdict, skip);
+  document.body.appendChild(root);
+  c.dom = { root, title, card, verdict, skip };
+  return c.dom;
+}
+
+function show(node, on) { node.classList.toggle('on', !!on); }
+
+// ---------------------------------------------------------------------------
+// init
+// ---------------------------------------------------------------------------
 export function initCinematics(game) {
   if (game.cinema && game.cinema._installed) return game.cinema;
-  const cinema = game.cinema || {};
-  cinema._installed = true;
-  cinema.active = false;
-  cinema.kind = null;
-  cinema.menu = null;
-  cinema.skip = () => skipCinematic(game);
-  game.cinema = cinema;
-
-  const overlay = document.getElementById('cinematic');
-  if (overlay && overlay.addEventListener) {
-    overlay.addEventListener('pointerdown', (e) => {
-      if (!cinema.active) return;
-      if (e.preventDefault) e.preventDefault();
+  const c = game.cinema || {};
+  Object.assign(c, {
+    _installed: true, active: false, kind: null, t: 0, holdSim: false,
+    menu: { active: false }, attract: null, director: null, onDone: null,
+    letterbox: 0, fade: 0, fadeTarget: 0, letterTarget: 0,
+  });
+  game.cinema = c;
+  if (typeof document !== 'undefined') {
+    ensureDom(c);
+    const skipNow = (e) => {
+      if (!c.active) return;
+      if (c.kind === 'title') { if (c.t > 1.2) finishTitle(game); return; }
+      if (e && e.type === 'keydown' && !(e.code === 'Space' || e.code === 'Escape' || e.code === 'Enter')) return;
       skipCinematic(game);
-    });
+    };
+    window.addEventListener('keydown', skipNow, true);
+    c.dom.root.addEventListener('pointerdown', skipNow);
   }
-  if (globalThis.addEventListener) {
-    globalThis.addEventListener('keydown', (e) => {
-      if (!cinema.active) return;
-      if (e.preventDefault) e.preventDefault();
-      if (e.stopPropagation) e.stopPropagation();
-      skipCinematic(game);
-    }, true);
-  }
-  return cinema;
-}
-
-function overlayEls() {
-  return {
-    root: document.getElementById('cinematic'),
-    kicker: document.getElementById('cine-kicker'),
-    title: document.getElementById('cine-title'),
-    sub: document.getElementById('cine-sub'),
-    vs: document.getElementById('cine-vs'),
-    skip: document.getElementById('cine-skip'),
-  };
-}
-
-function showOverlay(kind, info) {
-  const e = overlayEls();
-  if (!e.root) return;
-  if (document.body && document.body.classList) document.body.classList.add('cinematic');
-  e.root.className = 'show ' + kind;
-  if (e.kicker) e.kicker.textContent = info.kicker || '';
-  if (e.title) e.title.textContent = info.title || '';
-  if (e.sub) e.sub.textContent = info.sub || '';
-  if (e.vs) e.vs.textContent = info.vs || '';
-  if (e.skip) {
-    e.skip.textContent = info.skipText || 'Click or press any key to skip';
-    e.skip.className = 'cine-skip';
-  }
-}
-
-function hideOverlay() {
-  const e = overlayEls();
-  if (e.root) e.root.className = '';
-  if (document.body && document.body.classList) document.body.classList.remove('cinematic');
-}
-
-// ---------------------------------------------------------------------------
-// camera helpers
-// ---------------------------------------------------------------------------
-
-function saveCamera(gl) {
-  return {
-    fx: gl.focus.x, fz: gl.focus.z,
-    yaw: gl.yaw, pitch: gl.pitch, dist: gl.dist,
-  };
-}
-
-function setCamera(game, fx, fz, dist, yaw, pitch) {
-  const gl = game.gl;
-  if (!gl) return;
-  const wx = (fx / S + gl.mapW / 2) * CELL;
-  const wy = (fz / S + gl.mapH / 2) * CELL;
-  focusGl(game, wx, wy, dist, yaw, pitch);
-}
-
-function restoreCamera(game, cam) {
-  if (!cam) return;
-  setCamera(game, cam.fx, cam.fz, cam.dist, cam.yaw, cam.pitch);
-}
-
-function baseFocus(game) {
-  const st = game.state;
-  const gl = game.gl;
-  const slot = game.playerSlot || 0;
-  if (st) {
-    for (const id in st.structures) {
-      const s = st.structures[id];
-      if (s.owner === slot && s.defId === 'SH-01') {
-        const cx = s.cx + s.fp / 2;
-        const cy = s.cy + s.fp / 2;
-        return { fx: (cx - st.map.w / 2) * S, fz: (cy - st.map.h / 2) * S };
-      }
-    }
-    const sp = st.map.spawns[slot % st.map.spawns.length];
-    if (sp) {
-      return {
-        fx: (sp.x + 0.5 - st.map.w / 2) * S,
-        fz: (sp.y + 0.5 - st.map.h / 2) * S,
-      };
-    }
-  }
-  if (gl) return { fx: gl.focus.x, fz: gl.focus.z };
-  return { fx: 0, fz: 0 };
-}
-
-function disposeGroup(root) {
-  root.traverse((o) => {
-    if (o.geometry) o.geometry.dispose();
-    if (o.material && !o.material.__shared) o.material.dispose();
-  });
-  if (root.parent) root.parent.remove(root);
-}
-
-// ---------------------------------------------------------------------------
-// battle intro flyover (4s, skippable)
-// ---------------------------------------------------------------------------
-
-export function playIntro(game, info, onDone) {
-  const gl = game.gl;
-  if (!gl) { if (onDone) onDone(); return; }
-  const c = initCinematics(game);
-  if (c.active) finishActive(game, true);
-  c.active = true;
-  c.kind = 'intro';
-  c.t = 0;
-  c.duration = 4.0; // rendered seconds (main caps dt at 250 ms/frame)
-  c.onDone = onDone || null;
-  c.normal = saveCamera(gl);
-  const span = Math.max(gl.mapW, gl.mapH) * S;
-  c.start = {
-    fx: 0, fz: 0, dist: Math.min(360, span * 1.05),
-    yaw: c.normal.yaw + 2.25, pitch: 1.30,
-  };
-  c.mid = {
-    fx: c.normal.fx + 7, fz: c.normal.fz + 8, dist: 92,
-    yaw: c.normal.yaw + 0.85, pitch: 0.92,
-  };
-  if (typeof setCinematicReveal === 'function') setCinematicReveal(game, true);
-  showOverlay('intro', {
-    kicker: 'Operation ' + (info.mapName || 'Desert'),
-    title: info.faction || 'MCA',
-    sub: 'Deployment — ' + (info.mapName || 'Desert'),
-    vs: info.vs || '',
-    skipText: 'Click or press any key to skip',
-  });
-  setCamera(game, c.start.fx, c.start.fz, c.start.dist, c.start.yaw, c.start.pitch);
-}
-
-function updateIntro(game, dt) {
-  const c = game.cinema;
-  if (!c || c.kind !== 'intro') return;
-  c.t += clamp(dt, 0, 0.5);
-  const u = clamp(c.t / c.duration, 0, 1);
-  let a, b, k;
-  if (u < 0.62) {
-    a = c.start; b = c.mid; k = smooth(u / 0.62);
-  } else {
-    a = c.mid; b = c.normal; k = smooth((u - 0.62) / 0.38);
-  }
-  setCamera(game,
-    lerp(a.fx, b.fx, k), lerp(a.fz, b.fz, k),
-    lerp(a.dist, b.dist, k),
-    lerp(a.yaw, b.yaw, k), lerp(a.pitch, b.pitch, k));
-  if (u >= 1) finishActive(game, false);
-}
-
-// ---------------------------------------------------------------------------
-// victory / defeat (3s)
-// ---------------------------------------------------------------------------
-
-export function playOutro(game, info, onDone) {
-  const gl = game.gl;
-  if (!gl) { if (onDone) onDone(); return; }
-  const c = initCinematics(game);
-  if (c.active) finishActive(game, true);
-  c.active = true;
-  c.kind = 'outro';
-  c.t = 0;
-  c.duration = 3.0;
-  c.onDone = onDone || null;
-  c.normal = saveCamera(gl);
-  const b = baseFocus(game);
-  c.base = b;
-  c.won = !!info.won;
-  const T = globalThis.THREE;
-  const group = new T.Group();
-  gl.scene.add(group);
-  c.group = group;
-  let light;
-  if (c.won) {
-    light = new T.PointLight(0xffc75a, 2.4, 34, 2);
-    light.position.set(b.fx, 4.5, b.fz);
-    gl.scene.add(light);
-    c.light = light;
-    // confetti: one instanced draw call
-    const n = 90;
-    const geo = new T.BoxGeometry(0.14, 0.34, 0.05);
-    const m = new T.MeshBasicMaterial({ color: 0xffffff });
-    const im = new T.InstancedMesh(geo, m, n);
-    const colors = [new T.Color(0xffd76a), new T.Color(0xfff2c4),
-      new T.Color(0xd9a63a), new T.Color(0xffffff)];
-    const pieces = [];
-    for (let i = 0; i < n; i++) {
-      const a = h01(i * 3 + 1) * Math.PI * 2;
-      const r = 1 + h01(i * 3 + 2) * 8;
-      pieces.push({
-        x: b.fx + Math.cos(a) * r, y: 2 + h01(i * 3 + 3) * 8,
-        z: b.fz + Math.sin(a) * r,
-        vx: (h01(i * 7 + 1) - 0.5) * 2.4,
-        vy: 1.0 + h01(i * 7 + 2) * 2.4,
-        vz: (h01(i * 7 + 3) - 0.5) * 2.4,
-        rot: h01(i * 11 + 1) * 6.28,
-        spin: (h01(i * 11 + 2) - 0.5) * 8,
-      });
-      im.setColorAt(i, colors[i % colors.length]);
-    }
-    if (im.instanceColor) im.instanceColor.needsUpdate = true;
-    group.add(im);
-    c.confetti = { mesh: im, pieces };
-    // expanding gold ring
-    const ring = new T.Mesh(
-      new T.RingGeometry(4.2, 4.55, 48),
-      new T.MeshBasicMaterial({
-        color: 0xffe19a, transparent: true, opacity: 0.8,
-        side: T.DoubleSide, depthWrite: false,
-      }),
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.set(b.fx, 0.12, b.fz);
-    group.add(ring);
-    c.ring = ring;
-  } else {
-    light = new T.PointLight(0xff4b32, 2.0, 30, 2);
-    light.position.set(b.fx, 4, b.fz);
-    gl.scene.add(light);
-    c.light = light;
-    // collapsed ConYard wreck
-    const wreck = new T.Group();
-    wreck.position.set(b.fx, 0, b.fz);
-    group.add(wreck);
-    const dark = mat(0x2c2a25, { rough: 0.95 });
-    const char = mat(0x171614, { rough: 1 });
-    const rubble = mat(0x4a463d, { rough: 1, flat: true });
-    box(wreck, 6.4, 0.7, 6.4, char, 0, 0.35, 0);
-    const slab = box(wreck, 4.2, 1.0, 3.4, dark, -0.4, 0.9, 0.3);
-    slab.rotation.z = 0.22;
-    const slab2 = box(wreck, 3.2, 1.2, 3.2, dark, 1.0, 0.8, -0.6);
-    slab2.rotation.x = -0.25;
-    for (let i = 0; i < 9; i++) {
-      const r = mesh(wreck, new T.DodecahedronGeometry(0.45, 0), rubble,
-        (h01(i + 40) - 0.5) * 7, 0.3 + h01(i + 41) * 0.5,
-        (h01(i + 42) - 0.5) * 7);
-      r.scale.set(0.7 + h01(i + 43), 0.5 + h01(i + 44), 0.7 + h01(i + 45));
-    }
-    c.smoke = [];
-    if (gl.smokeTex) {
-      for (let i = 0; i < 8; i++) {
-        const sm = new T.SpriteMaterial({
-          map: gl.smokeTex, color: 0x2e2b27, transparent: true,
-          opacity: 0.45, depthWrite: false,
-        });
-        const spr = new T.Sprite(sm);
-        spr.position.set((h01(i + 60) - 0.5) * 5, 1 + h01(i + 61) * 2.5,
-          (h01(i + 62) - 0.5) * 5);
-        spr.scale.setScalar(1 + h01(i + 63) * 2);
-        wreck.add(spr);
-        c.smoke.push({ spr, mat: sm, phase: h01(i + 64) });
-      }
-    }
-    // dark red ground wash
-    const wash = new T.Mesh(
-      new T.CircleGeometry(7, 24),
-      new T.MeshBasicMaterial({
-        color: 0x4a0d08, transparent: true, opacity: 0.35, depthWrite: false,
-      }),
-    );
-    wash.rotation.x = -Math.PI / 2;
-    wash.position.set(b.fx, 0.08, b.fz);
-    group.add(wash);
-  }
-  showOverlay(c.won ? 'victory' : 'defeat', {
-    kicker: 'Operation ' + (info.mapName || 'Desert'),
-    title: c.won ? 'Victory' : 'Defeat',
-    sub: c.won ? (info.faction || '') + ' holds the field'
-      : (info.faction || '') + ' command collapsed',
-    vs: '',
-    skipText: 'Click or press any key to continue',
-  });
-  setCamera(game, b.fx, b.fz, 38, c.normal.yaw, 0.52);
-}
-
-function updateOutro(game, dt) {
-  const c = game.cinema;
-  if (!c || c.kind !== 'outro') return;
-  c.t += clamp(dt, 0, 0.5);
-  const u = clamp(c.t / c.duration, 0, 1);
-  const yaw = c.normal.yaw + u * 2.6;
-  const dist = c.won ? lerp(40, 30, u) : lerp(38, 28, u);
-  setCamera(game, c.base.fx, c.base.fz, dist, yaw, 0.52);
-  if (c.light) {
-    c.light.intensity = (c.won ? 2.0 : 1.6) + Math.sin(c.t * 7) * (c.won ? 0.8 : 0.5);
-  }
-  if (c.confetti) {
-    const T = globalThis.THREE;
-    const o = new T.Object3D();
-    const pieces = c.confetti.pieces;
-    for (let i = 0; i < pieces.length; i++) {
-      const p = pieces[i];
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.z += p.vz * dt;
-      p.vy -= 2.6 * dt;
-      p.rot += p.spin * dt;
-      if (p.y < 0.15) { p.y = 0.15; p.vy *= -0.25; }
-      o.position.set(p.x, p.y, p.z);
-      o.rotation.set(p.rot, p.rot * 0.7, p.rot * 0.3);
-      o.scale.setScalar(1 - u * 0.25);
-      o.updateMatrix();
-      c.confetti.mesh.setMatrixAt(i, o.matrix);
-    }
-    c.confetti.mesh.instanceMatrix.needsUpdate = true;
-  }
-  if (c.ring) {
-    const s = 1 + u * 2.2;
-    c.ring.scale.setScalar(s);
-    c.ring.material.opacity = 0.8 * (1 - u);
-  }
-  if (c.smoke) {
-    for (const s of c.smoke) {
-      s.spr.position.y += dt * 0.7;
-      s.spr.scale.setScalar(1.4 + u * 2.2 + s.phase);
-      s.mat.opacity = 0.40 * (1 - u);
-    }
-  }
-  if (u >= 1) finishActive(game, false);
-}
-
-function finishActive(game, silent) {
-  const c = game.cinema;
-  if (!c || !c.active) return;
-  const done = c.onDone;
-  if (typeof setCinematicReveal === 'function') setCinematicReveal(game, false);
-  restoreCamera(game, c.normal);
-  if (c.group) disposeGroup(c.group);
-  if (c.light && c.light.parent) c.light.parent.remove(c.light);
-  c.group = null;
-  c.light = null;
-  c.confetti = null;
-  c.ring = null;
-  c.smoke = null;
-  c.active = false;
-  c.kind = null;
-  c.onDone = null;
-  hideOverlay();
-  if (!silent && done) done();
-}
-
-export function skipCinematic(game) {
-  if (game && game.cinema && game.cinema.active) finishActive(game, false);
-}
-
-// Drop a running intro/outro without firing its completion callback (used when
-// a match is restarted/abandoned before the sequence ends).
-export function cancelCinematics(game) {
-  if (game && game.cinema && game.cinema.active) finishActive(game, true);
+  return c;
 }
 
 export function isCinematicActive(game) {
@@ -422,261 +77,416 @@ export function isCinematicActive(game) {
 }
 
 // ---------------------------------------------------------------------------
-// menu flyby (separate small scene/canvas behind the menu)
+// attract mode: a real match the menus sit on top of
 // ---------------------------------------------------------------------------
+const ATTRACT_PAIRS = [['Egypt', 'Israel'], ['Turkey', 'Iran'], ['Saudi', 'Algeria'], ['India', 'Pakistan'], ['UAE', 'Iran'], ['Israel', 'Turkey']];
 
-function menuMat(color, opts) { return mat(color, opts); }
-
-function buildMenuTank(accentHex) {
-  const T = globalThis.THREE;
-  const g = new T.Group();
-  const body = menuMat(0x7f7757, { rough: 0.8, metal: 0.2 });
-  const dark = menuMat(0x24251f, { rough: 0.95 });
-  const steel = menuMat(0x60625a, { rough: 0.45, metal: 0.6 });
-  const accent = menuMat(accentHex, { rough: 0.5 });
-  const shadow = new T.Mesh(
-    new T.CircleGeometry(2.35, 18),
-    new T.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.28,
-      depthWrite: false }),
-  );
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.035;
-  g.add(shadow);
-  box(g, 3.1, 0.55, 1.7, body, 0, 0.55, 0);
-  box(g, 2.9, 0.22, 0.28, dark, 0, 0.28, 0.78);
-  box(g, 2.9, 0.22, 0.28, dark, 0, 0.28, -0.78);
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < 6; i++) {
-      const w = mesh(g, new T.CylinderGeometry(0.22, 0.22, 0.10, 10), dark,
-        -1.05 + i * 0.42, 0.28, side * 0.92);
-      w.rotation.x = Math.PI / 2;
-    }
-  }
-  const turret = new T.Group();
-  turret.position.set(-0.05, 0.85, 0);
-  g.add(turret);
-  box(turret, 1.25, 0.36, 1.0, body, 0, 0.12, 0);
-  box(turret, 0.55, 0.12, 0.22, accent, 0, 0.10, 0.52);
-  box(turret, 0.55, 0.12, 0.22, accent, 0, 0.10, -0.52);
-  const barrel = mesh(turret, new T.CylinderGeometry(0.075, 0.09, 1.7, 8), steel, 1.2, 0.15, 0);
-  barrel.rotation.z = -Math.PI / 2;
-  box(turret, 0.22, 0.16, 0.18, steel, -0.65, 0.30, 0.20);
-  return g;
+function pickAttractMap(game, rnd) {
+  const ids = Object.keys(game.maps);
+  const good = ids.filter((id) => {
+    const m = game.maps[id];
+    return m && m.spawns && m.spawns.length >= 2 && m.spawns.length <= 4 && m.w <= 180;
+  });
+  const pool = good.length ? good : ids;
+  return pool[Math.floor(rnd() * pool.length)];
 }
 
-function buildMenuJet() {
-  const T = globalThis.THREE;
-  const g = new T.Group();
-  const body = menuMat(0x7c8272, { rough: 0.5, metal: 0.5 });
-  const dark = menuMat(0x30332e, { rough: 0.6 });
-  const glass = menuMat(0x2c4b55, { rough: 0.1, metal: 0.8 });
-  const fus = mesh(g, new T.CylinderGeometry(0.28, 0.34, 3.6, 10), body, 0, 0, 0);
-  fus.rotation.z = Math.PI / 2;
-  const nose = mesh(g, new T.ConeGeometry(0.30, 1.2, 10), body, 2.25, 0, 0);
-  nose.rotation.z = -Math.PI / 2;
-  const canopy = mesh(g, new T.SphereGeometry(0.31, 10, 6), glass, 0.85, 0.26, 0);
-  canopy.scale.set(1.7, 0.75, 0.75);
-  for (const side of [-1, 1]) {
-    const wing = box(g, 2.1, 0.08, 1.45, body, -0.25, 0, side * 1.1);
-    wing.rotation.y = side * 0.42;
-    box(g, 0.95, 0.07, 0.90, body, -1.55, 0.42, side * 0.55);
-    box(g, 0.9, 0.24, 0.3, dark, 0.35, -0.24, side * 0.42);
-  }
-  box(g, 0.7, 0.55, 0.08, dark, -2.0, 0.35, 0);
-  return g;
-}
-
-function createMenuScene(game) {
-  const T = globalThis.THREE;
-  if (!T) return null;
-  const canvas = document.getElementById('menu-3d');
-  if (!canvas) return null;
-  let renderer;
-  try {
-    renderer = new T.WebGLRenderer({
-      canvas, antialias: true, alpha: false,
-      powerPreference: 'high-performance',
-      preserveDrawingBuffer: !!globalThis.navigator.webdriver,
+function createAttract(game) {
+  const c = game.cinema;
+  const seed = ((c.attractSeed = (c.attractSeed || (Date.now() & 0xffff)) + 7919) >>> 0);
+  const rnd = mulberry32(seed);
+  const mapId = (game.attractMap && game.maps[game.attractMap]) ? game.attractMap : pickAttractMap(game, rnd);
+  const map = game.maps[mapId];
+  const pair = ATTRACT_PAIRS[Math.floor(rnd() * ATTRACT_PAIRS.length)];
+  const n = Math.min(map.spawns.length, 2 + (rnd() < 0.35 && map.spawns.length >= 4 ? 2 : 0));
+  const facs = Object.keys(game.data.factions);
+  const players = [];
+  for (let i = 0; i < n; i++) {
+    players.push({
+      slot: i, team: i % 2,
+      faction: i < 2 ? pair[i] : facs[Math.floor(rnd() * facs.length)],
+      ai: { personality: 'Front', difficulty: 'elite' },
     });
-  } catch (e) {
-    return null;
   }
-  renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 1.5));
-  renderer.setSize(globalThis.innerWidth || 1280, globalThis.innerHeight || 720, false);
-  renderer.outputEncoding = T.LinearEncoding;
-  renderer.toneMapping = T.NoToneMapping;
-
-  const scene = new T.Scene();
-  scene.background = new T.Color(0xaebfc2);
-  scene.fog = new T.Fog(0xd8c7a0, 45, 170);
-  const camera = new T.PerspectiveCamera(48,
-    (globalThis.innerWidth || 1280) / (globalThis.innerHeight || 720), 0.1, 700);
-
-  scene.add(new T.HemisphereLight(0xe6eef2, 0x9a8252, 0.72));
-  const sun = new T.DirectionalLight(0xffe8c2, 1.7);
-  sun.position.set(30, 60, 20);
-  scene.add(sun);
-  const sky = new T.Mesh(
-    new T.SphereGeometry(420, 24, 12),
-    new T.ShaderMaterial({
-      side: T.BackSide, depthWrite: false, fog: false,
-      uniforms: {
-        top: { value: new T.Color(0x3b6484) },
-        horizon: { value: new T.Color(0xe7cd9a) },
-        sunDir: { value: new T.Vector3(0.45, 0.35, 0.25).normalize() },
-      },
-      vertexShader: `
-        varying vec3 vDir;
-        void main() {
-          vDir = position;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 top;
-        uniform vec3 horizon;
-        uniform vec3 sunDir;
-        varying vec3 vDir;
-        void main() {
-          vec3 d = normalize(vDir);
-          vec3 c = mix(horizon, top, pow(clamp(d.y, 0.0, 1.0), 0.66));
-          float s = pow(max(dot(d, normalize(sunDir)), 0.0), 160.0);
-          c += vec3(1.0, 0.88, 0.62) * s * 0.6;
-          gl_FragColor = vec4(c, 1.0);
-        }
-      `,
-    }),
-  );
-  scene.add(sky);
-
-  // dunes
-  const geo = new T.PlaneGeometry(260, 260, 36, 36);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position;
-  const col = new Float32Array(pos.count * 3);
-  const sand = new T.Color(0xc2a86c);
-  const dark = new T.Color(0x8a7248);
-  const pale = new T.Color(0xe2ca8f);
-  const c = new T.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    const h = Math.sin(x * 0.05 + Math.sin(z * 0.04) * 2) * 0.9
-      + Math.sin(z * 0.08) * 0.45 + Math.sin((x + z) * 0.17) * 0.25;
-    pos.setY(i, h);
-    const d = clamp((h + 1.6) / 3.2, 0, 1);
-    c.copy(dark).lerp(sand, 0.35 + d * 0.4).lerp(pale, Math.max(0, d - 0.7) * 0.8);
-    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
-  }
-  geo.setAttribute('color', new T.BufferAttribute(col, 3));
-  geo.computeVertexNormals();
-  const ground = new T.Mesh(geo, new T.MeshStandardMaterial({
-    vertexColors: true, roughness: 0.98, metalness: 0,
-  }));
-  scene.add(ground);
-
-  // rock outcrops
-  const rockGeo = new T.DodecahedronGeometry(1, 0);
-  const rockMat = menuMat(0x746f63, { rough: 0.95, flat: true });
-  const rocks = new T.InstancedMesh(rockGeo, rockMat, 42);
-  const o = new T.Object3D();
-  for (let i = 0; i < 42; i++) {
-    const a = h01(i + 1) * 6.28;
-    const r = 18 + h01(i + 2) * 80;
-    o.position.set(Math.cos(a) * r, 0.2 + h01(i + 3) * 0.4, Math.sin(a) * r);
-    o.rotation.set(h01(i + 4) * 2, h01(i + 5) * 6, h01(i + 6) * 2);
-    o.scale.set(0.6 + h01(i + 7) * 2.2, 0.5 + h01(i + 8) * 1.8, 0.6 + h01(i + 9) * 2.2);
-    o.updateMatrix();
-    rocks.setMatrixAt(i, o.matrix);
-  }
-  rocks.castShadow = false;
-  scene.add(rocks);
-
-  // two tanks circling the arena, plus a jet flyover
-  const tanks = [];
-  for (const [accent, phase] of [[0xc8a23a, 0], [0x8a8f7e, 2.6]]) {
-    const g = buildMenuTank(accent);
-    g.scale.setScalar(1.6);
-    scene.add(g);
-    tanks.push({ g, phase });
-  }
-  const jet = buildMenuJet();
-  jet.scale.setScalar(1.8);
-  scene.add(jet);
-
-  return {
-    canvas, renderer, scene, camera, t: 0, active: false,
-    tanks, jet, failed: false, w: 0, h: 0,
-  };
+  const state = Sim.createMatch({ data: game.data, map, players, seed });
+  const ai = Sim.createAI(players, seed);
+  return { state, ai, mapId, acc: 0, preroll: 2300, born: 0 };
 }
 
 export function startMenuCinematic(game) {
-  if (!game || game.gfx !== '3d') return false;
-  const c = initCinematics(game);
-  if (!c.menu) c.menu = createMenuScene(game);
-  const m = c.menu;
-  if (!m || m.failed) return false;
-  m.active = true;
-  m.canvas.style.display = 'block';
-  if (document.body && document.body.classList) document.body.classList.add('menu-3d');
-  resizeMenu(m, globalThis.innerWidth || 1280, globalThis.innerHeight || 720);
+  const c = game.cinema || initCinematics(game);
+  if (c.menu.active && c.attract) return true;
+  if (!c.attract || c.attract.state.over) c.attract = createAttract(game);
+  const a = c.attract;
+  // pre-roll so the first frame already shows bases and armies
+  if (a.preroll > 0) {
+    const n = a.preroll;
+    for (let i = 0; i < n && !a.state.over; i++) Sim.tick(a.state, Sim.aiCommands(a.state, a.ai));
+    a.preroll = 0;
+  }
+  const gl = initGl(game, { state: a.state, reveal: true, localSlot: 0 });
+  gl.attract = true;
+  gl.camLock = true;
+  gl.lookLift = 0;
+  game.attract = a;
+  c.menu.active = true;
+  c.director = createDirector(game);
+  c.fade = 1; c.fadeTarget = 0;
+  if (gl.portraits && !c.portraitsQueued) { c.portraitsQueued = true; gl.portraits.requestAll(a.state, 0); }
   return true;
 }
 
 export function stopMenuCinematic(game) {
-  const c = game && game.cinema;
-  if (!c || !c.menu) return;
-  c.menu.active = false;
-  if (c.menu.canvas) c.menu.canvas.style.display = 'none';
-  if (document.body && document.body.classList) document.body.classList.remove('menu-3d');
-}
-
-function resizeMenu(m, w, h) {
-  if (!m || !m.renderer) return;
-  if (m.w === w && m.h === h) return;
-  m.w = w; m.h = h;
-  m.renderer.setSize(w, h, false);
-  m.camera.aspect = w / Math.max(1, h);
-  m.camera.updateProjectionMatrix();
-}
-
-function updateMenu(game, dt) {
   const c = game.cinema;
-  const m = c && c.menu;
-  if (!m || !m.active) return;
-  const w = globalThis.innerWidth || 1280;
-  const h = globalThis.innerHeight || 720;
-  resizeMenu(m, w, h);
-  const dtS = clamp(dt, 0, 100) / 1000;
-  m.t += dtS;
-  const t = m.t;
-  m.camera.position.set(Math.sin(t * 0.055) * 38, 12.5 + Math.sin(t * 0.09) * 2.2,
-    Math.cos(t * 0.055) * 38);
-  m.camera.lookAt(0, 2.0, 0);
-  for (const tk of m.tanks) {
-    const a = t * 0.11 + tk.phase;
-    const x = Math.cos(a) * 16;
-    const z = Math.sin(a) * 16;
-    const h = Math.sin(x * 0.05 + Math.sin(z * 0.04) * 2) * 0.9
-      + Math.sin(z * 0.08) * 0.45 + Math.sin((x + z) * 0.17) * 0.25;
-    tk.g.position.set(x, h + 0.04, z);
-    tk.g.rotation.y = Math.atan2(-Math.cos(a), -Math.sin(a));
+  if (!c || !c.menu.active) return;
+  c.menu.active = false;
+  c.director = null;
+  game.attract = null;
+  const gl = game.gl;
+  if (gl) { gl.attract = false; gl.camLock = false; gl.lookLift = 0; }
+}
+
+function tickAttract(game, dtMs) {
+  const a = game.attract;
+  if (!a) return;
+  a.acc += dtMs;
+  let steps = 0;
+  while (a.acc >= 100 && steps < 3 && !a.state.over) {
+    Sim.tick(a.state, Sim.aiCommands(a.state, a.ai));
+    a.acc -= 100; steps++;
   }
-  const jp = ((t + 4.0) % 11) / 11;
-  m.jet.visible = jp > 0.03 && jp < 0.97;
-  m.jet.position.set(-60 + jp * 120, 7.5 + Math.sin(t * 0.8) * 0.8, -10);
-  m.jet.rotation.z = Math.sin(t * 0.8) * 0.04;
-  m.renderer.render(m.scene, m.camera);
+  if (steps === 3) a.acc = 0;
+  // a finished (or very long) battle is replaced by a fresh one
+  if (a.state.over || a.state.tick > 9000) {
+    const c = game.cinema;
+    c.attract = createAttract(game);
+    c.menu.active = false;
+    startMenuCinematic(game);
+  }
 }
 
 // ---------------------------------------------------------------------------
-// frame driver
+// the director: picks subjects and frames them
 // ---------------------------------------------------------------------------
+function createDirector(game) {
+  const gl = game.gl;
+  const rnd = mulberry32(((game.cinema.attractSeed || 1) * 31 + 17) >>> 0);
+  const cam = { x: gl.focus.x, z: gl.focus.z, dist: 70, yaw: 0.6, pitch: 0.5, lift: 0 };
+  let shot = null, shotN = 0;
+
+  function unitsWhere(pred) {
+    const out = [];
+    for (const [id, rec] of gl.ents.units) {
+      const u = gl.state.units[id];
+      if (u && pred(u, rec)) out.push(rec);
+    }
+    return out;
+  }
+
+  function baseCentre(slot) {
+    // straight from the sim, so it works before the first frame has synced
+    let x = 0, z = 0, n = 0;
+    const st = gl.state;
+    for (const id in st.structures) {
+      const s = st.structures[id];
+      if (s.owner !== slot) continue;
+      x += wuToX(gl, (s.cx + s.fp / 2) * CELL); z += wuToZ(gl, (s.cy + s.fp / 2) * CELL); n++;
+    }
+    return n ? { x: x / n, z: z / n, n } : null;
+  }
+
+  function nextShot() {
+    shotN++;
+    const fighting = unitsWhere((u) => u.order && (u.order.enemyId || u.order.type === 'attackTarget'));
+    const movers = unitsWhere((u, r) => !r.inf && !r.air && r.speed > 2);
+    const flyers = unitsWhere((u, r) => r.air && r.speed > 3);
+    const options = [];
+    if (fighting.length >= 3) options.push('battle', 'battle', 'battle');
+    if (movers.length) options.push('follow', 'follow');
+    if (flyers.length) options.push('air');
+    options.push('base');
+    if (shotN % 6 === 0) options.push('vista');
+    let kind = options[Math.floor(rnd() * options.length)];
+    if (shot && shot.kind === kind && options.length > 2) kind = options[Math.floor(rnd() * options.length)];
+    // open on something with presence: a fight if there is one, else a base
+    if (shotN === 1) kind = fighting.length >= 3 ? 'battle' : 'base';
+    const s = { kind, t: 0, dur: 9 + rnd() * 5, dir: rnd() < 0.5 ? -1 : 1, yaw0: rnd() * 6.283 };
+    if (kind === 'battle') {
+      // densest knot of fighting
+      const pick = fighting[Math.floor(rnd() * fighting.length)];
+      let x = 0, z = 0, n = 0;
+      for (const r of fighting) {
+        const d = Math.hypot(r.root.position.x - pick.root.position.x, r.root.position.z - pick.root.position.z);
+        if (d < 26) { x += r.root.position.x; z += r.root.position.z; n++; }
+      }
+      s.x = x / n; s.z = z / n; s.dist = 30 + Math.min(22, n * 1.6); s.pitch = 0.3 + rnd() * 0.16;
+    } else if (kind === 'follow' || kind === 'air') {
+      const list = kind === 'air' ? flyers : movers;
+      s.rec = list[Math.floor(rnd() * list.length)];
+      s.dist = kind === 'air' ? 20 : 15 + rnd() * 8; s.pitch = kind === 'air' ? 0.12 : 0.2 + rnd() * 0.14;
+      s.side = (rnd() < 0.5 ? -1 : 1) * (0.5 + rnd() * 0.5);
+      s.dur = 8 + rnd() * 4;
+    } else if (kind === 'base') {
+      const slots = gl.state.players.map((p) => p.slot);
+      const b = baseCentre(slots[Math.floor(rnd() * slots.length)]) || baseCentre(0) || { x: 0, z: 0 };
+      s.x = b.x; s.z = b.z; s.dist = 44 + rnd() * 16; s.pitch = 0.34 + rnd() * 0.16;
+    } else {
+      // a wide establishing shot over land (never open water)
+      s.x = 0; s.z = 0;
+      for (let k = 0; k < 12; k++) {
+        const x = (rnd() - 0.5) * gl.halfX * 1.4, z = (rnd() - 0.5) * gl.halfZ * 1.4;
+        if (gl.hf.waterDist(x, z) < -4) { s.x = x; s.z = z; break; }
+      }
+      s.dist = 100 + rnd() * 40; s.pitch = 0.32;
+      s.dur = 10;
+    }
+    return s;
+  }
+
+  function goal(s, dt) {
+    const g = { x: cam.x, z: cam.z, dist: s.dist, yaw: cam.yaw, pitch: s.pitch, lift: 0 };
+    if (s.kind === 'follow' || s.kind === 'air') {
+      const r = s.rec;
+      if (!r || !gl.ents.units.has(r.id)) { s.t = s.dur; return g; }
+      g.x = r.root.position.x; g.z = r.root.position.z;
+      const hd = r.yaw + s.side * 0.9;
+      g.yaw = Math.atan2(-Math.cos(hd), Math.sin(hd));
+      g.lift = s.kind === 'air' ? r.root.position.y - gl.focus.y : 0.6;
+    } else {
+      g.x = s.x; g.z = s.z;
+      g.yaw = s.yaw0 + s.dir * s.t * (s.kind === 'vista' ? 0.035 : 0.075);
+      g.dist = s.dist * (1 - 0.1 * smooth(s.t / s.dur));
+      g.lift = s.kind === 'battle' ? 1.2 : 0.8;
+    }
+    void dt;
+    return g;
+  }
+
+  return {
+    update(dt) {
+      const c = game.cinema;
+      if (!shot || shot.t >= shot.dur) {
+        if (shot && c.fadeTarget === 0 && c.fade < 0.02) { c.fadeTarget = 1; return; }
+        if (shot && c.fade < 0.97) return;      // wait for the dip to black
+        shot = nextShot();
+        const g = goal(shot, 0);
+        Object.assign(cam, g);
+        c.fadeTarget = 0;
+      }
+      shot.t += dt;
+      const g = goal(shot, dt);
+      const k = shot.kind === 'follow' || shot.kind === 'air' ? 2.2 : 3;
+      cam.x = damp(cam.x, g.x, k * 2, dt); cam.z = damp(cam.z, g.z, k * 2, dt);
+      cam.dist = damp(cam.dist, g.dist, k, dt);
+      cam.yaw += angleDelta(cam.yaw, g.yaw) * (1 - Math.exp(-k * 0.6 * dt));
+      cam.pitch = damp(cam.pitch, g.pitch, k, dt);
+      cam.lift = damp(cam.lift, g.lift, 2, dt);
+      gl.tFocus.x = cam.x; gl.tFocus.z = cam.z;
+      gl.tDist = cam.dist; gl.tYaw = cam.yaw; gl.tPitch = cam.pitch;
+      gl.lookLift = cam.lift;
+    },
+    cut() { if (shot) shot.t = shot.dur; },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// title sequence (first boot)
+// ---------------------------------------------------------------------------
+export function playTitle(game, onDone) {
+  const c = game.cinema || initCinematics(game);
+  if (!game.gl || !c.menu.active) { if (onDone) onDone(); return; }
+  c.active = true; c.kind = 'title'; c.t = 0; c.onDone = onDone;
+  c.fade = 1; c.fadeTarget = 0; c.letterbox = 1; c.letterTarget = 1;
+  const d = ensureDom(c);
+  d.root.classList.remove('hidden');
+  d.root.classList.add('title-mode');
+  show(d.title, false); show(d.card, false); show(d.verdict, false); show(d.skip, false);
+  audio('playMusicTrack', game, 'title');
+  audio('playSfx', game, 'cinematic_riser');
+  setTimeout(() => { if (c.kind === 'title') { show(d.title, true); audio('playSfx', game, 'cinematic_hit'); } }, 900);
+}
+
+function finishTitle(game) {
+  const c = game.cinema;
+  if (c.kind !== 'title') return;
+  c.kind = 'title-out'; c.t = 0;
+  c.letterTarget = 0;
+  show(c.dom.title, false);
+  audio('playSfx', game, 'ui_confirm');
+}
+
+// ---------------------------------------------------------------------------
+// match intro
+// ---------------------------------------------------------------------------
+export function playIntro(game, info, onDone) {
+  const c = game.cinema || initCinematics(game);
+  const gl = game.gl;
+  if (!gl || !gl.state) { if (onDone) onDone(); return; }
+  const st = gl.state, map = st.map;
+  const sp = map.spawns[(game.playerSlot || 0) % map.spawns.length];
+  const bx = (sp.x + 0.5 - map.w / 2) * S, bz = (sp.y + 0.5 - map.h / 2) * S;
+  // approach from the map centre side so the flyover crosses the battlefield
+  const away = Math.atan2(bx, bz);
+  const size = Math.max(map.w, map.h) * S;
+  c.keys = [
+    // stay inside the range the world is built to be seen from (the player's
+    // own zoom limit): higher up, terrain detail and shadows fall apart
+    { t: 0.0, x: 0, z: 0, dist: Math.min(200, size * 0.5), yaw: away + 0.9, pitch: 0.95, lift: 0 },
+    { t: 3.2, x: bx * 0.25, z: bz * 0.25, dist: Math.min(160, size * 0.4), yaw: away + 0.45, pitch: 0.7, lift: 0 },
+    { t: 6.0, x: bx * 0.8, z: bz * 0.8, dist: 110, yaw: away + 0.12, pitch: 0.46, lift: 2 },
+    { t: 8.6, x: bx, z: bz, dist: 50, yaw: 0.62, pitch: 0.78, lift: 0 },
+  ];
+  c.endCam = { x: bx, z: bz, dist: 50, yaw: 0.62, pitch: 0.78 };
+  c.active = true; c.kind = 'intro'; c.t = 0; c.dur = 8.6; c.onDone = onDone || null;
+  c.holdSim = true;
+  c.fade = 1; c.fadeTarget = 0; c.letterbox = 1; c.letterTarget = 1;
+  gl.camLock = true; gl.cineReveal = true;
+  const d = ensureDom(c);
+  d.root.classList.remove('hidden', 'title-mode');
+  show(d.title, false); show(d.verdict, false);
+  d.card.querySelector('.cine-kicker').textContent = (info && info.kicker) || 'OPERATION AREA';
+  d.card.querySelector('.cine-h1').textContent = (info && info.mapName) || map.name || '';
+  d.card.querySelector('.cine-h2').textContent = (info && info.vs) || '';
+  show(d.card, false);
+  setTimeout(() => { if (c.kind === 'intro') { show(d.card, true); show(d.skip, true); } }, 500);
+  audio('playMusicTrack', game, 'briefing');
+  audio('playSfx', game, 'cinematic_whoosh');
+}
+
+// ---------------------------------------------------------------------------
+// outro
+// ---------------------------------------------------------------------------
+export function playOutro(game, info, onDone) {
+  const c = game.cinema || initCinematics(game);
+  const gl = game.gl;
+  if (!gl) { if (onDone) onDone(); return; }
+  c.active = true; c.kind = 'outro'; c.t = 0; c.dur = 6.2; c.onDone = onDone || null;
+  c.orbit = { x: gl.focus.x, z: gl.focus.z, dist: clamp(gl.dist, 40, 80), yaw: gl.yaw, pitch: 0.42 };
+  c.letterTarget = 1; c.fadeTarget = 0;
+  gl.camLock = true; gl.cineReveal = true;
+  const d = ensureDom(c);
+  d.root.classList.remove('hidden', 'title-mode');
+  show(d.title, false); show(d.card, false); show(d.skip, true);
+  const won = !!(info && info.won);
+  d.verdict.classList.toggle('won', won);
+  d.verdict.classList.toggle('lost', !won);
+  d.verdict.querySelector('.cine-verdict-text').textContent = won ? 'VICTORY' : 'DEFEAT';
+  d.verdict.querySelector('.cine-verdict-sub').textContent = info && info.mapName ? info.mapName : '';
+  setTimeout(() => { if (c.kind === 'outro') show(d.verdict, true); }, 350);
+  audio('playMusicTrack', game, won ? 'victory' : 'defeat');
+  audio('playSfx', game, 'cinematic_hit');
+  if (gl.post) gl.post.final.material.uniforms.uFlash.value = won ? 0.5 : 0.15;
+}
+
+// ---------------------------------------------------------------------------
+// control
+// ---------------------------------------------------------------------------
+function endCinematic(game, runDone) {
+  const c = game.cinema;
+  if (!c) return;
+  const done = c.onDone;
+  const kind = c.kind;
+  c.active = false; c.kind = null; c.onDone = null; c.holdSim = false;
+  c.letterTarget = 0; c.fadeTarget = 0;
+  const gl = game.gl;
+  if (gl) {
+    gl.cineReveal = false;
+    gl.lookLift = 0;
+    if (!c.menu.active) gl.camLock = false;
+    if (kind === 'intro' && c.endCam) {
+      gl.tFocus.x = c.endCam.x; gl.tFocus.z = c.endCam.z;
+      gl.tDist = c.endCam.dist; gl.tYaw = c.endCam.yaw; gl.tPitch = c.endCam.pitch;
+      updateCamera(gl, 0);
+      if (gl.proxy) gl.proxy.ready = false;
+    }
+  }
+  if (c.dom) {
+    show(c.dom.card, false); show(c.dom.skip, false); show(c.dom.title, false);
+    if (kind !== 'outro') show(c.dom.verdict, false);
+    setTimeout(() => { if (!c.active) { c.dom.root.classList.add('hidden'); show(c.dom.verdict, false); } }, kind === 'outro' ? 60 : 700);
+  }
+  if (kind === 'intro') {
+    audio('playMusicTrack', game, 'ambient');
+    audio('playStinger', game, 'match_start');
+  }
+  if (runDone && done) { try { done(); } catch (e) { if (typeof console !== 'undefined') console.error(e); } }
+}
+
+export function skipCinematic(game) {
+  const c = game && game.cinema;
+  if (!c || !c.active) return;
+  if (c.kind === 'title') { finishTitle(game); return; }
+  endCinematic(game, true);
+}
+
+export function cancelCinematics(game) {
+  const c = game && game.cinema;
+  if (!c) return;
+  if (c.active) endCinematic(game, false);
+  if (c.dom) { c.dom.root.classList.add('hidden'); show(c.dom.verdict, false); }
+  c.letterbox = 0; c.letterTarget = 0;
+}
+
+function sampleKeys(keys, t) {
+  let i = 0;
+  while (i < keys.length - 2 && t > keys[i + 1].t) i++;
+  const a = keys[i], b = keys[i + 1];
+  const k = smooth((t - a.t) / (b.t - a.t));
+  return {
+    x: lerp(a.x, b.x, k), z: lerp(a.z, b.z, k), dist: lerp(a.dist, b.dist, k),
+    yaw: a.yaw + angleDelta(a.yaw, b.yaw) * k, pitch: lerp(a.pitch, b.pitch, k), lift: lerp(a.lift, b.lift, k),
+  };
+}
 
 export function updateCinematics(game, dtMs) {
   const c = game && game.cinema;
   if (!c) return;
-  if (c.menu && c.menu.active) updateMenu(game, dtMs);
-  if (!c.active) return;
-  if (c.kind === 'intro') updateIntro(game, dtMs / 1000);
-  else if (c.kind === 'outro') updateOutro(game, dtMs / 1000);
+  const gl = game.gl;
+  const dt = Math.max(0, Math.min(0.1, dtMs / 1000));
+  if (c.menu.active) {
+    tickAttract(game, dtMs);
+    if (c.director) c.director.update(dt);
+  }
+  if (c.active) {
+    c.t += dt;
+    if (c.kind === 'title') {
+      c.letterTarget = 1;
+      if (c.t > 14 && !game.titleHold) finishTitle(game);
+    } else if (c.kind === 'title-out') {
+      if (c.t > 0.7) {
+        c.dom.root.classList.remove('title-mode');
+        endCinematic(game, true);
+      }
+    } else if (c.kind === 'intro' && gl) {
+      const k = sampleKeys(c.keys, Math.min(c.t, c.dur));
+      gl.tFocus.x = k.x; gl.tFocus.z = k.z; gl.tDist = k.dist; gl.tYaw = k.yaw; gl.tPitch = k.pitch;
+      gl.lookLift = k.lift;
+      if (c.t > c.dur - 1.6) { c.letterTarget = 0; show(c.dom.card, false); gl.cineReveal = false; }
+      if (c.t >= c.dur) endCinematic(game, true);
+    } else if (c.kind === 'outro' && gl) {
+      const o = c.orbit;
+      gl.tFocus.x = o.x; gl.tFocus.z = o.z;
+      gl.tYaw = o.yaw + c.t * 0.11;
+      gl.tDist = o.dist * (1 + 0.12 * smooth(c.t / c.dur));
+      gl.tPitch = lerp(gl.pitch, o.pitch, ease(c.t / 2.2));
+      gl.lookLift = 1.2;
+      if (c.t >= c.dur) endCinematic(game, true);
+    }
+  }
+  if (typeof document !== 'undefined' && document.body && document.body.classList) {
+    const on = c.active && c.kind !== 'title' && c.kind !== 'title-out';
+    if (c._bodyOn !== on) { c._bodyOn = on; document.body.classList.toggle('cine-on', on); }
+  }
+  // letterbox / fade live in the final post pass
+  c.letterbox = damp(c.letterbox, c.letterTarget, 4.5, dt);
+  c.fade = clamp(damp(c.fade, c.fadeTarget, c.fadeTarget > c.fade ? 9 : 3.2, dt), 0, 1);
+  if (gl && gl.post) {
+    const u = gl.post.final.material.uniforms;
+    u.uLetterbox.value = c.letterbox < 0.004 ? 0 : c.letterbox;
+    u.uFade.value = c.fade < 0.004 ? 0 : c.fade;
+    u.uFlash.value *= Math.exp(-dt * 3.2);
+    if (u.uFlash.value < 0.002) u.uFlash.value = 0;
+  }
 }
+
+export { setWorld, wuToX, wuToZ, CELL };

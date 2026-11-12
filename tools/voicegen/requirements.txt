@@ -1,0 +1,6 @@
+# Python 3.10+ (developed with 3.13). ffmpeg with libmp3lame must be on PATH.
+kokoro-onnx==0.6.1
+numpy
+scipy
+soundfile
+pyloudnorm==0.2.0

@@ -1,5 +1,5 @@
 {
- "version": "0.11.0",
+ "version": "1.0.0",
  "knobs": {
   "VetDmgBonus": 0.25,
   "EliteHPBonus": 0.25,

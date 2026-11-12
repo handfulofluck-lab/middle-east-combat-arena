@@ -8,25 +8,31 @@ import { createCamera, centerCameraOn, clampCameraToMap, worldToScreen } from '.
 import { initInput, handleInputFrame } from './game/input.js';
 import { initRenderer, renderFrame } from './game/render.js';
 import { initGl, glFrame, focusGl, setGlVisible, syncLegacyFog,
-  glWorldToScreen } from './game/gl.js';
+  glWorldToScreen, glViewQuad, setQuality, getQuality, warmGl } from './game/gl.js';
 import { initCinematics, updateCinematics, startMenuCinematic,
-  stopMenuCinematic, playIntro, playOutro, skipCinematic,
+  stopMenuCinematic, playIntro, playOutro, playTitle, skipCinematic,
   cancelCinematics, isCinematicActive } from './game/cinematics.js';
+import * as AudioApi from './game/audio.js';
+import { initStore } from './game/store.js';
 import { initHud, updateHud, showHint, AUTO_DEPLOY_TICKS,
   updateTutorial, abortTutorial } from './game/hud.js';
 import { initMinimap, updateMinimap } from './game/minimap.js';
+import { updatePeace } from './game/peace.js';
 import { dirArtBitmap, unitArtBitmap, structArtBitmap } from './game/sprites.js';
 import { showMenu, showPauseMenu, showEndBanner, showBriefing, showLobby,
   showMpSetup, showDesyncOverlay, closeLobbyUi } from './game/menu.js';
 import { Net } from './net/net.js';
-import { createLockstep, MP_STEP_CAP } from './net/lockstep.js';
+import { createLockstep, MP_STEP_CAP, shedBacklog } from './net/lockstep.js';
 // v0.4.4 (DeepSeek 3.1): audio.js ships concurrently; the export will exist,
 // but headless harnesses strip imports — every use is typeof-guarded
 import { getMusicOn } from './game/audio.js';
 
 const TICK_MS = 100; // 10 ticks/sec
 // v0.10.0: a peer gone this many gated ticks (host-observed) -> AI takeover
-const DROP_AFTER_MS = 6000;
+const DROP_AFTER_MS = 8000;
+// a peer that has not sent anything yet this match is still loading its
+// battlefield: give it much longer before the host gives up on it
+const LOAD_GRACE_MS = 45000;
 const TAKEOVER_DELAY_TICKS = 3; // drop -> AI active tick alignment
 let G = null;
 
@@ -56,9 +62,9 @@ function installErrorProbe() {
 // WebGLRenderingContext constructor as well.
 function webglAvailable() {
   try {
-    if (typeof globalThis.WebGLRenderingContext === 'undefined') return false;
+    if (typeof globalThis.WebGL2RenderingContext === 'undefined') return false;
     const cv = document.createElement('canvas');
-    const gl = cv.getContext('webgl') || cv.getContext('experimental-webgl');
+    const gl = cv.getContext('webgl2');
     return !!(gl && typeof gl.getParameter === 'function'
       && typeof gl.createShader === 'function');
   } catch (e) {
@@ -110,15 +116,21 @@ function syncGfxUi() {
 
 function syncMenuCinematic() {
   if (!G) return;
-  const want = G.gfx === '3d' && G.gfxSupported && !G.state
-    && (G.overlay === 'menu' || G.overlay === 'setup')
+  const want = G.gfx === '3d' && G.gfxSupported && !G.state && G.dataReady
     && typeof startMenuCinematic === 'function';
   if (want) {
     if (!G.cinema) { try { initCinematics(G); } catch (e) { /* 2D fallback */ } }
     if (G.cinema && !G.cinema.menuFailed) {
       if (!G.cinema.menu || !G.cinema.menu.active) {
         let ok = false;
-        try { ok = startMenuCinematic(G); } catch (e) { ok = false; }
+        try {
+          ok = startMenuCinematic(G);
+          if (ok) { wireGfx(); setGlVisible(G, true); }
+        } catch (e) {
+          ok = false;
+          if (globalThis.__glErrors) globalThis.__glErrors.push('attract: ' + (e && e.stack || e));
+          if (typeof console !== 'undefined') console.error(e);
+        }
         if (!ok) G.cinema.menuFailed = true;
       }
     }
@@ -161,15 +173,16 @@ function draw3dOverlays(game) {
   const w = game.camera ? game.camera.viewW : (globalThis.innerWidth || 1280);
   const h = game.camera ? game.camera.viewH : (globalThis.innerHeight || 720);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
+  void w; void h;
   const d = game.drag;
   if (d && !game.placement && !game.targeting && !game.attackMoveArmed) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.strokeRect(Math.min(d.x0, d.x1) + 0.5, Math.min(d.y0, d.y1) + 0.5,
-      Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0));
-    ctx.setLineDash([]);
+    const bx = Math.min(d.x0, d.x1) + 0.5, by = Math.min(d.y0, d.y1) + 0.5;
+    const bw = Math.abs(d.x1 - d.x0), bh = Math.abs(d.y1 - d.y0);
+    ctx.fillStyle = 'rgba(95,227,208,0.10)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.strokeStyle = 'rgba(143,245,228,0.95)';
+    ctx.lineWidth = 1.25;
+    ctx.strokeRect(bx, by, bw, bh);
   }
   const dm = game.dragMove;
   if (dm) {
@@ -192,27 +205,159 @@ export function getGame() {
 }
 
 async function loadData() {
-  // BUILD-INLINE-DATA-BEGIN (tools/build_singlefile.py replaces this block)
+  let done = 0, total = 2;
   const get = (u) => fetch(u).then((r) => {
     if (!r.ok) throw new Error('fetch ' + u + ': ' + r.status);
     return r.json();
-  });
+  }).then((j) => { done++; bootProgress(done / total, 'LOADING THEATRE DATA'); return j; });
   const data = await get('data/game.json');
   const manifest = await get('maps/manifest.json');
+  total = 2 + manifest.maps.length;
   const payloads = await Promise.all(manifest.maps.map((id) => get('maps/' + id + '.json')));
   const maps = {};
   manifest.maps.forEach((id, i) => { maps[id] = payloads[i]; });
-  // artwork is optional (tools/build_art.py -> client/assets/art.json)
-  const art = await get('assets/art.json').catch(() => ({}));
-  // RA-style sprite pack is optional too (client/assets/unitart.json)
-  const unitart = await get('assets/unitart.json').catch(() => ({}));
+  // The painted art packs of the old 2D client (client/assets/*.json) are
+  // not shipped; the 3D renderer draws everything, portraits included. They
+  // are only requested when a deployment says it has them.
+  const cfg = (typeof window !== 'undefined' && window.MCA_CONFIG) || {};
+  const quiet = (u) => fetch(u).then((r) => (r.ok ? r.json() : {})).catch(() => ({}));
+  const art = cfg.artPack ? await quiet('assets/art.json') : {};
+  const unitart = cfg.artPack ? await quiet('assets/unitart.json') : {};
   return { data, maps, art, unitart };
-  // BUILD-INLINE-DATA-END
+}
+
+// ---- boot screen + battlefield veil ----------------------------------------
+function bootScreen() {
+  if (typeof document === 'undefined' || !document.body || document.getElementById('boot')) return;
+  const b = document.createElement('div');
+  b.id = 'boot';
+  b.innerHTML = '<div class="boot-logo">MCA</div>'
+    + '<div class="boot-sub">MIDDLE EAST COMBAT ARENA</div>'
+    + '<div class="boot-bar"><i></i></div>'
+    + '<div class="boot-status">INITIALISING</div>'
+    + '<button class="boot-start" type="button">ENTER</button>'
+    + '<div class="boot-foot">Best with headphones &nbsp;·&nbsp; Runs entirely in your browser</div>';
+  document.body.appendChild(b);
+  const v = document.createElement('div');
+  v.id = 'veil';
+  v.innerHTML = '<div class="veil-k">DEPLOYING TO</div><div class="veil-h"></div>'
+    + '<div class="veil-s"></div><div class="veil-bar"><i></i></div>';
+  document.body.appendChild(v);
+}
+
+function bootProgress(frac, label) {
+  if (typeof document === 'undefined') return;
+  const b = document.getElementById('boot');
+  if (!b) return;
+  const bar = b.querySelector('.boot-bar i');
+  if (bar) bar.style.transform = 'scaleX(' + Math.max(0, Math.min(1, frac)) + ')';
+  const st = b.querySelector('.boot-status');
+  if (st && label) st.textContent = label;
+}
+
+function veil(on, title, sub) {
+  if (typeof document === 'undefined') return;
+  const v = document.getElementById('veil');
+  if (!v) return;
+  if (on) {
+    v.querySelector('.veil-h').textContent = title || '';
+    v.querySelector('.veil-s').textContent = sub || '';
+  }
+  v.classList.toggle('on', !!on);
+}
+
+// ---- unit radio acknowledgements ---------------------------------------------
+// The first unit of the group answers: "select" when the selection changes,
+// "move" / "attack" when an order goes out. Presentation only.
+function unitAck(event, unitIds) {
+  try {
+    if (!event || !G || !G.state || !unitIds || !unitIds.length) return;
+    if (typeof AudioApi.playUnitAck !== 'function' || typeof AudioApi.unitVoiceGroup !== 'function') return;
+    let u = null;
+    for (const id of unitIds) { u = G.state.units[id]; if (u) break; }
+    if (!u || u.owner !== G.playerSlot) return;
+    const def = G.state.unitDefs[u.defId];
+    if (!def) return;
+    AudioApi.playUnitAck(G, event, AudioApi.unitVoiceGroup(def));
+  } catch (e) { /* optional */ }
+}
+
+let selSig = '';
+function selectionVoice() {
+  if (!G || !G.state || G.state.over) { selSig = ''; return; }
+  const sel = G.selection || [];
+  const sig = sel.length ? sel.length + ':' + sel[0] + ':' + sel[sel.length - 1] : '';
+  if (sig === selSig) return;
+  selSig = sig;
+  if (sel.length) unitAck('select', sel);
+}
+
+// ---- renderer <-> audio / camera feel wiring (once per renderer) -------------
+const SHOT_SFX = {
+  rifle: 'rifle', mg: 'mg', autocannon: 'autocannon', flak: 'aa_gun', cannon: 'cannon',
+  howitzer: 'heavy_cannon', naval: 'naval_gun', mlrs: 'mlrs', rockets: 'rocket', bomb: 'bomb',
+  bigmissile: 'cruise', atgm: 'atgm', sam: 'sam', sam_small: 'sam', aam: 'sam',
+};
+const EVENT_SFX = { place: 'place_structure', collapse: 'building_collapse', superweapon_launch: 'cruise', superweapon_hit: 'explosion_huge' };
+
+function wireGfx() {
+  const gl = G && G.gl;
+  if (!gl || gl._wired) return;
+  gl._wired = true;
+  let heat = 0;
+  const at = (name, x, z, gain) => {
+    if (!name || typeof AudioApi.playSfxAt !== 'function') return;
+    const dx = x - gl.focus.x, dz = z - gl.focus.z;
+    const d = Math.hypot(dx, dz);
+    // audible range follows the view: full presence at the focus, fading to
+    // the far, dull register around the screen edge, and nothing at all from
+    // well beyond it. A fight you cannot see should not sound like yours.
+    const reach = gl.dist * 1.15 + 14;
+    if (d > reach * 1.35) return;
+    const dist = Math.min(1, d / reach);
+    // pan from the camera's right vector
+    const pan = Math.max(-1, Math.min(1, (dx * Math.cos(gl.yaw) - dz * Math.sin(gl.yaw)) / (gl.dist * 0.9 + 10)));
+    // the battle behind the menus is set dressing: keep it well under the score
+    try { AudioApi.playSfxAt(G, name, pan, dist, (gain || 1) * (gl.attract ? 0.1 : 1)); } catch (e) { /* optional */ }
+    heat = Math.min(1.5, heat + (1 - dist) * 0.06);
+  };
+  gl.audio = {
+    shot: (weapon, x, z) => at(SHOT_SFX[weapon], x, z, 1),
+    event: (name, x, z) => at(EVENT_SFX[name], x, z, 1),
+  };
+  gl.onBoom = (x, z, size, water) => at(water ? 'water_splash'
+    : size > 5 ? 'explosion_huge' : size > 3 ? 'explosion_large'
+      : size > 1.4 ? 'explosion_medium' : 'explosion_small', x, z, 1);
+  // combat heat drives the adaptive score
+  gl.musicHeat = () => { heat *= 0.985; return Math.min(1, heat); };
+  // order feedback: a ping on the ground where the order landed
+  const S2 = 2 / Sim.CELL;
+  G.onCmd = (cmd) => {
+    if (!gl.fx || !gl.state || gl.attract) return;
+    unitAck(cmd.type === 'attackTarget' || cmd.type === 'attackMove' ? 'attack'
+      : (cmd.type === 'move' || cmd.type === 'patrol') ? 'move' : null, cmd.unitIds);
+    let x = cmd.x, y = cmd.y, hostile = false;
+    if (cmd.type === 'attackTarget' || cmd.type === 'load' || cmd.type === 'repair') {
+      const e = gl.state.units[cmd.targetId] || gl.state.structures[cmd.targetId];
+      if (!e) return;
+      if (e.fp !== undefined && e.cx !== undefined) { x = (e.cx + e.fp / 2) * Sim.CELL; y = (e.cy + e.fp / 2) * Sim.CELL; }
+      else { x = e.x; y = e.y; }
+      hostile = cmd.type === 'attackTarget';
+    } else if (cmd.type === 'attackMove') hostile = true;
+    else if (cmd.type !== 'move' && cmd.type !== 'patrol' && cmd.type !== 'setRally') return;
+    if (x === undefined || y === undefined) return;
+    const rx = (x / Sim.CELL - gl.mapW / 2) * 2, rz = (y / Sim.CELL - gl.mapH / 2) * 2;
+    void S2;
+    gl.fx.ping(rx, rz, hostile ? [3.2, 0.7, 0.4] : [0.6, 2.6, 2.3], 1.5);
+  };
 }
 
 export async function boot() {
   installErrorProbe();
+  bootScreen();
+  if (document.body && document.body.classList) document.body.classList.add('in-menu');
   const { data, maps, art, unitart } = await loadData();
+  bootProgress(1, 'PREPARING BATTLEFIELD');
   const canvas = document.getElementById('game');
   const supports3d = webglAvailable();
   const want3d = readGfxPref();
@@ -264,6 +409,9 @@ export async function boot() {
     dpr: 1,         // devicePixelRatio at last resize (canvas backing-store scale)
     render: null, minimap: null, hud: null,
   };
+  G.dataReady = true;
+  G.setQuality = (q) => { try { setQuality(G, q); } catch (e) { /* optional */ } };
+  G.getQuality = () => getQuality(G);
   G.uiCanvas = document.getElementById('ui-overlay');
   if (G.uiCanvas && G.uiCanvas.getContext) G.uiCtx = G.uiCanvas.getContext('2d');
   if (document.body && document.body.classList) {
@@ -283,13 +431,16 @@ export async function boot() {
     if (G.overlay) return; // an overlay is already up — ignore
     if (G.state && !G.state.over && !G.endShown) {
       // live match -> pause overlay (resume restores the pre-overlay pause state)
-      G.pausedBeforeMenu = G.paused;
-      G.paused = true;
       const mpOn = !!(G.net && G.net.active);
+      G.pausedBeforeMenu = G.paused;
+      // Offline the menu pauses the match. Online it must not: one player
+      // opening a menu would stall every other player's simulation (the
+      // shared pause is the host's Pause button, which tells the room).
+      if (!mpOn) G.paused = true;
       showPauseMenu(G, {
         onResume: () => {
           G.overlay = null;
-          G.paused = G.pausedBeforeMenu;
+          if (!mpOn) G.paused = G.pausedBeforeMenu;
           if (G.hudSyncSpeed) G.hudSyncSpeed();
         },
         // v0.10.0: an MP match cannot be restarted locally (the peers share
@@ -357,6 +508,8 @@ export async function boot() {
     onPause: (on, from) => {
       if (!G.state || G.state.over) return;
       G.paused = on;
+      // a pause silences the whole room; it must not count as anyone's absence
+      if (!on && G.ls && G.ls.resume) { G.ls.resume(); G.mpStallSince = 0; G.mpStallSlots = ''; }
       G.mpPauseName = mpNameOf(from);
       if (G.hudSyncSpeed) G.hudSyncSpeed();
       showHint(G, on ? 'Paused by ' + G.mpPauseName : 'Resumed');
@@ -364,15 +517,25 @@ export async function boot() {
     onChat: (from, text) => mpChatLine(mpNameOf(from), text),
     onGameMsg: (m) => {
       if (G.ls) {
-        if (m.t === 'needlog' && Net.isHost) {
-          Net.sendLog(m.from, G.ls.logSnapshot(m.fromTick || 0, G.state.tick));
-          return;
-        }
+        // 'needlog' (a late-join catch-up request) is not answered: no client
+        // sends it, and replying with the whole command log in one message
+        // let any guest push the host past the relay's size cap and close
+        // the room.
+        if (m.t === 'needlog') return;
         G.ls.ingest(m);
       }
     },
     onBye: (slot) => {
-      if (G.state && !G.state.over && Net.isHost) Net.sendDrop(slot);
+      if (G.state && !G.state.over && Net.isHost && G.ls && !G.mpDropped[slot]) {
+        G.mpDropped[slot] = true;
+        {
+          // the line is a tick no machine can already be past; the scheduler
+          // then holds the host at that line until the declaration is back
+          const at = G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS;
+          if (G.ls.expectDrop) G.ls.expectDrop(slot, at);
+          Net.sendDrop(slot, at);
+        }
+      }
       if (G.overlay === 'lobby') showLobby(G);
     },
     onHostLeft: () => {
@@ -390,14 +553,58 @@ export async function boot() {
   initHud(G);
   initMinimap(G);
   installMpUi();
-  showMenu(G, (cfg) => startMatch(cfg));
+  // A tab in the background goes silent (several open tabs otherwise play
+  // on top of each other). The exception is a live multiplayer match, where
+  // the simulation keeps running and its alerts should still be heard.
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    const syncAudioHold = () => {
+      try {
+        if (typeof AudioApi.setBackgroundHold === 'function') AudioApi.setBackgroundHold(!!document.hidden && !isMp());
+      } catch (e) { /* optional */ }
+    };
+    document.addEventListener('visibilitychange', syncAudioHold);
+    syncAudioHold();
+  }
+  // supporter store / licence keys (inert unless the server enables it)
+  try { initStore(G); } catch (e) { /* the game never depends on the store */ }
   syncGfxUi();
-  syncMenuCinematic();
+  syncMenuCinematic();   // builds the live backdrop battle behind the boot screen
+
+  // First run: a click gate (browsers need a gesture before audio), then the
+  // title sequence over the live battle, then the main menu. Automation and
+  // ?intro=0 go straight to the menu.
+  const bootEl = document.getElementById('boot');
+  let q = '';
+  try { q = globalThis.location.search || ''; } catch (e) { /* harness */ }
+  const automated = !!(globalThis.navigator && globalThis.navigator.webdriver);
+  const wantTitle = /[?&]intro=1/.test(q) || (!automated && !/[?&]intro=0/.test(q));
+  const openMenu = () => {
+    showMenu(G, (cfg) => startMatch(cfg));
+    try { if (typeof AudioApi.playMusicTrack === 'function') AudioApi.playMusicTrack(G, 'menu'); } catch (e) { /* optional */ }
+  };
+  const enter = () => {
+    if (G.entered) return;
+    G.entered = true;
+    try { if (typeof AudioApi.unlockAudio === 'function') AudioApi.unlockAudio(); } catch (e) { /* optional */ }
+    if (bootEl) bootEl.classList.add('gone');
+    if (wantTitle && G.gfx === '3d' && G.gl && typeof playTitle === 'function') {
+      try { playTitle(G, openMenu); } catch (e) { openMenu(); }
+    } else openMenu();
+  };
+  if (bootEl && wantTitle) {
+    bootEl.classList.add('ready');
+    const btn = bootEl.querySelector('.boot-start');
+    if (btn) btn.addEventListener('click', enter);
+    window.addEventListener('keydown', function once(e) {
+      if (G.entered) { window.removeEventListener('keydown', once, true); return; }
+      if (e.key === 'Enter' || e.key === ' ') { window.removeEventListener('keydown', once, true); enter(); }
+    }, true);
+  } else enter();
 
   // v0.10.1: prewarm the sprite caches during menu idle so bitmaps decode
   // before the first match instead of janking the deploy click (the caches
   // in sprites.js decode lazily on first draw otherwise). Best-effort, chunked.
-  if (typeof requestIdleCallback === 'function') {
+  if (typeof requestIdleCallback === 'function' && Object.keys(G.unitArt).length) {
     const warmList = [];
     for (const id in G.data.units) warmList.push(['d', id]);
     for (const id in G.data.structures) warmList.push(['s', id]);
@@ -430,7 +637,8 @@ export async function boot() {
     // a bad frame must never kill the loop (v0.3.1: a missing import once
     // bricked rendering mid-match and made every later menu flow look broken)
     try {
-      const dt = Math.min(250, now - last);
+      // rAF timestamps can predate `last` after a long synchronous build
+      const dt = Math.max(0, Math.min(250, now - last));
       last = now;
       syncMenuCinematic();
       handleInputFrame(G, dt);
@@ -441,7 +649,16 @@ export async function boot() {
       // dismissal (simStep itself also guards on G.briefing)
       if (G.briefing && now >= G.briefing.deadline) G.briefing.dismiss();
       const mp = isMp();
-      if (G.state && !G.paused && !G.briefing) {
+      // a freshly started match builds its battlefield one frame after the
+      // deployment veil is on screen, so the veil paints before the work
+      if (G.worldPending > 0) {
+        G.worldPending--;
+        if (G.worldPending === 0) buildBattlefield();
+        requestAnimationFrame(frame);
+        return;
+      }
+      const cineHold = !!(G.cinema && G.cinema.holdSim);
+      if (G.state && !G.paused && !G.briefing && !cineHold) {
         acc += dt * G.speed;
         let steps = 0;
         // v0.10.0: MP raises the per-frame step cap so a peer behind the
@@ -458,6 +675,10 @@ export async function boot() {
           steps++;
         }
         if (!mp && steps === 6) acc = 0; // shed backlog instead of death-spiralling
+        // online: a tick still due with the cap unspent means the gate is closed
+        if (mp && G.ls) {
+          acc = shedBacklog(acc, TICK_MS, acc >= TICK_MS && steps < cap && !G.state.over, G.ls.getDelay());
+        }
         if (G.state.over) acc = 0;
       }
       if (mp) {
@@ -465,11 +686,18 @@ export async function boot() {
         processPendingDrops();
       }
       if (G.net && G.net.active) Net.netTick(); // peer RTT probes (lobby + match)
-      if (G.state) {
+      if (G.state || G.attract) {
         if (G.gfx === '3d' && G.gl && typeof glFrame === 'function') {
+          if (G.gl.musicHeat && typeof AudioApi.setMusicIntensity === 'function' && G.state) {
+            try { AudioApi.setMusicIntensity(G.gl.musicHeat()); } catch (e) { /* optional */ }
+          }
           glFrame(G, dt);
-          draw3dOverlays(G);
-        } else {
+          if (G.state) {
+            draw3dOverlays(G);
+            // the minimap draws the camera's true ground footprint
+            G.minimapView = glViewQuad(G);
+          }
+        } else if (G.state) {
           renderFrame(G);
           if (G.dragMove) drawDragMoveLine(G); // 2D drag-move order line
         }
@@ -551,7 +779,9 @@ export function startMatch(cfg) {
   }
   const seed = (cfg.seed !== undefined ? cfg.seed : (Date.now() & 0x7fffffff)) >>> 0;
   G.playerSlot = slot;
-  G.state = Sim.createMatch({ data: G.data, map, players, seed });
+  // ceasefire at the start (minutes, from skirmish setup or the host's lobby)
+  const peaceMin = Math.max(0, Math.min(30, Number(cfg.peace) | 0));
+  G.state = Sim.createMatch({ data: G.data, map, players, seed, options: { peaceTicks: peaceMin * 600 } });
   G.ai = Sim.createAI(players, seed);
   G.mpPendingDrops = [];
   G.mpDesync = null;
@@ -574,6 +804,14 @@ export function startMatch(cfg) {
         ? performance.now() : Date.now(),
       onDesync: (info) => onMpDesync(info),
       onPeerDrop: (m) => {
+        // The host gave up waiting for THIS player (frozen or unreachable for
+        // too long): an AI now commands those forces on every other peer, so
+        // this client can no longer take part in the shared simulation.
+        if (m.slot === G.playerSlot) {
+          showHint(G, 'You were out of contact for too long — an AI commander has taken over your forces.');
+          setTimeout(() => { if (G.ls) leaveMpToMenu(); }, 0);
+          return;
+        }
         G.mpPendingDrops.push({
           slot: m.slot,
           at: m.at !== undefined ? m.at : G.state.tick + TAKEOVER_DELAY_TICKS,
@@ -585,7 +823,8 @@ export function startMatch(cfg) {
         return cmds;
       },
     });
-  }
+    startBgPump();
+  } else stopBgPump();
   G.camera = createCamera(G.canvas.width / (G.dpr || 1), G.canvas.height / (G.dpr || 1));
   // v0.10.0: the camera centers on THIS player's spawn (slot from the lobby in
   // MP; offline playerSlot is 0 so behavior is unchanged)
@@ -629,74 +868,92 @@ export function startMatch(cfg) {
   if (typeof stopMenuCinematic === 'function') {
     try { stopMenuCinematic(G); } catch (e) { /* optional */ }
   }
+  if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
   // 2D fallback renderer is always built: the minimap consumes its fog canvas,
   // and it must be ready if 3D initialization fails on this machine.
   initRenderer(G);
-
-  let use3d = G.gfx === '3d' && G.gfxSupported;
-  if (use3d) {
-    try {
-      if (typeof initGl !== 'function') throw new Error('3D renderer module missing');
-      initGl(G);
-      if (typeof setGlVisible === 'function') setGlVisible(G, true);
-      if (G.gl) G.gl.wasdPan = false; // A/S/D are game orders, not camera pan
-      if (G.uiCanvas) G.uiCanvas.style.display = 'block';
-      if (G.gl && G.gl.canvas && !G._input3dBound) {
-        initInput(G, G.gl.canvas);
-        G._input3dBound = true;
-      }
-      if (typeof focusGl === 'function' && G.gl) {
-        const spw = map.spawns[G.playerSlot % map.spawns.length];
-        focusGl(G, spw.x * Sim.CELL + Sim.CELL / 2,
-          spw.y * Sim.CELL + Sim.CELL / 2, 52, 0.45, 0.60);
-        if (G.gl.proxy) G.gl.proxy.ready = false;
-      }
-      G.gfx = '3d';
-      if (document.body && document.body.classList) {
-        document.body.classList.add('gfx-3d');
-      }
-    } catch (err) {
-      use3d = false;
-      G.gfx = '2d';
-      if (G.uiCanvas) G.uiCanvas.style.display = 'none';
-      if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
-      if (document.body && document.body.classList) {
-        document.body.classList.remove('gfx-3d');
-      }
-      showHint(G, '3D unavailable — using the 2D renderer.');
-    }
-  }
-  if (!use3d) {
-    if (G.uiCanvas) G.uiCanvas.style.display = 'none';
-    if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
-  }
-
   updateHud(G);
   updateMinimap(G);
+  updatePeace(G);
   if (G.tutor) updateTutorial(G); // show the first briefing prompt immediately
-  // v0.7.1: the 2D faction briefing plate gates the first sim ticks. In 3D the
-  // flyover carries the same faction/operation information instead.
-  if (!use3d && !mp) showBriefing(G, cfg.faction);
-  else if (use3d && !mp && !cfg.tutorial && typeof playIntro === 'function') {
+
+  const use3d = G.gfx === '3d' && G.gfxSupported;
+  if (use3d) {
+    // the battlefield is built by the frame loop right after the veil paints
+    veil(true, map.name || cfg.map, map.briefing || map.tagline || '');
+    G.worldPending = 2;
+    G.pendingIntro = { cfg, players, mp };
+  } else {
+    G.worldPending = 0;
+    if (G.uiCanvas) G.uiCanvas.style.display = 'none';
+    if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
+    if (!mp) showBriefing(G, cfg.faction);
+  }
+  syncGfxUi();
+}
+
+function buildBattlefield() {
+  const pend = G.pendingIntro || {};
+  G.pendingIntro = null;
+  if (!G.state) { veil(false); return; }
+  const map = G.state.map;
+  let ok = true;
+  try {
+    initGl(G, { state: G.state, localSlot: G.playerSlot, reveal: false });
+    wireGfx();
+    G.gl.attract = false;
+    G.gl.camLock = false;
+    G.gl.lookLift = 0;
+    setGlVisible(G, true);
+    G.gl.wasdPan = false; // A/S/D are game orders, not camera pan
+    if (G.uiCanvas) G.uiCanvas.style.display = 'block';
+    if (G.gl.canvas && !G._input3dBound) {
+      initInput(G, G.gl.canvas);
+      G._input3dBound = true;
+    }
+    const spw = map.spawns[G.playerSlot % map.spawns.length];
+    focusGl(G, spw.x * Sim.CELL + Sim.CELL / 2, spw.y * Sim.CELL + Sim.CELL / 2, 50, 0.62, 0.78);
+    if (G.gl.proxy) G.gl.proxy.ready = false;
+    if (G.gl.portraits) G.gl.portraits.requestAll(G.state, G.playerSlot);
+    if (G.gl.ents && G.gl.ents.prewarm) G.gl.ents.prewarm(G.state);
+    // Render now, behind the veil: this is where the GPU compiles every
+    // shader and takes every mesh, and it must happen before this peer starts
+    // talking in a multiplayer match (a silent peer makes everyone wait) and
+    // before the intro flies across the map (or the flight stutters). First
+    // the whole battlefield from above, then the opening view itself.
+    try { warmGl(G); } catch (e) { /* best-effort */ }
+    try { glFrame(G, 16); } catch (e) { /* the frame loop reports real errors */ }
+    if (document.body && document.body.classList) document.body.classList.add('gfx-3d');
+  } catch (err) {
+    ok = false;
+    G.gfx = '2d';
+    if (globalThis.__glErrors) globalThis.__glErrors.push('initGl: ' + (err && err.stack || err));
+    if (typeof console !== 'undefined') console.error(err);
+    if (G.uiCanvas) G.uiCanvas.style.display = 'none';
+    if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
+    if (document.body && document.body.classList) document.body.classList.remove('gfx-3d');
+    showHint(G, '3D unavailable — using the 2D renderer.');
+    if (!pend.mp) showBriefing(G, pend.cfg && pend.cfg.faction);
+  }
+  veil(false);
+  if (ok && !pend.mp && pend.cfg && !pend.cfg.tutorial && typeof playIntro === 'function') {
     const me = G.state.players[G.playerSlot];
-    const mine = me ? me.faction : (cfg.faction || 'MCA');
+    const mine = me ? me.faction : (pend.cfg.faction || 'MCA');
     const myTeam = me ? me.team : 0;
     const foes = [];
-    for (const p of players) {
+    for (const p of G.state.players) {
       if (!p || p.team === myTeam) continue;
-      const f = (G.state.players.find((q) => q.slot === p.slot) || {}).faction || p.faction;
-      if (f && foes.indexOf(f) < 0) foes.push(f);
+      if (p.faction && foes.indexOf(p.faction) < 0) foes.push(p.faction);
     }
     try {
       playIntro(G, {
         faction: mine,
-        mapName: map.name || cfg.map,
+        mapName: map.name || pend.cfg.map,
         vs: foes.length ? mine + '  vs  ' + foes.join(' / ') : '',
       }, null);
     } catch (e) { /* intro is optional */ }
   }
   syncGfxUi();
-  syncMenuCinematic();
 }
 
 // clean exit from any match state back to the main menu: drops all match
@@ -709,8 +966,10 @@ function exitToMenu() {
   if (typeof stopMenuCinematic === 'function') {
     try { stopMenuCinematic(G); } catch (e) { /* optional */ }
   }
-  if (G.uiCanvas) G.uiCanvas.style.display = 'none';
-  if (G.gl && typeof setGlVisible === 'function') setGlVisible(G, false);
+  if (G.uiCtx && G.uiCanvas) G.uiCtx.clearRect(0, 0, G.uiCanvas.width, G.uiCanvas.height);
+  G.worldPending = 0;
+  G.pendingIntro = null;
+  veil(false);
   if (G.briefing && G.briefing.dismiss) G.briefing.dismiss();
   G.briefing = null;
   // v0.10.0: leaving to the menu ends any MP session (room leave is a no-op
@@ -757,6 +1016,7 @@ function exitToMenu() {
   c.fillRect(0, 0, G.canvas.width, G.canvas.height);
   if (G.hudSyncSpeed) G.hudSyncSpeed();
   showMenu(G, (c2) => startMatch(c2));
+  try { if (typeof AudioApi.playMusicTrack === 'function') AudioApi.playMusicTrack(G, 'menu'); } catch (e) { /* optional */ }
   syncGfxUi();
   syncMenuCinematic();
 }
@@ -771,6 +1031,8 @@ function simStep() {
   if (G.gfx === '3d' && G.gl && typeof syncLegacyFog === 'function') syncLegacyFog(G);
   updateHud(G, true); // per-tick: heavy scans gated to ~10 Hz real time
   updateMinimap(G);
+  updatePeace(G);
+  selectionVoice();
   const me = G.state.players[G.playerSlot];
   if (!G.endShown && (G.state.over || me.eliminated)) {
     G.endShown = true;
@@ -856,6 +1118,8 @@ function mpSimStep() {
   if (!advanced) return false;
   updateHud(G, true); // per-tick: heavy scans gated to ~10 Hz real time
   updateMinimap(G);
+  updatePeace(G);
+  selectionVoice();
   const me = G.state.players[G.playerSlot];
   // defeat -> spectator (camera/minimap stay live, no command push) instead
   // of the end banner; the banner waits for the actual match end
@@ -877,24 +1141,96 @@ function mpSimStep() {
   return true;
 }
 
+// Background pump: browsers stop requestAnimationFrame in a hidden tab,
+// which would freeze this player's simulation and, in lockstep, everyone
+// else's with it. A tiny worker keeps ticking while the tab is hidden so a
+// player who alt-tabs neither stalls the room nor gets dropped.
+let bgWorker = null;
+let bgLast = 0, bgAcc = 0;
+function mpBackgroundPump() {
+  if (!G || typeof document === 'undefined' || !document.hidden || !isMp()) return;
+  if (G.paused || G.worldPending > 0 || !G.state || G.state.over) return;
+  const now = performance.now();
+  if (!bgLast || now - bgLast > 1000) bgLast = now - TICK_MS;
+  bgAcc += now - bgLast;
+  bgLast = now;
+  let steps = 0;
+  while (bgAcc >= TICK_MS && !G.state.over && steps < MP_STEP_CAP) {
+    if (!mpSimStep()) break;
+    bgAcc -= TICK_MS;
+    steps++;
+  }
+  bgAcc = shedBacklog(bgAcc, TICK_MS, bgAcc >= TICK_MS && steps < MP_STEP_CAP, G.ls.getDelay());
+  hostDropWatch(now);
+  processPendingDrops();
+  if (G.net && G.net.active) Net.netTick();
+}
+function startBgPump() {
+  if (bgWorker || typeof Worker === 'undefined' || typeof Blob === 'undefined') return;
+  try {
+    const src = 'setInterval(function(){postMessage(0)},100);';
+    bgWorker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    bgWorker.onmessage = () => { try { mpBackgroundPump(); } catch (e) { /* never break the page */ } };
+    bgLast = 0; bgAcc = 0;
+  } catch (e) { bgWorker = null; }
+}
+function stopBgPump() {
+  if (bgWorker) { try { bgWorker.terminate(); } catch (e) { /* no-op */ } bgWorker = null; }
+}
+
 // Host-side: a peer the gate has been waiting on for > DROP_AFTER_MS is
-// declared dropped (AI takeover). The 1.5s stall timeout keeps the match
-// limping in the meantime.
+// declared dropped (AI takeover). Until then the match waits for it.
 function hostDropWatch(now) {
+  // nobody ticks while the room is paused (or while this peer's own intro
+  // or load holds its sim): silence then says nothing about a peer's health
+  if (G.paused || G.worldPending > 0 || (G.cinema && G.cinema.holdSim)) {
+    G.mpStallSince = 0; G.mpStallSlots = ''; G.mpWaitNote = null;
+    G.mpHeld = true;
+    return;
+  }
+  // coming out of a hold (a pause from either side, a load, an intro):
+  // nobody spoke while it lasted, so every silence clock starts over. Done
+  // here rather than in the pause button so the host, who is the only one
+  // who drops, is covered too.
+  if (G.mpHeld) {
+    G.mpHeld = false;
+    if (G.ls && G.ls.resume) G.ls.resume();
+  }
+  // everyone else: say who the room is waiting for (once per wait)
+  if (G.ls && !G.state.over && G.ls.isWaiting()) {
+    const key = G.ls.waitingOn().join(',');
+    if (!G.mpWaitNote || G.mpWaitNote.key !== key) G.mpWaitNote = { key, since: now, told: false };
+    else if (!G.mpWaitNote.told && now - G.mpWaitNote.since > 2000) {
+      G.mpWaitNote.told = true;
+      showHint(G, 'Waiting for ' + G.ls.waitingOn().map(mpNameOf).join(', ') + '…');
+    }
+  } else G.mpWaitNote = null;
   if (!Net.isHost || !G.ls || G.state.over) return;
   if (!G.ls.isWaiting()) { G.mpStallSince = 0; G.mpStallSlots = ''; return; }
   const key = G.ls.waitingOn().join(',');
-  if (key !== G.mpStallSlots) {
+  if (key !== G.mpStallSlots || !G.mpStallSince) {
     G.mpStallSlots = key;
     G.mpStallSince = now;
     return;
   }
-  if (!G.mpStallSince || now - G.mpStallSince < DROP_AFTER_MS) return;
-  G.mpStallSince = 0;
+  // Drop on SILENCE, not on waiting: a slow peer that keeps answering is
+  // merely slow (the room runs at its pace); one that has said nothing for
+  // DROP_AFTER_MS is gone. A peer never heard from is still loading.
+  const heard = G.ls.debugState().lastHeard;
+  const clock = (typeof performance !== 'undefined' && performance.now) ? performance.now() : now;
   for (const slot of G.ls.waitingOn()) {
     if (G.mpDropped[slot] || slot === Net.slot) continue;
+    const silentFor = heard[slot] === undefined ? -1 : clock - heard[slot];
+    const loading = heard[slot] === undefined && now - G.mpStallSince < LOAD_GRACE_MS;
+    if (loading || (silentFor >= 0 && silentFor < DROP_AFTER_MS)) continue;
     G.mpDropped[slot] = true;
-    Net.sendDrop(slot, G.state.tick + TAKEOVER_DELAY_TICKS);
+    {
+      // the line is a tick no machine can already be past; the scheduler
+      // then holds the host at that line until the declaration is back
+      const at = G.ls.safeDropTick(slot) + TAKEOVER_DELAY_TICKS;
+      if (G.ls.expectDrop) G.ls.expectDrop(slot, at);
+      Net.sendDrop(slot, at);
+    }
     showHint(G, mpNameOf(slot) + ' dropped — AI is taking over.');
   }
 }
@@ -962,11 +1298,12 @@ function beginMpMatch() {
   closeLobbyUi(G);
   startMatch({
     mp: true, map: cfg.map, seed: cfg.seed, players: cfg.players,
-    delay: cfg.delay || 2, slot: Net.slot,
+    delay: cfg.delay || 2, slot: Net.slot, peace: cfg.peace,
   });
 }
 
 function leaveMpToMenu() {
+  stopBgPump();
   Net.leave();
   G.ls = null;
   G.mpCfg = null;
@@ -1025,7 +1362,7 @@ function installMpUi() {
     const r = await Net.host(opts);
     if (!r.ok) return r;
     Net.my.faction = opts.faction || 'Egypt';
-    G.lobby = { map: opts.map, seed: opts.seed, delay: 2 };
+    G.lobby = { map: opts.map, seed: opts.seed, delay: 2, peace: 5 };
     Net.broadcastLobby();
     return r;
   };
@@ -1049,19 +1386,19 @@ function installMpUi() {
     if (Net.isHost) Net.broadcastLobby();
   };
   G.mpSetLobby = (patch) => {
-    if (!G.lobby) G.lobby = { map: Object.keys(G.maps)[0], seed: 1, delay: 2 };
+    if (!G.lobby) G.lobby = { map: Object.keys(G.maps)[0], seed: 1, delay: 2, peace: 5 };
     Object.assign(G.lobby, patch);
     if (Net.isHost) {
       Net.broadcastLobby();
       // keep the guests' read-only map/seed/delay view in sync pre-start
-      Net.sendCfg({ map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay });
+      Net.sendCfg({ map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay, peace: G.lobby.peace | 0 });
     }
   };
   G.mpStart = () => {
     if (!Net.isHost || !G.lobby) return;
     const slots = Net.lobbySlots();
     const players = slots.map((s) => ({ slot: s.slot, faction: s.faction, team: s.team }));
-    const cfg = { map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay, players };
+    const cfg = { map: G.lobby.map, seed: G.lobby.seed >>> 0, delay: G.lobby.delay, peace: G.lobby.peace | 0, players };
     Net.sendCfg(cfg);
     Net.sendStart();
     beginMpMatch(); // the relay does not echo to the sender — the host starts itself

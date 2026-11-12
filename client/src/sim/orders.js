@@ -460,6 +460,7 @@ export function validateCommand(state, cmd) {
       return { ok: false, reason: 'bad-kind' };
     }
     case 'useSuperweapon': {
+      if (state.tick < state.peaceUntil) return { ok: false, reason: 'peace' };
       const sw = standingStructs(state, p.slot, (s) => state.structDefs[s.defId].type === 'SW');
       if (!sw.length) return { ok: false, reason: 'no-sw' };
       if (p.swChargeTicks !== 0) return { ok: false, reason: 'sw-charging' };
@@ -469,6 +470,7 @@ export function validateCommand(state, cmd) {
       const ability = state.data.factions[p.faction].ability;
       const passive = ['edge_network', 'integrated_sky', 'siha_mesh', 'iron_layer'];
       if (passive.includes(ability)) return { ok: false, reason: 'passive' };
+      if (state.tick < state.peaceUntil) return { ok: false, reason: 'peace' };
       if (state.tick < p.abilityCdUntil) return { ok: false, reason: 'cooldown' };
       const gateId = ABILITY_STRUCT[ability];
       if (gateId && !standingStructs(state, p.slot, (s) => s.defId === gateId).length) {

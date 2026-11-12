@@ -1,11 +1,20 @@
 tools/.venv/
-tools/__pycache__/
+tools/voicegen/.cache/
+__pycache__/
 artwork/
 client/assets/*.json
-dist/MCA.html
 tools/qa_report.json
 
 tools/edgeprof-*/
 
 NEW MCA/
 review_v035/
+
+node_modules/
+dist/
+.vite/
+
+# server runtime data and secrets
+data/
+.env
+.env.*

@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# a newer push to the same branch / PR supersedes the run in flight
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build + test (Node 22)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (exactly as locked)
+        run: npm ci
+
+      - name: Build the client
+        run: npm run build
+
+      - name: Simulation tests
+        run: npm run test:sim
+
+      # every map in the manifest: schema, deployability, economy, paths and
+      # a short AI-vs-AI smoke match
+      - name: Map validation
+        run: node tools/mapgen/validate.mjs --ci
+
+      # Relay protocol, static hosting, payments (against a local Stripe mock)
+      # and headless lockstep matches through the real relay. No secrets and
+      # no network access are needed; listens on 127.0.0.1:8800-8899 only.
+      - name: Server tests
+        run: npm run test:server

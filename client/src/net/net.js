@@ -18,7 +18,70 @@
 //   game:   cmd{tick,slot,seq,cmd}, stall{tick}, csum{tick,sum}, drop{slot}
 //           (host declares AI takeover), needlog/log (catch-up stream)
 
-export const DEFAULT_RELAY_URL = 'ws://127.0.0.1:8790';
+// Where the relay lives when the player has not typed an address:
+//   1. window.MCA_CONFIG.relayUrl (config.js) when set;
+//   2. else the page's own origin (ws(s)://<host>/ws) when it is served over
+//      http(s) by something other than the Vite dev/preview server -- i.e. by
+//      server/index.js, which hosts client and relay on one port;
+//   3. else the local relay (tools/mca_relay.py or `npm start` on this PC).
+// Every global is guarded: this module also runs in non-browser harnesses.
+const LOCAL_RELAY_URL = 'ws://127.0.0.1:8790';
+
+function envGlobal(name) {
+  try {
+    const g = typeof globalThis !== 'undefined' ? globalThis : null;
+    if (!g) return undefined;
+    if (g[name] !== undefined) return g[name];
+    return g.window ? g.window[name] : undefined;
+  } catch (e) { return undefined; }
+}
+
+export function resolveRelayUrl() {
+  try {
+    const cfg = envGlobal('MCA_CONFIG');
+    if (cfg && typeof cfg.relayUrl === 'string' && cfg.relayUrl.trim()) return cfg.relayUrl.trim();
+    const loc = envGlobal('location');
+    if (loc && (loc.protocol === 'http:' || loc.protocol === 'https:') && loc.host) {
+      const port = Number(loc.port) || 0;
+      const viteDev = (port >= 5173 && port <= 5199) || (port >= 4173 && port <= 4199);
+      if (!viteDev) return (loc.protocol === 'https:' ? 'wss://' : 'ws://') + loc.host + '/ws';
+    }
+  } catch (e) { /* fall through to the local default */ }
+  return LOCAL_RELAY_URL;
+}
+
+export const DEFAULT_RELAY_URL = resolveRelayUrl();
+
+// Optional license token (game/store.js keeps it in localStorage under
+// 'mca.license'). It rides on create/join so a paywalled relay can check it;
+// relays that predate licensing ignore the unknown field. The token is a
+// bearer credential, so it is only ever sent to the relay this build is
+// configured for -- never to an arbitrary address typed into the menu.
+function storedLicense() {
+  try {
+    const ls = envGlobal('localStorage');
+    const tok = ls && typeof ls.getItem === 'function' ? ls.getItem('mca.license') : null;
+    return typeof tok === 'string' && tok ? tok : null;
+  } catch (e) { return null; }
+}
+
+function isConfiguredRelay(url) {
+  const home = resolveRelayUrl();
+  if (url === home) return true;
+  try {
+    if (typeof URL !== 'function') return false;
+    const a = new URL(url);
+    const b = new URL(home);
+    return a.protocol === b.protocol && a.host === b.host;
+  } catch (e) { return false; }
+}
+
+function withLicense(msg, url) {
+  const tok = storedLicense();
+  if (tok && isConfiguredRelay(url)) msg.license = tok;
+  return msg;
+}
+
 const PEER_PING_EVERY_MS = 2000;  // per-peer RTT probe cadence
 
 function nowMs() {
@@ -75,7 +138,7 @@ export const Net = {
     this.ws = ws;
     ws.onopen = () => { onOpen(); };
     ws.onerror = () => {
-      if (!this.active) onFail('Could not reach relay at ' + url + ' -- is tools/mca_relay.py running?');
+      if (!this.active) onFail('Could not reach relay at ' + url + ' -- is the game server running there?');
     };
     ws.onclose = () => {
       const wasActive = this.active;
@@ -90,21 +153,22 @@ export const Net = {
   },
 
   host(cfg) {
-    const url = (cfg && cfg.url) || DEFAULT_RELAY_URL;
+    const url = (cfg && cfg.url) || resolveRelayUrl();
     const name = (cfg && cfg.name) || 'Host';
     return new Promise((resolve) => {
       this._connect(url, () => {
         this._pendingResolve = resolve;
-        this._send({ t: 'create', name });
+        this._send(withLicense({ t: 'create', name }, url));
       }, (err) => { this._reset(); resolve({ ok: false, error: err }); });
     });
   },
 
   join(url, code, name) {
+    const relay = url || resolveRelayUrl();
     return new Promise((resolve) => {
-      this._connect(url || DEFAULT_RELAY_URL, () => {
+      this._connect(relay, () => {
         this._pendingResolve = resolve;
-        this._send({ t: 'join', code: String(code || '').toUpperCase(), name: name || 'Player' });
+        this._send(withLicense({ t: 'join', code: String(code || '').toUpperCase(), name: name || 'Player' }, relay));
       }, (err) => { this._reset(); resolve({ ok: false, error: err }); });
     });
   },
@@ -125,6 +189,10 @@ export const Net = {
     this.cfg = null;
     this.epoch = 0;
     this._pingTimes = {};
+    if (this._dropEcho && typeof clearTimeout === 'function') {
+      for (const k in this._dropEcho) clearTimeout(this._dropEcho[k]);
+    }
+    this._dropEcho = {};
   },
 
   _hook(name, a, b) {
@@ -216,8 +284,8 @@ export const Net = {
       case 'start':
         if (msg.from === 0) { this.epoch = msg.epoch || 0; this._hook('onStart', msg); }
         break;
-      case 'pause':
-        this._hook('onPause', !!msg.on, msg.from);
+      case 'pause': // host-authoritative, like cfg and start
+        if (msg.from === 0) this._hook('onPause', !!msg.on, msg.from);
         break;
       case 'chat':
         this._hook('onChat', msg.from, String(msg.msg || '').slice(0, 140));
@@ -235,7 +303,11 @@ export const Net = {
         }
         break;
       }
-      default: // cmd/stall/csum/drop/log/needlog -> lockstep scheduler / host
+      default: // cmd/eoi/csum/drop/log/needlog -> lockstep scheduler / host
+        if (msg.t === 'drop' && msg.from === this.slot && this._dropEcho && this._dropEcho[msg.slot]) {
+          clearTimeout(this._dropEcho[msg.slot]);   // my own declaration, echoed in room order
+          delete this._dropEcho[msg.slot];
+        }
         this._hook('onGameMsg', msg);
         break;
     }
@@ -288,10 +360,27 @@ export const Net = {
   },
 
   sendDrop(slot, at) { // host declares an AI takeover for a dropped slot;
-    // `at` is the absolute sim tick the takeover brain activates on (every
-    // peer schedules the same tick, so command emission stays aligned)
-    this._send({ t: 'drop', slot, at });
-    this._hook('onGameMsg', { t: 'drop', slot, at, from: this.slot });
+    // `at` is the absolute sim tick the takeover activates on.
+    //
+    // The declaration is NOT applied here. It asks the relay to echo it and
+    // takes effect when it comes back, i.e. at the same point of the room's
+    // message order as for every other peer. Applying it at once made the
+    // host stop listening to that player earlier than everyone else: input
+    // the player sent in the meantime counted for the others and not for
+    // the host. A relay without echo support never returns it, so after a
+    // grace it is applied locally (the old behaviour, with the old race).
+    this._send({ t: 'drop', slot, at, echo: true });
+    if (typeof setTimeout !== 'function') { // bare harness: no timers, no relay
+      this._hook('onGameMsg', { t: 'drop', slot, at, from: this.slot });
+      return;
+    }
+    if (!this._dropEcho) this._dropEcho = {};
+    if (this._dropEcho[slot]) clearTimeout(this._dropEcho[slot]);
+    this._dropEcho[slot] = setTimeout(() => {
+      if (!this._dropEcho || !this._dropEcho[slot]) return;
+      delete this._dropEcho[slot];
+      this._hook('onGameMsg', { t: 'drop', slot, at, from: this.slot });
+    }, 2500);
   },
 
   sendLog(to, entries) { // host streams the command log to a catching-up peer

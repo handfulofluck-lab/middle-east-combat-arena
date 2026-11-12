@@ -1,0 +1,193 @@
+/* Founder's Pass store (game/store.js). Self-contained: every colour, font,
+   radius, shadow, timing and layer comes from the variables in tokens.css;
+   every class is prefixed `store-`. Obsidian glass panel, brass-gold accent. */
+
+.store-root {
+  position: fixed; inset: 0; z-index: var(--z-modal);
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.6rem; box-sizing: border-box;
+  font: 400 1.4rem/1.5 var(--font-body); color: var(--text);
+  cursor: default; -webkit-user-select: text; user-select: text;
+}
+.store-root *, .store-root *::before, .store-root *::after { box-sizing: border-box; }
+.store-root.store-hidden { display: none; }
+
+.store-backdrop {
+  position: absolute; inset: 0;
+  background: radial-gradient(90% 80% at 50% 42%, var(--glass-soft), var(--ink-0));
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(0.8);
+  backdrop-filter: blur(var(--blur)) saturate(0.8);
+  animation: store-fade var(--t-med) var(--ease-out) both;
+}
+
+/* The drop shadow lives on the frame: clip-path on the panel would eat it. */
+.store-frame {
+  position: relative; width: min(78rem, 100%); max-height: 100%;
+  display: flex;
+  filter: drop-shadow(0 18px 44px var(--ink-0));
+  animation: store-rise var(--t-slow) var(--ease-out) both;
+}
+.store-panel {
+  position: relative; width: 100%;
+  background:
+    linear-gradient(180deg, var(--gold-glow), transparent 120px),
+    var(--glass-strong);
+  -webkit-backdrop-filter: blur(var(--blur)) saturate(1.2);
+  backdrop-filter: blur(var(--blur)) saturate(1.2);
+  clip-path: polygon(
+    var(--chamfer) 0, 100% 0, 100% calc(100% - var(--chamfer)),
+    calc(100% - var(--chamfer)) 100%, 0 100%, 0 var(--chamfer));
+  outline: none;
+}
+/* hairline + the two cut corners (a real border would be clipped away) */
+.store-panel::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  border: 1px solid var(--hairline-strong);
+  background:
+    linear-gradient(to bottom right, transparent 50%, var(--gold) 50%, var(--gold) calc(50% + 1.5px), transparent calc(50% + 1.5px))
+      top left / var(--chamfer) var(--chamfer) no-repeat,
+    linear-gradient(to bottom right, transparent calc(50% - 1.5px), var(--gold) calc(50% - 1.5px), var(--gold) 50%, transparent 50%)
+      bottom right / var(--chamfer) var(--chamfer) no-repeat;
+}
+/* brass rule along the top edge */
+.store-panel::after {
+  content: ''; position: absolute; top: 0; left: var(--chamfer); right: 0; height: 2px; pointer-events: none;
+  background: linear-gradient(90deg, var(--gold), var(--gold-lo) 45%, transparent);
+}
+
+/* The content scrolls inside the frame, so the hairline and the cut corners
+   above stay put on short screens. */
+.store-scroll {
+  max-height: calc(100vh - 3.2rem); max-height: calc(100dvh - 3.2rem);
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 2.6rem 2.8rem 2.2rem;
+}
+
+/* ── header ───────────────────────────────────────────────────────────── */
+.store-head { display: flex; align-items: flex-start; gap: 1.6rem; padding-bottom: 1.6rem; border-bottom: 1px solid var(--hairline); }
+.store-head-text { flex: 1; min-width: 0; }
+.store-kicker {
+  font: 600 1.1rem/1 var(--font-display); letter-spacing: 0.26em; text-transform: uppercase; color: var(--gold);
+}
+.store-title {
+  margin: 1rem 0 0; font: 700 3.8rem/1 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--text); text-shadow: 0 0 28px var(--gold-glow);
+  overflow-wrap: anywhere;
+}
+.store-close {
+  flex: none; width: 3.4rem; height: 3.4rem; padding: 0; cursor: pointer;
+  font: 400 2.2rem/1 var(--font-display); color: var(--text-dim);
+  background: transparent; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.store-close:hover, .store-close:focus-visible { color: var(--gold-hi); border-color: var(--gold); background: var(--glass-soft); outline: none; }
+
+/* ── body: what you get | the offer ───────────────────────────────────── */
+.store-body { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 2.2rem; padding: 2rem 0 .6rem; }
+.store-lede { margin: 0 0 1.4rem; color: var(--text-dim); }
+.store-subhead {
+  margin: 0 0 1rem; font: 600 1.2rem/1 var(--font-display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-mute);
+}
+.store-includes { list-style: none; margin: 0; padding: 0; display: grid; gap: .9rem; }
+.store-includes li { position: relative; padding-left: 2.2rem; color: var(--text); }
+.store-includes li::before {
+  content: ''; position: absolute; left: .3rem; top: 0.5em; width: .8rem; height: .8rem;
+  background: var(--gold); transform: rotate(45deg); box-shadow: 0 0 10px var(--gold-glow);
+}
+
+.store-offer {
+  align-self: start; display: flex; flex-direction: column; gap: 1rem; padding: 1.8rem;
+  background: linear-gradient(180deg, var(--ink-3), var(--ink-1));
+  border: 1px solid var(--hairline); border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+.store-price-label { font: 600 1.1rem/1 var(--font-display); letter-spacing: 0.22em; text-transform: uppercase; color: var(--text-mute); }
+.store-price { font: 700 4.4rem/1 var(--font-display); letter-spacing: 0.04em; color: var(--gold-hi); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.store-price.store-price-none { font-size: 2rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-dim); }
+.store-price-note { font-size: 1.2rem; color: var(--text-mute); }
+.store-secure { font-size: 1.1rem; line-height: 1.45; color: var(--text-mute); }
+
+/* ── buttons ──────────────────────────────────────────────────────────── */
+.store-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .8rem;
+  min-height: 3.8rem; padding: 1px 1.6rem 0; cursor: pointer;
+  font: 700 1.4rem/1 var(--font-display); letter-spacing: 0.16em; text-transform: uppercase; white-space: nowrap;
+  color: var(--text); background: var(--ink-3);
+  border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+.store-btn:hover, .store-btn:focus-visible { color: var(--gold-hi); border-color: var(--gold); background: var(--ink-4); outline: none; }
+.store-btn:focus-visible { box-shadow: 0 0 0 2px var(--gold-glow); }
+.store-btn:active { transform: translateY(1px); }
+.store-btn-primary {
+  min-height: 5rem; font-size: 1.7rem; letter-spacing: 0.2em; color: var(--ink-0);
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold) 52%, var(--gold-lo));
+  border-color: var(--gold-hi); box-shadow: 0 0 22px var(--gold-glow);
+}
+.store-btn-primary:hover, .store-btn-primary:focus-visible {
+  color: var(--ink-0); border-color: var(--text);
+  background: linear-gradient(180deg, var(--text), var(--gold-hi) 45%, var(--gold));
+}
+.store-btn-quiet { min-height: 3rem; padding: 0 1rem; font-size: 1.2rem; color: var(--text-dim); background: transparent; }
+.store-btn:disabled, .store-btn[aria-disabled='true'] {
+  cursor: not-allowed; color: var(--text-mute); background: var(--ink-2);
+  border-color: var(--hairline); box-shadow: none; transform: none;
+}
+
+/* ── status line ──────────────────────────────────────────────────────── */
+.store-status {
+  margin: 1.4rem 0 0; padding: 1rem 1.4rem; font-size: 1.3rem; color: var(--text);
+  background: var(--glass-soft); border: 1px solid var(--hairline); border-left: 3px solid var(--text-mute);
+  border-radius: var(--r-sm);
+}
+.store-status:empty { display: none; }
+.store-status-ok { border-left-color: var(--green); color: var(--green); }
+.store-status-warn { border-left-color: var(--amber); color: var(--amber); }
+.store-status-error { border-left-color: var(--red); color: var(--red); box-shadow: inset 0 0 18px var(--red-glow); }
+.store-status-busy { border-left-color: var(--cyan); color: var(--cyan); }
+
+/* ── notice: purchases not available in this build ────────────────────── */
+.store-notice {
+  margin: 1.4rem 0 0; padding: 1.2rem 1.4rem; font-size: 1.3rem; color: var(--text-dim);
+  background: var(--ink-2); border: 1px dashed var(--hairline-strong); border-radius: var(--r-sm);
+}
+.store-notice strong { color: var(--amber); font-weight: 600; }
+
+/* ── owned key + redeem ───────────────────────────────────────────────── */
+.store-section { margin-top: 1.8rem; padding-top: 1.6rem; border-top: 1px solid var(--hairline); }
+.store-row { display: flex; gap: .8rem; align-items: stretch; }
+.store-input, .store-key {
+  flex: 1; min-width: 0; padding: .9rem 1.2rem;
+  font: 400 1.2rem/1.4 var(--font-mono); color: var(--text);
+  background: var(--ink-1); border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.store-input::placeholder { color: var(--text-mute); }
+.store-input:focus, .store-key:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-glow); }
+.store-key { display: block; width: 100%; height: 7.4rem; resize: none; color: var(--gold-hi); word-break: break-all; }
+.store-key-actions { display: flex; flex-wrap: wrap; gap: .8rem; align-items: center; margin-top: .8rem; }
+.store-hint { font-size: 1.2rem; color: var(--text-mute); }
+.store-key-actions .store-hint { flex: 1; min-width: 18rem; }
+
+.store-foot { margin: 1.6rem 0 0; font-size: 1.1rem; line-height: 1.5; color: var(--text-mute); }
+
+.store-hidden { display: none !important; }
+
+/* gate mode (MCA_PAYWALL=full without a pass): cannot be dismissed */
+.store-gate .store-close { display: none; }
+.store-gate .store-backdrop { background: var(--ink-0); }
+
+@keyframes store-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes store-rise { from { opacity: 0; transform: translateY(14px) scale(0.985); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 640px) {
+  .store-scroll { padding: 2rem 1.8rem 1.8rem; }
+  .store-body { grid-template-columns: minmax(0, 1fr); gap: 1.6rem; }
+  .store-title { font-size: 2.8rem; letter-spacing: 0.1em; }
+  .store-price { font-size: 3.6rem; }
+  .store-row { flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .store-backdrop, .store-frame { animation: none; }
+  .store-btn, .store-close, .store-input, .store-key { transition: none; }
+}
